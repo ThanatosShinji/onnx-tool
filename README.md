@@ -12,7 +12,7 @@ A tool for ONNX model's shape inference and MACs counting.
   <img src="data/macs_counting.jpg">
 </p>
 
-## How to install 
+## How to install
     
 `pip install onnx-tool`
 
@@ -24,7 +24,7 @@ OR
 * Basic usage 
     ```python
     import onnx
-    from onnx_tool import graph_profile,print_node_map
+    from onnx_tool.node_profilers import graph_profile,print_node_map
     model = onnx.load('resnet50.onnx')
     macs, params, node_map = graph_profile(model.graph, None) #shape inference included
     print_node_map(node_map)
@@ -34,7 +34,7 @@ OR
 * Dynamic input shapes and dynamic resize scales('downsample_ratio')
     ```python
     import onnx
-    from onnx_tool import graph_profile,print_node_map,create_ndarray_f32
+    from onnx_tool.node_profilers import graph_profile,print_node_map,create_ndarray_f32
     model = onnx.load('rvm_mobilenetv3_fp32.onnx')
     inputs= {'src': create_ndarray_f32((1, 3, 1080, 1920)), 'r1i': create_ndarray_f32((1, 16, 135, 240)),
                                  'r2i':create_ndarray_f32((1,20,68,120)),'r3i':create_ndarray_f32((1,40,34,60)),
@@ -46,7 +46,7 @@ OR
 
 * Define your custom op's node profiler.
     ```python
-    from onnx_tool import graph_profile,NODEPROFILER_REGISTRY
+    from onnx_tool.node_profilers import graph_profile,NODEPROFILER_REGISTRY
   
     @NODEPROFILER_REGISTRY.register()
     class YourOp():

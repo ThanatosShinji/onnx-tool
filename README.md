@@ -5,7 +5,9 @@ A tool for ONNX model's shape inference and MACs counting.
 <p align="center">
   <img src="data/shape_inference.jpg">
 </p>
-* 
+
+---
+* MACs counting for each node
 <p align="center">
   <img src="data/macs_counting.jpg">
 </p>

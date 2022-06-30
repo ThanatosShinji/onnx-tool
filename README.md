@@ -3,13 +3,13 @@ A tool for ONNX model's shape inference and MACs counting.
 
 * Shape inference
 <p align="center">
-  <img src="data/shape_inference.jpg">
+  <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/shape_inference.jpg">
 </p>
 
 ---
 * MACs counting for each node
 <p align="center">
-  <img src="data/macs_counting.jpg">
+  <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/macs_counting.jpg">
 </p>
 
 ## How to install

@@ -127,3 +127,7 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+/.idea/
+/data/private/*.onnx
+/data/public/*.onnx
+*.onnx

@@ -83,7 +83,7 @@ OR
 * Shared weight tensor will be counted more than once
 
 ## Results of [ONNX Model Zoo](https://github.com/onnx/models) and SOTA models
-Some models have dynamic input shapes. The MACs varies from input shapes. The input shapes used in these results are writen to [data/public/config.py]('https://github.com/ThanatosShinji/onnx-tool/blob/main/data/public/config.py').
+Some models have dynamic input shapes. The MACs varies from input shapes. The input shapes used in these results are writen to [data/public/config.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/public/config.py).
 <p align="center">
 <table>
 <tr>

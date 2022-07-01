@@ -1599,7 +1599,7 @@ def graph_profile(graph:onnx.GraphProto,dynamic_shapes:{},verbose=False)-> [floa
                 outs.append(tmap[output])
         _macs,_params_c=node_profile(node,ins,outs)
         #TODO can't handle intializer and constant
-        if graph.initializer is None:
+        if len(graph.initializer) == 0:
             _params=_params_c
         outshape=(0,)
         if len(outs)>0:
@@ -1635,7 +1635,8 @@ def print_node_map(node_map:{},f:str=None):
         item=node_map[key]
         macs += int(item['macs'])
         params += int(item['params'])
-
+    params+=1e-18
+    macs+=1e-18
     for key in node_map.keys():
         item=node_map[key]
         row=[key,'{:,}'.format(int(item['macs'])),'{:.2%}'.format(item['macs']/macs),'{:,}'.format(int(item['params'])),

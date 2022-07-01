@@ -3,7 +3,6 @@ import time
 import numpy
 import numpy as np
 import onnx
-from typing import List, Tuple
 from .utils import NODEPROFILER_REGISTRY
 import warnings
 
@@ -116,7 +115,7 @@ def max_shape(shapes:[]):
             maxvol=vol
     return maxshape
 
-def max_shape_ndarray(lndarr:List[numpy.ndarray]):
+def max_shape_ndarray(lndarr:list[numpy.ndarray]):
     maxshape=lndarr[0].shape
     maxvol=volume(maxshape)
     for ndarr in lndarr:
@@ -141,10 +140,10 @@ class NodeBase():
         self.nboutput = len(nodeproto.output)
         self.name = nodeproto.name
 
-    def profile(self,intensors:List[numpy.ndarray],outtensors:List[numpy.ndarray]):
+    def profile(self,intensors:list[numpy.ndarray],outtensors:list[numpy.ndarray]):
         return 0,0
 
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         return [(0),]
 
 @NODEPROFILER_REGISTRY.register()
@@ -158,7 +157,7 @@ class Conv(NodeBase):
         self.dilations=(1,1)
         auto_add_attributes(nodeproto.attribute,validAttr,self)
 
-    def infer_shape(self,intensors: List[numpy.ndarray]):
+    def infer_shape(self,intensors: list[numpy.ndarray]):
         outtensors=[]
         xtensor=intensors[0]
         wtensor=intensors[1]
@@ -184,7 +183,7 @@ class Conv(NodeBase):
         outtensors.append(create_ndarray_f32(shape))
         return outtensors
 
-    def profile(self,intensors:List[numpy.ndarray],outtensors:List[numpy.ndarray]):
+    def profile(self,intensors:list[numpy.ndarray],outtensors:list[numpy.ndarray]):
         macs = 0
         params = 0
         if self.nboutput == 1:
@@ -217,7 +216,7 @@ class ConvTranspose(NodeBase):
         self.group=1
         auto_add_attributes(nodeproto.attribute,validAttr,self)
 
-    def infer_shape(self,intensors: List[numpy.ndarray]):
+    def infer_shape(self,intensors: list[numpy.ndarray]):
         xtensor=intensors[0]
         wtensor=intensors[1]
         xshape=xtensor.shape
@@ -240,7 +239,7 @@ class ConvTranspose(NodeBase):
                 shape[2]=self.output_shape[0]
         return [create_ndarray_f32(shape)]
 
-    def profile(self,intensors:List[numpy.ndarray],outtensors:List[numpy.ndarray]):
+    def profile(self,intensors:list[numpy.ndarray],outtensors:list[numpy.ndarray]):
         macs = 0
         params = 0
         if self.nboutput == 1:
@@ -268,12 +267,12 @@ class PWNBase(NodeBase):
         self.op_mac=0
         self.ratio=max(1,self.nbinput-1)
 
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         outtensors=[]
         outtensors.append(create_ndarray_f32(max_shape_ndarray(intensors)))
         return outtensors
 
-    def profile(self,intensors:List[numpy.ndarray],outtensors:List[numpy.ndarray]):
+    def profile(self,intensors:list[numpy.ndarray],outtensors:list[numpy.ndarray]):
         macs = 0
         params = 0
 
@@ -286,7 +285,7 @@ class Add(PWNBase):
         super().__init__(nodeproto)
         self.op_mac=ADD_MACS
 
-    def infer_shape(self, intensors: List[numpy.ndarray]):
+    def infer_shape(self, intensors: list[numpy.ndarray]):
         return [intensors[0]+intensors[1]]
 
 @NODEPROFILER_REGISTRY.register()
@@ -295,7 +294,7 @@ class Sum(PWNBase):
         super().__init__(nodeproto)
         self.op_mac=ADD_MACS
 
-    def infer_shape(self, intensors: List[numpy.ndarray]):
+    def infer_shape(self, intensors: list[numpy.ndarray]):
         y=intensors[0]
         for i in range(1,len(intensors)):
             y=y+intensors[i]
@@ -307,7 +306,7 @@ class Abs(PWNBase):
         super().__init__(nodeproto)
         self.op_mac=CMP_MACS
 
-    def infer_shape(self, intensors: List[numpy.ndarray]):
+    def infer_shape(self, intensors: list[numpy.ndarray]):
         return [numpy.abs(intensors[0])]
 
 @NODEPROFILER_REGISTRY.register()
@@ -316,7 +315,7 @@ class Neg(PWNBase):
         super().__init__(nodeproto)
         self.op_mac=CMP_MACS
 
-    def infer_shape(self, intensors: List[numpy.ndarray]):
+    def infer_shape(self, intensors: list[numpy.ndarray]):
         return [-intensors[0]]
 
 @NODEPROFILER_REGISTRY.register()
@@ -325,13 +324,13 @@ class Sub(PWNBase):
         super().__init__(nodeproto)
         self.op_mac=ADD_MACS
 
-    def infer_shape(self, intensors: List[numpy.ndarray]):
+    def infer_shape(self, intensors: list[numpy.ndarray]):
         return [intensors[0]-intensors[1]]
 
 def is_valid_ndarray(x):
     if x is None:
         return False
-    if isinstance(x,(List,Tuple)) and len(x)==0:
+    if isinstance(x,(list,tuple)) and len(x)==0:
         return False
     if isinstance(x,numpy.ndarray):
         if volume(x.shape)==0:
@@ -346,7 +345,7 @@ class Resize(NodeBase):
         attnames=['mode']
         auto_add_attributes(nodeproto.attribute,attnames,self)
 
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         x=intensors[0]
         roi = []
         sizes = []
@@ -375,7 +374,7 @@ class Resize(NodeBase):
                 newshape = newshape.astype(dtype=numpy.int64)
         return [create_ndarray_f32(newshape)]
 
-    def profile(self,intensors:List[numpy.ndarray],outtensors:List[numpy.ndarray]):
+    def profile(self,intensors:list[numpy.ndarray],outtensors:list[numpy.ndarray]):
         macs=0
         outvol = volume(outtensors[0].shape)
         if self.mode == b'nearest':
@@ -408,7 +407,7 @@ def scatter_nd_impl(data, indices, updates, reduction='none'):  # type: ignore
 
 @NODEPROFILER_REGISTRY.register()
 class ScatterND(NodeBase):
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         data=intensors[0]
         indices=intensors[1]
         updates=intensors[2]
@@ -429,7 +428,7 @@ class ArgMax(NodeBase):
         self.keepdims=1
         auto_add_attributes(n.attribute,attnames,self)
 
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         data=intensors[0]
         return [argmax_use_numpy(data,self.axis,self.keepdims)]
 
@@ -442,7 +441,7 @@ class Expand(NodeBase):
     def __init__(self,nodeproto):
         super().__init__(nodeproto)
 
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         input=intensors[0]
         shape=intensors[1]
         output=input*numpy.ones(shape.astype(numpy.int64),dtype=numpy.float32)
@@ -453,7 +452,7 @@ class Tile(NodeBase):
     def __init__(self,nodeproto):
         super().__init__(nodeproto)
 
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         input=intensors[0]
         repeats=intensors[1]
         output=numpy.tile(input,repeats)
@@ -466,7 +465,7 @@ class GRU(NodeBase):
         attnames=['hidden_size']
         auto_add_attributes(nodeproto.attribute,attnames,self)
 
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         x=intensors[0]
         w=intensors[1]
         seq_len=x.shape[0]
@@ -475,7 +474,7 @@ class GRU(NodeBase):
         h_len=w.shape[1]//3
         return [create_ndarray_f32((seq_len,num_dir,batch,h_len)),create_ndarray_f32((num_dir,batch,h_len))]
 
-    def profile(self,intensors:List[numpy.ndarray],outtensors:List[numpy.ndarray]):
+    def profile(self,intensors:list[numpy.ndarray],outtensors:list[numpy.ndarray]):
         w=intensors[1]
         r=intensors[2]
         b=intensors[3]
@@ -495,7 +494,7 @@ class LSTM(NodeBase):
         self.hidden_size=None
         auto_add_attributes(nodeproto.attribute,attnames,self)
 
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         x=intensors[0]
         w=intensors[1]
         seq_len=x.shape[0]
@@ -504,7 +503,7 @@ class LSTM(NodeBase):
         h_len=w.shape[1]//4
         return [create_ndarray_f32((seq_len,num_dir,batch,h_len)),create_ndarray_f32((num_dir,batch,h_len))]
 
-    def profile(self,intensors:List[numpy.ndarray],outtensors:List[numpy.ndarray]):
+    def profile(self,intensors:list[numpy.ndarray],outtensors:list[numpy.ndarray]):
         w=intensors[1]
         r=intensors[2]
         b=intensors[3]
@@ -540,7 +539,7 @@ class PoolBase(NodeBase):
         self.op_mac=CMP_MACS
 
 
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         if len(self.kernel_shape)==1:
             inshape=intensors[0].shape
             outshape=inshape[:2]+(pooling_shape_calc(inshape[2],self.pads[0]+self.pads[1],self.kernel_shape[0],self.dilations[0],
@@ -556,7 +555,7 @@ class PoolBase(NodeBase):
             )
             return [create_ndarray_f32(outshape)]
 
-    def profile(self,intensors:List[numpy.ndarray],outtensors:List[numpy.ndarray]):
+    def profile(self,intensors:list[numpy.ndarray],outtensors:list[numpy.ndarray]):
         outvol = volume(outtensors[0].shape)
         macs = outvol*CMP_MACS*self.kernel_shape[0]
         if len(self.kernel_shape) == 2:
@@ -594,7 +593,7 @@ class ReduceMean(NodeBase):
         auto_add_attributes(nodeproto.attribute,attnames,self)
         self.axes=tuple(self.axes) if self.axes is not None else None
 
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         reduced=numpy.mean(intensors[0], axis=self.axes, keepdims=self.keepdims == 1)
         return [reduced]
         # inshape=intensors[0].shape
@@ -617,7 +616,7 @@ class ReduceMean(NodeBase):
         #             shape.append(inshape[i])
         # return [create_ndarray_f32(shape)]
 
-    def profile(self,intensors:List[numpy.ndarray],outtensors:List[numpy.ndarray]):
+    def profile(self,intensors:list[numpy.ndarray],outtensors:list[numpy.ndarray]):
         data=intensors[0]
         vol=volume(data.shape)
         return vol*ADD_MACS,0
@@ -633,36 +632,36 @@ class ReduceL2(NodeBase):
         auto_add_attributes(nodeproto.attribute,attnames,self)
         self.axes=tuple(self.axes) if self.axes is not None else None
 
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         reduced=np.sqrt(numpy.sum(intensors[0], axis=self.axes, keepdims=self.keepdims == 1))
         return [reduced]
 
-    def profile(self,intensors:List[numpy.ndarray],outtensors:List[numpy.ndarray]):
+    def profile(self,intensors:list[numpy.ndarray],outtensors:list[numpy.ndarray]):
         data = intensors[0]
         vol = volume(data.shape)
         return vol * (ADD_MACS+SQRT_MACS), 0
 
 @NODEPROFILER_REGISTRY.register()
 class ReduceSum(ReduceMean):
-    def infer_shape(self, intensors: List[numpy.ndarray]):
+    def infer_shape(self, intensors: list[numpy.ndarray]):
         reduced = numpy.sum(intensors[0], axis=self.axes, keepdims=self.keepdims == 1)
         return [reduced]
 
 @NODEPROFILER_REGISTRY.register()
 class ReduceMin(ReduceMean):
-    def infer_shape(self, intensors: List[numpy.ndarray]):
+    def infer_shape(self, intensors: list[numpy.ndarray]):
         data=intensors[0]
         reduced=numpy.minimum.reduce(data, axis=self.axes, keepdims=self.keepdims == 1)
         return [reduced]
 
-    def profile(self, intensors: List[numpy.ndarray], outtensors: List[numpy.ndarray]):
+    def profile(self, intensors: list[numpy.ndarray], outtensors: list[numpy.ndarray]):
         data = intensors[0]
         vol = volume(data.shape)
         return vol * CMP_MACS, 0
 
 @NODEPROFILER_REGISTRY.register()
 class ReduceMax(ReduceMin):
-    def infer_shape(self, intensors: List[numpy.ndarray]):
+    def infer_shape(self, intensors: list[numpy.ndarray]):
         data=intensors[0]
         reduced=numpy.maximum.reduce(data, axis=self.axes, keepdims=self.keepdims == 1)
         return [reduced]
@@ -676,7 +675,7 @@ class ReduceMax(ReduceMin):
 #         attnames = ['axis', 'keepdims']
 #         auto_add_attributes(nodeproto.attribute, attnames, self)
 #
-#     def infer_shape(self,intensors:List[numpy.ndarray]):
+#     def infer_shape(self,intensors:list[numpy.ndarray]):
 #         newshape=[]
 #         ndim=len(intensors[0].shape)
 #         self.axis=axes_neg2pos(ndim,[self.axis])[0]
@@ -697,7 +696,7 @@ class Scan(NodeBase):
         attnames = ['num_scan_inputs', 'scan_input_directions']
         auto_add_attributes(nodeproto.attribute, attnames, self)
 
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         #TODO
         return [create_ndarray_f32((1,1)),create_ndarray_f32((1,1)),create_ndarray_f32((1,)),
                 intensors[3],intensors[3],]
@@ -710,12 +709,12 @@ class Compress(NodeBase):
         attnames=['axis']
         auto_add_attributes(node.attribute,attnames,self)
 
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         return [numpy.compress(intensors[1],intensors[0],self.axis)]
 
 @NODEPROFILER_REGISTRY.register()
 class NonZero(NodeBase):
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         condi=intensors[0]
         result=numpy.array(numpy.nonzero(condi),dtype=numpy.int64)
         if volume(result.shape)==0:
@@ -723,33 +722,33 @@ class NonZero(NodeBase):
             result=numpy.array(numpy.nonzero(condi),dtype=numpy.int64)
         return [result]
 
-    def profile(self,intensors:List[numpy.ndarray],outtensors:List[numpy.ndarray]):
+    def profile(self,intensors:list[numpy.ndarray],outtensors:list[numpy.ndarray]):
         return volume(outtensors[0].shape)*CMP_MACS,0
 
 @NODEPROFILER_REGISTRY.register()
 class Less(NodeBase):
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         result=numpy.less(intensors[0],intensors[1])
         return [result]
 
-    def profile(self,intensors:List[numpy.ndarray],outtensors:List[numpy.ndarray]):
+    def profile(self,intensors:list[numpy.ndarray],outtensors:list[numpy.ndarray]):
         return volume(outtensors[0].shape)*CMP_MACS,0
 
 @NODEPROFILER_REGISTRY.register()
 class LessOrEqual(Less):
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         result=numpy.less_equal(intensors[0],intensors[1])
         return [result]
 
 @NODEPROFILER_REGISTRY.register()
 class Not(NodeBase):
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         result=numpy.logical_not(intensors[0].astype(numpy.bool))
         return [result]
 
 @NODEPROFILER_REGISTRY.register()
 class And(NodeBase):
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         result=numpy.logical_and(intensors[0].astype(numpy.bool),intensors[1].astype(numpy.bool))
         return [result]
 
@@ -760,7 +759,7 @@ class Min(PWNBase):
         self.op_mac=CMP_MACS
         self.ratio=self.nbinput-1
 
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         result=intensors[0]
         for i in range(1,self.nbinput):
             result=numpy.minimum(result,intensors[i])
@@ -768,14 +767,14 @@ class Min(PWNBase):
 
 @NODEPROFILER_REGISTRY.register()
 class Where(NodeBase):
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         result=numpy.where(intensors[0],intensors[1],intensors[2])
         return [result]
 
 
 @NODEPROFILER_REGISTRY.register()
 class Max(Min):
-    def infer_shape(self, intensors: List[numpy.ndarray]):
+    def infer_shape(self, intensors: list[numpy.ndarray]):
         result = intensors[0]
         for i in range(1, self.nbinput):
             result = numpy.maximum(result, intensors[i])
@@ -784,13 +783,13 @@ class Max(Min):
 
 @NODEPROFILER_REGISTRY.register()
 class Equal(NodeBase):
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         result=numpy.equal(intensors[0],intensors[1])
         return [result]
 
 @NODEPROFILER_REGISTRY.register()
 class Greater(NodeBase):
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         result=numpy.greater(intensors[0],intensors[1])
         return [result]
 
@@ -801,7 +800,7 @@ class RoiAlign(NodeBase):
         attnames=['mode','output_height','output_width','sampling_ratio','spatial_scale']
         auto_add_attributes(node.attribute,attnames,self)
 
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         x=intensors[0]
         if len(x.shape)==4 and self.output_height is not None and self.output_width is not None:
             newshape=x.shape[:2]+(self.output_height,self.output_width)
@@ -864,7 +863,7 @@ class ScatterElements(NodeBase):
         attnames=['axis']
         auto_add_attributes(node.attribute,attnames,self)
 
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         #TODO
         # y = scatter_elements(intensors[0], intensors[1], intensors[2], self.axis)
         # return [create_ndarray_f32(y)]
@@ -876,7 +875,7 @@ class Hardmax(PWNBase):
 
 @NODEPROFILER_REGISTRY.register()
 class GlobalAveragePool(NodeBase):
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         outtensors=[]
         inshape=intensors[0].shape
         shape = inshape[0:2]
@@ -886,7 +885,7 @@ class GlobalAveragePool(NodeBase):
         outtensors.append(create_ndarray_f32(shape))
         return outtensors
 
-    def profile(self,intensors:List[numpy.ndarray],outtensors:List[numpy.ndarray]):
+    def profile(self,intensors:list[numpy.ndarray],outtensors:list[numpy.ndarray]):
         macs = 0
         params = 0
         macs += volume(intensors[0].shape)*ADD_MACS+volume(outtensors[0].shape)*DIV_MACS
@@ -906,7 +905,7 @@ class TopK(NodeBase):
         self.axis=None
         auto_add_attributes(node.attribute,names,self)
 
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         x=intensors[0]
         k=intensors[1][0]
         newshape=[]
@@ -951,7 +950,7 @@ class LRN(PWNBase):
             if att.name == 'size':
                 self.size = att.i
 
-    def profile(self,intensors:List[numpy.ndarray],outtensors:List[numpy.ndarray]):
+    def profile(self,intensors:list[numpy.ndarray],outtensors:list[numpy.ndarray]):
         macs=0
         params=0
         outvol = volume(outtensors[0].shape)
@@ -969,7 +968,7 @@ class Gemm(NodeBase):
         self.transB=None
         auto_add_attributes(nodeproto.attribute,attnames,self)
 
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         x = intensors[0]
         w = intensors[1]
 
@@ -987,7 +986,7 @@ class Gemm(NodeBase):
 
         return [create_ndarray_f32(yshape)]
 
-    def profile(self,intensors:List[numpy.ndarray],outtensors:List[numpy.ndarray]):
+    def profile(self,intensors:list[numpy.ndarray],outtensors:list[numpy.ndarray]):
         macs=0
         params=0
         xshape=intensors[0].shape
@@ -1015,7 +1014,7 @@ class MatMul(Gemm):
 
 @NODEPROFILER_REGISTRY.register()
 class Shape(NodeBase):
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         outtensors=[]
         outtensors.append(numpy.array(intensors[0].shape,numpy.int32))
         return outtensors
@@ -1030,7 +1029,7 @@ class Gather(NodeBase):
             if att.name=='axis':
                 self.axis=att.i
 
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         outtensors=[]
         out=numpy.take(intensors[0],intensors[1].astype(dtype=numpy.int),axis=self.axis)
         outtensors.append(out)
@@ -1046,7 +1045,7 @@ class Constant(NodeBase):
             if att.name == 'value':
                 self.value=get_attribute_data(att)
 
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         return [self.value]
 
 
@@ -1059,7 +1058,7 @@ class Unsqueeze(NodeBase):
             if att.name == 'axes':
                 self.axes = get_attribute_data(att)
 
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         outtensor=intensors[0]
         for axis in self.axes:
             outtensor=numpy.expand_dims(outtensor,axis=axis)
@@ -1074,7 +1073,7 @@ class Squeeze(NodeBase):
             if att.name == 'axes':
                 self.axes = get_attribute_data(att)
 
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         outtensor=intensors[0]
         idx=0
         if self.nbinput==2:
@@ -1093,7 +1092,7 @@ class Concat(NodeBase):
             if att.name == 'axis':
                 self.axis = get_attribute_data(att)
 
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         outtensor=numpy.concatenate(intensors,self.axis)
         return [outtensor]
 
@@ -1103,7 +1102,7 @@ class Reshape(NodeBase):
     def __init__(self,nodeproto):
         super().__init__(nodeproto)
 
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         srcshape=intensors[0].shape
         shape=intensors[1]
         newshape=[]
@@ -1141,7 +1140,7 @@ class OneHot(NodeBase):
         self.axis=-1
         auto_add_attributes(nodeproto.attribute,attnames,self)
 
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         indices=intensors[0]
         depth=intensors[1]
         values=intensors[2]
@@ -1151,7 +1150,7 @@ class OneHot(NodeBase):
 @NODEPROFILER_REGISTRY.register()
 class NonMaxSuppression(NodeBase):
     #TODO
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         if self.nbinput>=3:
             max_output_boxes_per_class=int(intensors[2][0])
             return [numpy.zeros((max_output_boxes_per_class,3),dtype=numpy.int)]
@@ -1163,7 +1162,7 @@ class FusedNode(NodeBase):
     def __init__(self, node_proto):
         super().__init__(node_proto)
 
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         return [intensors[0]]
 
 @NODEPROFILER_REGISTRY.register()
@@ -1187,7 +1186,7 @@ class Pad(NodeBase):
         self.value=0
         auto_add_attributes(nodeproto.attribute,attnames,self)
 
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         data=intensors[0]
         newshape=[]
         for i,v in enumerate(data.shape):
@@ -1203,7 +1202,7 @@ class Split(NodeBase):
         self.split=None
         auto_add_attributes(nodeproto.attribute, attnames, self)
 
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         split=[]
         end=0
         if self.split is None:
@@ -1225,7 +1224,7 @@ class Transpose(NodeBase):
         auto_add_attributes(nodeproto.attribute,attnames,self)
 
 
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         return [numpy.transpose(intensors[0],self.perm)]
 
 @NODEPROFILER_REGISTRY.register()
@@ -1236,7 +1235,7 @@ class ConstantOfShape(NodeBase):
         self.value=None
         auto_add_attributes(nodeproto.attribute,attnames,self)
 
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         arr=numpy.zeros(intensors[0].astype(numpy.int64),dtype=numpy.float32)
         if self.value is not None and len(self.value)==1:
             arr.fill(self.value[0])
@@ -1254,7 +1253,7 @@ class Slice(FusedNode):
         attnames=['axes','ends','starts']
         auto_add_attributes(nodeproto.attribute,attnames,self)
 
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         if len(intensors)==3:
             data=intensors[0]
             starts=intensors[1]
@@ -1318,7 +1317,7 @@ class Slice(FusedNode):
 
 @NODEPROFILER_REGISTRY.register()
 class Cast(FusedNode):
-    def infer_shape(self, intensors: List[numpy.ndarray]):
+    def infer_shape(self, intensors: list[numpy.ndarray]):
         return [intensors[0]]
 
 @NODEPROFILER_REGISTRY.register()
@@ -1329,7 +1328,7 @@ class Flatten(NodeBase):
         self.axis=None
         auto_add_attributes(node.attribute,attnames,self)
 
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         if self.axis is None:
             return [intensors[0].reshape((intensors[0].shape[0],-1))]
         else:
@@ -1384,7 +1383,7 @@ class Mul(PWNBase):
         super().__init__(node_proto)
         self.op_mac=MUL_MACS
 
-    def infer_shape(self,intensors:List[numpy.ndarray]):
+    def infer_shape(self,intensors:list[numpy.ndarray]):
         return [intensors[0]*intensors[1]]
 
 @NODEPROFILER_REGISTRY.register()
@@ -1417,7 +1416,7 @@ class Div(PWNBase):
         super().__init__(node_proto)
         self.op_mac=DIV_MACS
 
-    def infer_shape(self, intensors: List[numpy.ndarray]):
+    def infer_shape(self, intensors: list[numpy.ndarray]):
         return [intensors[0]/(intensors[1])]
 
 @NODEPROFILER_REGISTRY.register()
@@ -1426,7 +1425,7 @@ class Range(PWNBase):
         super().__init__(node_proto)
         self.op_mac=1
 
-    def infer_shape(self, intensors: List[numpy.ndarray]):
+    def infer_shape(self, intensors: list[numpy.ndarray]):
         start=intensors[0]
         limit=intensors[1]
         delta=intensors[2]
@@ -1434,12 +1433,12 @@ class Range(PWNBase):
 
 @NODEPROFILER_REGISTRY.register()
 class Floor(FusedNode):
-    def infer_shape(self, intensors: List[numpy.ndarray]):
+    def infer_shape(self, intensors: list[numpy.ndarray]):
         return [numpy.floor(intensors[0])]
 
 @NODEPROFILER_REGISTRY.register()
 class Ceil(FusedNode):
-    def infer_shape(self, intensors: List[numpy.ndarray]):
+    def infer_shape(self, intensors: list[numpy.ndarray]):
         return [numpy.ceil(intensors[0])]
 
 @NODEPROFILER_REGISTRY.register()
@@ -1490,12 +1489,19 @@ def node_infer_shape(node_proto:str,ins:[]):
     return []
 
 
-def infer_shapes(graph:onnx.GraphProto,dynamic_tensors:{},verbose:bool=False):
+def infer_shapes(graph:onnx.GraphProto,dynamic_tensors:{},verbose:bool=False)->[map,map]:
+    """
+        return {TensorName:ndarray},{NodeName:int}
+    """
     tensor_map={}
     params_map={}
     if dynamic_tensors is None:
         for input in graph.input:
-            tensor_map.update({input.name:numpy.zeros(shape_of_tensor(input),dtype=numpy.float32)})
+            shape=shape_of_tensor(input)
+            for d in shape:
+                if d<0:
+                    raise ValueError(f"Input {input.name}'s shape is dynamic, please set it a fixed input dimension")
+            tensor_map.update({input.name:numpy.zeros(shape,dtype=numpy.float32)})
     else:
         for input in graph.input:
             if not dynamic_tensors.keys().__contains__(input.name):
@@ -1508,7 +1514,7 @@ def infer_shapes(graph:onnx.GraphProto,dynamic_tensors:{},verbose:bool=False):
 
     for i,key in enumerate(tensor_map):
         if not is_valid_ndarray(tensor_map[key]):
-            raise ValueError(f"Input {key}'s shape is invalid")
+            raise ValueError(f"Input {key}'s shape is dynamic, please set it a fixed input dimension")
 
     itmr = timer()
     for initial in graph.initializer:
@@ -1561,15 +1567,19 @@ class timer():
         timens=time.time()-self._startt
         return timens
 
-def graph_profile(graph:onnx.GraphProto,dynamic_shapes:{},verbose=False):
-    macs=0
+def graph_profile(graph:onnx.GraphProto,dynamic_shapes:{},verbose=False)-> [float,float,map]:
+    """
+        return MACs,Params,NodeMap
+    """
+    macs=0.0
     params=0
 
     gtmr=timer()
 
     gtmr.start()
-    tmap,pmap=infer_shapes(graph,dynamic_shapes)
-    print('infered all tensor shapes, time cost',gtmr.stop(),'s')
+    tmap,pmap=infer_shapes(graph,dynamic_shapes,verbose=verbose)
+    if verbose:
+        print('infered all tensor shapes, time cost',gtmr.stop(),'s')
 
     node_map={}
     index=0
@@ -1605,7 +1615,8 @@ def graph_profile(graph:onnx.GraphProto,dynamic_shapes:{},verbose=False):
         node_map.update({node.name:{'macs':_macs,'params':_params,'inshape':inshape,'outshape':outshape}})
         macs+=_macs
         params+=_params
-    print('profile all nodes, time cost',gtmr.stop(),'s')
+    if verbose:
+        print('profile all nodes, time cost',gtmr.stop(),'s')
     return macs,params,node_map
 
 def tuple2str(t:tuple):

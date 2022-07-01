@@ -23,46 +23,59 @@ OR
 ## How to use 
 * Basic usage 
     ```python
+    import onnx_tool
+    modelpath = 'resnet50-v1-12.onnx'
+    onnx_tool.model_profile(modelpath, None, None) #pass file name
+    ```    
+  
+    ```python
     import onnx
-    from onnx_tool.node_profilers import graph_profile,print_node_map
-    model = onnx.load('resnet50.onnx')
-    macs, params, node_map = graph_profile(model.graph, None) #shape inference included
-    print_node_map(node_map)
-    onnx.save_model(model,'resnet50_shapes.onnx') #save model with inferred shapes
+    import onnx_tool
+    modelpath = 'resnet50-v1-12.onnx'
+    model = onnx.load_model(modelpath)
+    onnx_tool.model_shape_infer(model, None, saveshapesmodel='resnet50_shapes.onnx')  # pass ONNX.ModelProto
     ```    
 
 * Dynamic input shapes and dynamic resize scales('downsample_ratio')
     ```python
-    import onnx
-    from onnx_tool.node_profilers import graph_profile,print_node_map,create_ndarray_f32
-    model = onnx.load('rvm_mobilenetv3_fp32.onnx')
+    import numpy
+    import onnx_tool
+    from onnx_tool import create_ndarray_f32 #or use numpy.ones(shape,numpy.float32) is ok
+    modelpath = 'rvm_mobilenetv3_fp32.onnx'
     inputs= {'src': create_ndarray_f32((1, 3, 1080, 1920)), 'r1i': create_ndarray_f32((1, 16, 135, 240)),
                                  'r2i':create_ndarray_f32((1,20,68,120)),'r3i':create_ndarray_f32((1,40,34,60)),
                                  'r4i':create_ndarray_f32((1,64,17,30)),'downsample_ratio':numpy.array((0.25,),dtype=numpy.float32)}
-    macs, params, node_map = graph_profile(model.graph, inputs) #shape inference included
-    print_node_map(node_map,'rvm_nodemap.txt') #save node map to file
-    onnx.save_model(model,'rvm_mobilenetv3_fp32_shapes.onnx')
+    onnx_tool.model_profile(modelpath,inputs,None,saveshapesmodel='rvm_mobilenetv3_fp32_shapes.onnx')
     ```    
 
 * Define your custom op's node profiler.
     ```python
-    from onnx_tool.node_profilers import graph_profile,NODEPROFILER_REGISTRY
-  
+    import numpy
+    import onnx
+    import onnx_tool
+    from onnx_tool import NODEPROFILER_REGISTRY,NodeBase,create_ndarray_f32
+
     @NODEPROFILER_REGISTRY.register()
-    class YourOp():
-        def __init__(self,nodeproto):
+    class CropPlugin(NodeBase):
+        def __init__(self,nodeproto:onnx.NodeProto):
+            super().__init__(nodeproto)
             #parse your attributes here
 
-        def infer_shape(self,intensors:List[numpy.ndarray]):
+        def infer_shape(self, intensors: list[numpy.ndarray]):
             #calculate output shapes here
-            #return a list of ndarray
-            return outtensors
+            #this node crops intensors[0] to the shape of intensors[1], just return list of intensors[1]
+            #no need to finish the true calculation, just return a ndarray of a right shape
+            return [intensors[1]]
 
-        def profile(self,intensors:List[numpy.ndarray],outtensors:List[numpy.ndarray]):
-            #do macs and params accumulations here
+        def profile(self,intensors:list[numpy.ndarray],outtensors:list[numpy.ndarray]):
+            macs=0
+            params=0
+            #accumulate macs and params here
+            #this node has no calculation
             return macs,params
-  
-    macs, params, node_map = graph_profile(yourmodel.graph, None)
+
+    onnx_tool.model_profile('./rrdb_new.onnx', {'input': create_ndarray_f32((1, 3, 335, 619))},
+                            savenode='rrdb_new_nodemap.txt', saveshapesmodel='rrdb_new_shapes.onnx')
     ```
 
 ## Known Issues
@@ -70,7 +83,7 @@ OR
 * Shared weight tensor will be counted more than once
 
 ## Results of [ONNX Model Zoo](https://github.com/onnx/models) and SOTA models
-Some models have dynamic input shapes. The MACs varies from input shapes. The input shapes used in these results are writen to data/public/config.py.
+Some models have dynamic input shapes. The MACs varies from input shapes. The input shapes used in these results are writen to [data/public/config.py]('https://github.com/ThanatosShinji/onnx-tool/blob/main/data/public/config.py').
 <p align="center">
 <table>
 <tr>

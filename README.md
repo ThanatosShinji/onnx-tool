@@ -1,5 +1,5 @@
 # onnx-tool
-A tool for ONNX model's shape inference and MACs counting.
+A tool for ONNX model's shape inference and MACs(FLOPs) counting.
 
 * Shape inference
 <p align="center">

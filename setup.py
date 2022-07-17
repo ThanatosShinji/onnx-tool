@@ -5,7 +5,7 @@ from setuptools import setup, find_packages
 
 readme = open("README.md").read()
 
-VERSION = "0.1.4"
+VERSION = "0.1.6"
 
 requirements = [
     "onnx",
@@ -20,7 +20,7 @@ setup(
     author="Luo Yu",
     author_email="luoyu888888@gmail.com",
     url="https://github.com/ThanatosShinji/onnx-tool",
-    description="A tool for ONNX model's shape inference and MACs counting.",
+    description="A tool for ONNX model's shape inference and MACs(FLOPs) counting.",
     long_description=readme,
     long_description_content_type="text/markdown",
     license="MIT",

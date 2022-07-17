@@ -621,6 +621,16 @@ class ReduceMean(NodeBase):
         vol=volume(data.shape)
         return vol*ADD_MACS,0
 
+@NODEPROFILER_REGISTRY.register()
+class ReduceProd(ReduceMean):
+    def infer_shape(self, intensors: list[numpy.ndarray]):
+        reduced = numpy.prod(intensors[0], axis=self.axes, keepdims=self.keepdims == 1)
+        return [reduced]
+
+    def profile(self,intensors:list[numpy.ndarray],outtensors:list[numpy.ndarray]):
+        data=intensors[0]
+        vol=volume(data.shape)
+        return vol*MUL_MACS,0
 
 @NODEPROFILER_REGISTRY.register()
 class ReduceL2(NodeBase):
@@ -1182,15 +1192,22 @@ class Pad(NodeBase):
     def __init__(self,nodeproto):
         super().__init__(nodeproto)
         attnames=['pads','value']
-        self.pads=(0)
+        self.pads=None
         self.value=0
         auto_add_attributes(nodeproto.attribute,attnames,self)
 
     def infer_shape(self,intensors:list[numpy.ndarray]):
         data=intensors[0]
         newshape=[]
-        for i,v in enumerate(data.shape):
-            newshape.append(v+self.pads[i]+self.pads[i+len(data.shape)])
+        if self.pads is None:
+            if self.nbinput>1:
+                pads=intensors[1]
+                for i,v in enumerate(data.shape):
+                    newshape.append(v+pads[i]+pads[i+len(data.shape)])
+        else:
+            for i,v in enumerate(data.shape):
+                newshape.append(v+self.pads[i]+self.pads[i+len(data.shape)])
+        newshape=[int(val) for val in newshape]
         return [create_ndarray_f32(newshape)]
 
 @NODEPROFILER_REGISTRY.register()

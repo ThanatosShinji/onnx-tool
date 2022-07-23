@@ -7,7 +7,7 @@ A tool for ONNX model's shape inference and MACs(FLOPs) counting.
 </p>
 
 ---
-* MACs counting for each node
+* MACs counting for each node (FLOPs=2*MACs)
 <p align="center">
   <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/macs_counting.jpg">
 </p>
@@ -21,7 +21,7 @@ OR
 `pip install --upgrade git+https://github.com/ThanatosShinji/onnx-tool.git`
     
 ## How to use 
-* Basic usage 
+* Basic usage
     ```python
     import onnx_tool
     modelpath = 'resnet50-v1-12.onnx'
@@ -35,6 +35,11 @@ OR
     model = onnx.load_model(modelpath)
     onnx_tool.model_shape_infer(model, None, saveshapesmodel='resnet50_shapes.onnx')  # pass ONNX.ModelProto
     ```    
+    cli usage (dynamic shapes is not supported)
+    ```shell
+    python -m onnx_tool -i 'resnet50-v1-12.onnx' -o 'resnet50_shapes.onnx'
+    ```    
+
 
 * Dynamic input shapes and dynamic resize scales('downsample_ratio')
     ```python
@@ -84,6 +89,8 @@ OR
 
 ## Results of [ONNX Model Zoo](https://github.com/onnx/models) and SOTA models
 Some models have dynamic input shapes. The MACs varies from input shapes. The input shapes used in these results are writen to [data/public/config.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/public/config.py).
+These onnx models with all tensors' shape can be downloaded: [baidu drive](https://pan.baidu.com/s/1eebBP-n-wXvOhSmIH-NUZQ 
+)(code：p91k) [google drive](https://drive.google.com/drive/folders/1H-ya1wTvjIMg2pMcMITWDIfWNSnjYxTn?usp=sharing)
 <p align="center">
 <table>
 <tr>

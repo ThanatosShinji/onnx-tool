@@ -5,14 +5,14 @@
 * *Add any layer's output tensors to model's outputs.*  
 * *Export any weights tensors to numpy file. fp16 conversion included.*
 
-
+---
 ## Shape inference
 <p align="center">  
   <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/shape_inference.jpg">
 </p>  
 
 how to use: [data/Profile.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Profile.md).  
-  
+
 ---
 ## MACs counting for each layer (FLOPs=2*MACs)
 <p align="center">
@@ -21,6 +21,7 @@ how to use: [data/Profile.md](https://github.com/ThanatosShinji/onnx-tool/blob/m
 
 how to use: [data/Profile.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Profile.md).  
 
+---
 ## Add any hidden tensors to model's outputs
 <p align="center">
   <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/add_otuput_tensors.png">
@@ -28,10 +29,11 @@ how to use: [data/Profile.md](https://github.com/ThanatosShinji/onnx-tool/blob/m
 
 how to use: [data/Profile.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Profile.md).  
 
+---
 ## Export weight tensors to files
 how to use: [data/ExportTensors.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/ExportTensors.md).  
 
-
+---
 ## How to install
     
 `pip install onnx-tool`
@@ -40,9 +42,11 @@ OR
 
 `pip install --upgrade git+https://github.com/ThanatosShinji/onnx-tool.git`
 
+---
 ## Known Issues
 * Loop op is not supported
 
+---
 ## Results of [ONNX Model Zoo](https://github.com/onnx/models) and SOTA models
 Some models have dynamic input shapes. The MACs varies from input shapes. The input shapes used in these results are writen to [data/public/config.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/public/config.py).
 These onnx models with all tensors' shape can be downloaded: [baidu drive](https://pan.baidu.com/s/1eebBP-n-wXvOhSmIH-NUZQ 

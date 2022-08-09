@@ -1,9 +1,8 @@
 import math
-import time
 import numpy
 import numpy as np
-import onnx
-from .utils import NODEPROFILER_REGISTRY
+from .utils import NODEPROFILER_REGISTRY,tuple2str
+from .tensors import volume,create_ndarray_f32,create_ndarray_int64,get_attribute_data,is_valid_ndarray
 import warnings
 
 ADD_MACS=0.5
@@ -20,90 +19,6 @@ COS_MACS=14
 RESIZE_LINEAR_MACS=4
 RESIZE_CUBIC_MACS=8
 
-
-def create_ndarray_f32(shape):
-    return numpy.ones(shape,dtype=numpy.float32)
-
-def create_ndarray_int64(shape):
-    return numpy.zeros(shape,dtype=numpy.int64)
-
-def shape_of_tensor(tensor):
-    shape=[]
-    # for nb in tensor.shape.dim
-    for nb in tensor.type.tensor_type.shape.dim:
-        assert(nb.dim_value!=None)
-        shape.append(nb.dim_value)
-    return shape
-
-def shape_of_initializer(initial):
-    shape = []
-    # for nb in tensor.shape.dim
-    for nb in initial.dims:
-        shape.append(nb)
-    return shape
-
-def onnxdtype2npdtype(initial):
-    if initial.data_type==initial.FLOAT:
-        return numpy.float32
-    if initial.data_type==initial.INT32:
-        return numpy.int32
-    if initial.data_type==initial.INT16:
-        return numpy.int16
-    if initial.data_type==initial.INT64:
-        return numpy.int64
-    if initial.data_type == initial.INT8:
-        return numpy.int8
-    if initial.data_type == initial.BOOL:
-        return numpy.bool
-
-def tensorproto2ndarray(initial):
-    shape=shape_of_initializer(initial)
-    ndtype = onnxdtype2npdtype(initial)
-    if initial.raw_data==b'':
-        arr = numpy.zeros(shape, ndtype).reshape((-1))
-        if ndtype==numpy.float32:
-            for i in range(len(initial.float_data)):
-                arr[i]=initial.float_data[i]
-        if ndtype==numpy.int32:
-            for i in range(len(initial.int32_data)):
-                arr[i]=initial.int32_data[i]
-        if ndtype==numpy.int64:
-            for i in range(len(initial.int64_data)):
-                arr[i]=initial.int64_data[i]
-        if ndtype==numpy.float64:
-            for i in range(len(initial.int32_data)):
-                arr[i]=initial.double_data[i]
-        return arr.reshape(shape)
-    else:
-        return numpy.frombuffer(initial.raw_data,dtype=ndtype).reshape(shape)
-
-
-def get_attribute_data(att):
-    if att.type == att.INTS:
-        val=[]
-        for ints in att.ints:
-            val.append(ints)
-        return val
-    elif att.type == att.INT:
-        return att.i
-    elif att.type == att.FLOAT:
-        return att.f
-    elif att.type == att.STRING:
-        return att.s
-    elif att.type == att.FLOATS:
-        val = []
-        for f in att.floats:
-            val.append(f)
-        return val
-    elif att.type == att.TENSOR:
-        return tensorproto2ndarray(att.t)
-
-
-def volume(shape:[]):
-    val=1 if len(shape)>0 else 0
-    for v in shape:
-        val*=v
-    return val
 
 def max_shape(shapes:[]):
     maxvol=volume(shapes[0])
@@ -133,6 +48,12 @@ def conv_output_shape(xin,pad,ksize,stride,dilation):
 
 def convtranspose_output_shape(xin,output_padding,pad,ksize,stride,dilation):
     return stride*(xin-1)+output_padding+((ksize-1)*dilation+1)-pad
+
+def pooling_shape_calc(inshape,pad,kshape,dilation,stride,ceilmode):
+    outshape=(inshape + pad - ((kshape - 1) * dilation + 1)) /stride + 1
+    if ceilmode:
+        return math.ceil(outshape)
+    return math.floor(outshape)
 
 class NodeBase():
     def __init__(self,nodeproto):
@@ -327,17 +248,7 @@ class Sub(PWNBase):
     def infer_shape(self, intensors: list[numpy.ndarray]):
         return [intensors[0]-intensors[1]]
 
-def is_valid_ndarray(x):
-    if x is None:
-        return False
-    if isinstance(x,(list,tuple)) and len(x)==0:
-        return False
-    if isinstance(x,numpy.ndarray):
-        if volume(x.shape)==0:
-            return True if x.size else False
-        else:
-            return True
-    return False
+
 
 @NODEPROFILER_REGISTRY.register()
 class Resize(NodeBase):
@@ -519,11 +430,7 @@ def auto_add_attributes(atts,attnames,obj):
         if att.name in attnames:
             obj.__setattr__(att.name, get_attribute_data(att))
 
-def pooling_shape_calc(inshape,pad,kshape,dilation,stride,ceilmode):
-    outshape=(inshape + pad - ((kshape - 1) * dilation + 1)) /stride + 1
-    if ceilmode:
-        return math.ceil(outshape)
-    return math.floor(outshape)
+
 
 @NODEPROFILER_REGISTRY.register()
 class PoolBase(NodeBase):
@@ -1485,187 +1392,10 @@ def node_profile(node_proto:str,ins:[],outs:[]):
                   f'Use NODEPROFILER_REGISTRY to register your profiler for this node.')
     return 0,0
 
-def update_inputs(graph:onnx.GraphProto,dynamic_input:{}):
-    for input in graph.input:
-        if not dynamic_input.keys().__contains__(input.name):
-            continue
-        dinput=dynamic_input[input.name]
-
-        dim=input.type.tensor_type.shape.dim
-        for nb,dnb in zip(dim,dinput):
-            nb.dim_value=dnb
-    return graph
-
-
 def node_infer_shape(node_proto:str,ins:[]):
     node_class=NODEPROFILER_REGISTRY.get(node_proto.op_type)
     if node_class!=None:
         profler=node_class(node_proto)
         return profler.infer_shape(ins)
     raise NotImplementedError(f'node {node_proto.op_type} is not registed for profiling!!! Use NODEPROFILER_REGISTRY to register your profiler for this node.')
-    return []
 
-
-def infer_shapes(graph:onnx.GraphProto,dynamic_tensors:{},verbose:bool=False)->[map,map]:
-    """
-        return {TensorName:ndarray},{NodeName:int}
-    """
-    tensor_map={}
-    params_map={}
-    if dynamic_tensors is None:
-        for input in graph.input:
-            shape=shape_of_tensor(input)
-            for d in shape:
-                if d<0:
-                    raise ValueError(f"Input {input.name}'s shape is dynamic, please set it a fixed input dimension")
-            tensor_map.update({input.name:numpy.zeros(shape,dtype=numpy.float32)})
-    else:
-        for input in graph.input:
-            if not dynamic_tensors.keys().__contains__(input.name):
-                tensor_map.update({input.name: numpy.zeros(shape_of_tensor(input), dtype=numpy.float32)})
-            else:
-                tensor_map.update({input.name:dynamic_tensors[input.name]})
-                dim = input.type.tensor_type.shape.dim
-                for nb, dnb in zip(dim, dynamic_tensors[input.name].shape):
-                    nb.dim_value = dnb
-
-    for i,key in enumerate(tensor_map):
-        if not is_valid_ndarray(tensor_map[key]):
-            raise ValueError(f"Input {key}'s shape is dynamic, please set it a fixed input dimension")
-
-    itmr = timer()
-    for initial in graph.initializer:
-        arr=tensorproto2ndarray(initial)
-        tensor_map.update({initial.name:arr})
-        vol=volume(arr.shape)
-        if vol==0:#scalar
-            vol=1
-        params_map.update({initial.name:vol})
-        if verbose:
-            print(initial.name, itmr.stop(), arr.shape)
-
-    for node in graph.node:
-        ins = []
-        for input in node.input:
-            if input == '':
-                continue
-            ins.append(tensor_map[input])
-        outs = []
-        for output in node.output:
-            if output == '':
-                continue
-            outs.append(output)
-        outtensors=node_infer_shape(node,ins)
-        for tensor,name in zip(outtensors,outs):
-            tensor_map[name]=tensor
-
-    for key in tensor_map.keys():
-        shape=tensor_map[key].shape
-        if len(shape)==0:
-            shape=(0,)
-        vinf=onnx.helper.make_tensor_value_info(key,onnx.TensorProto.FLOAT,shape)
-        graph.value_info.append(vinf)
-
-    for output in graph.output:
-        dim = output.type.tensor_type.shape.dim
-        for nb, dnb in zip(dim, tensor_map[output.name].shape):
-            nb.dim_value = dnb
-
-    return tensor_map,params_map
-
-class timer():
-    def __init__(self):
-        self._startt=time.time()
-
-    def start(self):
-        self._startt=time.time()
-
-    def stop(self):
-        timens=time.time()-self._startt
-        return timens
-
-def graph_profile(graph:onnx.GraphProto,dynamic_shapes:{},verbose=False)-> [float,float,map]:
-    """
-        return MACs,Params,NodeMap
-    """
-    macs=0.0
-    params=0
-
-    gtmr=timer()
-
-    gtmr.start()
-    tmap,pmap=infer_shapes(graph,dynamic_shapes,verbose=verbose)
-    if verbose:
-        print('infered all tensor shapes, time cost',gtmr.stop(),'s')
-
-    node_map={}
-    index=0
-    gtmr.start()
-    for node in graph.node:
-        ins=[]
-        _params=0
-        for input in node.input:
-            if input == '':
-                continue
-            ins.append(tmap[input])
-            if input in pmap.keys():
-                _params+=pmap[input]
-        outs=[]
-        for output in node.output:
-            if tmap.keys().__contains__(output):
-                outs.append(tmap[output])
-        _macs,_params_c=node_profile(node,ins,outs)
-        #TODO can't handle intializer and constant
-        if len(graph.initializer) == 0:
-            _params=_params_c
-        outshape=(0,)
-        if len(outs)>0:
-            outshape=outs[0].shape
-            outshape=(0,) if len(outshape)==0 else outshape
-        inshape=(0,)
-        if len(ins)>0:
-            inshape=ins[0].shape
-            inshape = (0,) if len(inshape) == 0 else inshape
-        if len(node.name)==0:
-            node.name=node.op_type+'_{}'.format(index)
-        index+=1
-        node_map.update({node.name:{'macs':_macs,'params':_params,'inshape':inshape,'outshape':outshape}})
-        macs+=_macs
-        params+=_params
-    if verbose:
-        print('profile all nodes, time cost',gtmr.stop(),'s')
-    return macs,params,node_map
-
-def tuple2str(t:tuple):
-    s='('
-    for v in t:
-        s+=str(v)+','
-    s+=')'
-    return s
-
-def print_node_map(node_map:{},f:str=None):
-    from tabulate import tabulate
-    ptable=[]
-    macs=0
-    params=0
-    for key in node_map.keys():
-        item=node_map[key]
-        macs += int(item['macs'])
-        params += int(item['params'])
-    params+=1e-18
-    macs+=1e-18
-    for key in node_map.keys():
-        item=node_map[key]
-        row=[key,'{:,}'.format(int(item['macs'])),'{:.2%}'.format(item['macs']/macs),'{:,}'.format(int(item['params'])),
-             '{:.2%}'.format(item['params'] / params),
-             tuple2str(item['inshape']),tuple2str(item['outshape'])]
-        ptable.append(row)
-
-    row=['Total','{:,}'.format(macs),'100%','{:,}'.format(params),'100%','_','_']
-    ptable.append(row)
-    if f is None:
-        print(tabulate(ptable,headers=['Name','Macs','MPercent','Params','PPercent','InShape','OutShape']))
-    else:
-        fp=open(f,'w')
-        fp.write(tabulate(ptable,headers=['Name','Macs','MPercent','Params','PPercent','InShape','OutShape']))
-        fp.close()

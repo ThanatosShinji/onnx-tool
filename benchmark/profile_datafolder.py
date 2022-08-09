@@ -1,6 +1,6 @@
 from data.public.config import public_models
 from data.private.config import private_models
-from onnx_tool import graph_profile,print_node_map,model_profile
+from onnx_tool import model_profile
 import onnx
 import os.path
 

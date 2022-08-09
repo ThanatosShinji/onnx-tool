@@ -1,16 +1,36 @@
 # onnx-tool
-A tool for ONNX model's shape inference and MACs(FLOPs) counting.
+**A tool for ONNX model:**  
+* *Shape inference.*  
+* *MACs(FLOPs) counting for each layer.*   
+* *Add any layer's output tensors to model's outputs.*  
+* *Export any weights tensors to numpy file. fp16 conversion included.*
 
-* Shape inference
-<p align="center">
+
+## Shape inference
+<p align="center">  
   <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/shape_inference.jpg">
-</p>
+</p>  
 
+how to use: [data/Profile.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Profile.md).  
+  
 ---
-* MACs counting for each node (FLOPs=2*MACs)
+## MACs counting for each layer (FLOPs=2*MACs)
 <p align="center">
   <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/macs_counting.jpg">
 </p>
+
+how to use: [data/Profile.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Profile.md).  
+
+## Add any hidden tensors to model's outputs
+<p align="center">
+  <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/add_otuput_tensors.png">
+</p>
+
+how to use: [data/Profile.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Profile.md).  
+
+## Export weight tensors to files
+how to use: [data/ExportTensors.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/ExportTensors.md).  
+
 
 ## How to install
     
@@ -19,73 +39,9 @@ A tool for ONNX model's shape inference and MACs(FLOPs) counting.
 OR
 
 `pip install --upgrade git+https://github.com/ThanatosShinji/onnx-tool.git`
-    
-## How to use 
-* Basic usage
-    ```python
-    import onnx_tool
-    modelpath = 'resnet50-v1-12.onnx'
-    onnx_tool.model_profile(modelpath, None, None) #pass file name
-    ```    
-  
-    ```python
-    import onnx
-    import onnx_tool
-    modelpath = 'resnet50-v1-12.onnx'
-    model = onnx.load_model(modelpath)
-    onnx_tool.model_shape_infer(model, None, saveshapesmodel='resnet50_shapes.onnx')  # pass ONNX.ModelProto
-    ```    
-    cli usage (dynamic shapes is not supported)
-    ```shell
-    python -m onnx_tool -i 'resnet50-v1-12.onnx' -o 'resnet50_shapes.onnx'
-    ```    
-
-
-* Dynamic input shapes and dynamic resize scales('downsample_ratio')
-    ```python
-    import numpy
-    import onnx_tool
-    from onnx_tool import create_ndarray_f32 #or use numpy.ones(shape,numpy.float32) is ok
-    modelpath = 'rvm_mobilenetv3_fp32.onnx'
-    inputs= {'src': create_ndarray_f32((1, 3, 1080, 1920)), 'r1i': create_ndarray_f32((1, 16, 135, 240)),
-                                 'r2i':create_ndarray_f32((1,20,68,120)),'r3i':create_ndarray_f32((1,40,34,60)),
-                                 'r4i':create_ndarray_f32((1,64,17,30)),'downsample_ratio':numpy.array((0.25,),dtype=numpy.float32)}
-    onnx_tool.model_profile(modelpath,inputs,None,saveshapesmodel='rvm_mobilenetv3_fp32_shapes.onnx')
-    ```    
-
-* Define your custom op's node profiler.
-    ```python
-    import numpy
-    import onnx
-    import onnx_tool
-    from onnx_tool import NODEPROFILER_REGISTRY,NodeBase,create_ndarray_f32
-
-    @NODEPROFILER_REGISTRY.register()
-    class CropPlugin(NodeBase):
-        def __init__(self,nodeproto:onnx.NodeProto):
-            super().__init__(nodeproto)
-            #parse your attributes here
-
-        def infer_shape(self, intensors: list[numpy.ndarray]):
-            #calculate output shapes here
-            #this node crops intensors[0] to the shape of intensors[1], just return list of intensors[1]
-            #no need to finish the true calculation, just return a ndarray of a right shape
-            return [intensors[1]]
-
-        def profile(self,intensors:list[numpy.ndarray],outtensors:list[numpy.ndarray]):
-            macs=0
-            params=0
-            #accumulate macs and params here
-            #this node has no calculation
-            return macs,params
-
-    onnx_tool.model_profile('./rrdb_new.onnx', {'input': create_ndarray_f32((1, 3, 335, 619))},
-                            savenode='rrdb_new_nodemap.txt', saveshapesmodel='rrdb_new_shapes.onnx')
-    ```
 
 ## Known Issues
 * Loop op is not supported
-* Shared weight tensor will be counted more than once
 
 ## Results of [ONNX Model Zoo](https://github.com/onnx/models) and SOTA models
 Some models have dynamic input shapes. The MACs varies from input shapes. The input shapes used in these results are writen to [data/public/config.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/public/config.py).

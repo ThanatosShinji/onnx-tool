@@ -42,7 +42,7 @@ OR
 
 `pip install --upgrade git+https://github.com/ThanatosShinji/onnx-tool.git`  
 
-python>=3.5
+python>=3.6
 
 
 ---

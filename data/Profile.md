@@ -20,7 +20,8 @@
     import onnx_tool
     modelpath = 'resnet50-v1-12.onnx'
     model = onnx.load_model(modelpath)
-    onnx_tool.model_shape_infer(model, None, saveshapesmodel='resnet50_shapes.onnx',shapesonly=True,dump_outputs=['resnetv17_stage1_conv3_fwd','resnetv17_stage1_conv3_fwd'])  
+    onnx_tool.model_shape_infer(model, None, saveshapesmodel='resnet50_shapes.onnx',shapesonly=True,dump_outputs=['resnetv17_stage1_conv3_fwd' \
+    ,'resnetv17_stage1_conv3_fwd'])  
     # add two hidden tensors resnetv17_stage1_conv3_fwd resnetv17_stage1_conv3_fwd to 'resnet50_shapes.onnx' model's output tensors
     ```    
     cli usage (dynamic shapes is also supported)
@@ -28,7 +29,8 @@
     python -m onnx_tool -i 'resnet50-v1-12.onnx' -o 'resnet50_shapes.onnx'
     ```    
     ```shell
-    python -m onnx_tool -i 'resnet50-v1-12.onnx' --names resnetv17_stage1_conv3_fwd resnetv17_stage1_conv2_fwd  -o 'resnet50_shapes.onnx'#add hidden tensors to graph's output tensors
+    python -m onnx_tool -i 'resnet50-v1-12.onnx' --names resnetv17_stage1_conv3_fwd resnetv17_stage1_conv2_fwd  -o 'resnet50_shapes.onnx'
+  #add hidden tensors to graph's output tensors
     ```    
     ```shell
     python -m onnx_tool -i rvm_mobilenetv3_fp32.onnx --mode profile --dynamic_inputs \

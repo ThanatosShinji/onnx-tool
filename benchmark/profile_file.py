@@ -74,6 +74,7 @@ for modelinfo in models:
     # onnx_tool.model_profile(modelinfo['name'],modelinfo['dynamic_input'],saveshapesmodel='tmp.onnx',shapesonly=True)
     # set_inputs(modelinfo['name'],'inputs_set.onnx',modelinfo['dynamic_input'])
     # add_outputs(modelinfo['name'],'outputs_set.onnx',['443','586'])
-    onnx_tool.model_profile(modelinfo['name'],modelinfo['dynamic_input'],saveshapesmodel='tmp.onnx',shapesonly=True,dump_outputs=['443','586'])
+    onnx_tool.model_profile(modelinfo['name'],modelinfo['dynamic_input'] \
+                            ,saveshapesmodel='tmp.onnx',shapesonly=True,dump_outputs=['443','586'])
     # onnx_tool.model_export_tensors_numpy(modelinfo['name'],tensornames=['830'],savefolder='rvm',fp16=True)
     # print(onnx_tool.GLOBAL_VARS['tensor_map'].keys())

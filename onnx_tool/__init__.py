@@ -12,7 +12,7 @@ from .utils import NODEPROFILER_REGISTRY,timer,tuple2str,GLOBAL_VARS
 def __remove_initilisers(model:onnx.ModelProto):
     model.graph.ClearField('initializer')
 
-def model_export_tensors_numpy(m: [onnx.ModelProto | str],tensornames:[str]=None,savefolder:str=None,fp16:bool=False)->None:
+def model_export_tensors_numpy(m,tensornames:[str]=None,savefolder:str=None,fp16:bool=False)->None:
     if isinstance(m, str):
         m = onnx.load_model(m)
     GLOBAL_VARS['tensor_map']={}
@@ -177,7 +177,7 @@ def graph_profile(graph:onnx.GraphProto,dynamic_shapes:{},verbose=False)-> [floa
 
 # def model_export_tensors(m: [onnx.ModelProto | str],)
 
-def model_profile(m: [onnx.ModelProto | str], dynamic_shapes: {str: tuple} = None, savenode: str = None,
+def model_profile(m, dynamic_shapes: {str: tuple} = None, savenode: str = None,
                   saveshapesmodel: str = None, shapesonly:bool=False, verbose:bool=False, dump_outputs:[str]=None)-> None:
     if isinstance(m, str):
         m = onnx.load_model(m)
@@ -191,7 +191,7 @@ def model_profile(m: [onnx.ModelProto | str], dynamic_shapes: {str: tuple} = Non
                 graph_addoutputs(m.graph,dump_outputs)
             onnx.save_model(m,saveshapesmodel)
 
-def model_shape_infer(m: [onnx.ModelProto | str], dynamic_shapes: {str: tuple} = None,
+def model_shape_infer(m, dynamic_shapes: {str: tuple} = None,
                   saveshapesmodel: str = None, shapesonly:bool=False, verbose:bool=False, dump_outputs:[str]=None):
     if isinstance(m, str):
         m = onnx.load_model(m)

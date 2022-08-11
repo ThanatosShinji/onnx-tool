@@ -55,6 +55,13 @@ public_models={
                 }
         },
         {
+            'name': 'resnet18-v1-7.onnx',
+            'dynamic_input':
+                {
+                    'data': numpy.zeros((1, 3, 224, 224), numpy.float32)
+                }
+        },
+        {
             'name': 'resnet50-v2-7.onnx',
             'dynamic_input':
                 {

@@ -44,6 +44,9 @@ OR
 
 python>=3.6
 
+If `pip install onnx-tool` failed by onnx's installation, you may try `pip install onnx==1.8.1` (a lower version like this) first.  
+Then `pip install onnx-tool` again.
+
 
 ---
 ## Known Issues

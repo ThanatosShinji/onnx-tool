@@ -5,7 +5,7 @@ from setuptools import setup, find_packages
 
 readme = open("README.md").read()
 
-VERSION = "0.2.1"
+VERSION = "0.2.2"
 
 requirements = [
     "onnx",
@@ -24,7 +24,8 @@ setup(
                 "Shape inference, "
                 "MACs(FLOPs) counting for each layer, "
                 "Add any layer's output tensors to model's outputs, "
-                "Export any weights tensors to numpy file. fp16 conversion included.",
+                "Export any weights tensors to numpy file. fp16 conversion included,"
+                "and any operation you can image with ONNX.",
     long_description=readme,
     long_description_content_type="text/markdown",
     license="MIT",

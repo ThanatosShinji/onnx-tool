@@ -12,6 +12,15 @@ from .utils import NODEPROFILER_REGISTRY,timer,tuple2str,GLOBAL_VARS
 def __remove_initilisers(model:onnx.ModelProto):
     model.graph.ClearField('initializer')
 
+def __remove_constantnodes(model:onnx.ModelProto):
+    validnodes=[]
+    for node in model.graph.node:
+        if node.op_type != 'Constant':
+            validnodes.append(node)
+    model.graph.ClearField('node')
+    for node in validnodes:
+        model.graph.node.append(node)
+
 def model_export_tensors_numpy(m,tensornames:[str]=None,savefolder:str=None,fp16:bool=False)->None:
     if isinstance(m, str):
         m = onnx.load_model(m)
@@ -53,7 +62,7 @@ def model_export_tensors_numpy(m,tensornames:[str]=None,savefolder:str=None,fp16
 
 def infer_shapes(graph:onnx.GraphProto,dynamic_tensors:{},verbose:bool=False)->[map,map]:
     """
-        return {TensorName:ndarray},{NodeName:int}
+        Returns: {TensorName:ndarray},{NodeName:int}
     """
     GLOBAL_VARS['tensor_map']={}
     GLOBAL_VARS['params_map']={}
@@ -175,18 +184,20 @@ def graph_profile(graph:onnx.GraphProto,dynamic_shapes:{},verbose=False)-> [floa
     GLOBAL_VARS['node_map']=node_map
     return macs,params,node_map
 
-# def model_export_tensors(m: [onnx.ModelProto | str],)
-
 def model_profile(m, dynamic_shapes: {str: tuple} = None, savenode: str = None,
-                  saveshapesmodel: str = None, shapesonly:bool=False, verbose:bool=False, dump_outputs:[str]=None)-> None:
+                  saveshapesmodel: str = None, shapesonly:bool=False, verbose:bool=False, dump_outputs:[str]=None, remove_unused_tensors=True)-> None:
     if isinstance(m, str):
         m = onnx.load_model(m)
     if isinstance(m, onnx.ModelProto):
+        if remove_unused_tensors:
+            graph_remove_unused_tensors(m.graph)
         graph_profile(m.graph, dynamic_shapes,verbose)
         print_node_map(savenode)
         if saveshapesmodel is not None:
             if shapesonly:
                 __remove_initilisers(m)
+                __remove_constantnodes(m)
+
             if dump_outputs is not None:
                 graph_addoutputs(m.graph,dump_outputs)
             onnx.save_model(m,saveshapesmodel)
@@ -200,12 +211,15 @@ def model_shape_infer(m, dynamic_shapes: {str: tuple} = None,
         if saveshapesmodel is not None:
             if shapesonly:
                 __remove_initilisers(m)
+                __remove_constantnodes(m)
+
             if dump_outputs is not None:
                 graph_addoutputs(m.graph,dump_outputs)
             onnx.save_model(m,saveshapesmodel)
 
-def print_node_map(f:str=None):
+def print_node_map(f:str=None,metric='MACs'):
     from tabulate import tabulate
+    assert(metric in ['MACs','FLOPs'])
     node_map=GLOBAL_VARS['node_map']
     ptable=[]
     macs=0
@@ -214,21 +228,163 @@ def print_node_map(f:str=None):
         item=node_map[key]
         macs += int(item['macs'])
         params += int(item['params'])
+    factor=1
+    if metric=='FLOPs':
+        factor=2
+
     params+=1e-18
     macs+=1e-18
     for key in node_map.keys():
         item=node_map[key]
-        row=[key,'{:,}'.format(int(item['macs'])),'{:.2%}'.format(item['macs']/macs),'{:,}'.format(int(item['params'])),
+        row=[key,'{:,}'.format(int(item['macs'])*factor),'{:.2%}'.format(item['macs']/macs),'{:,}'.format(int(item['params'])),
              '{:.2%}'.format(item['params'] / params),
              tuple2str(item['inshape']),tuple2str(item['outshape'])]
         ptable.append(row)
 
-    row=['Total','{:,}'.format(macs),'100%','{:,}'.format(params),'100%','_','_']
+    row=['Total','{:,}'.format(macs*factor),'100%','{:,}'.format(params),'100%','_','_']
     ptable.append(row)
     if f is None:
-        print(tabulate(ptable,headers=['Name','Macs','MPercent','Params','PPercent','InShape','OutShape']))
+        print(tabulate(ptable,headers=['Name',metric,'MPercent','Params','PPercent','InShape','OutShape']))
     else:
         fp=open(f,'w')
-        fp.write(tabulate(ptable,headers=['Name','Macs','MPercent','Params','PPercent','InShape','OutShape']))
+        fp.write(tabulate(ptable,headers=['Name',metric,'MPercent','Params','PPercent','InShape','OutShape']))
         fp.close()
 
+def graph_simplify_names(graph,renametensor=True,renamelayer=True,custom_inputs=None,custom_outputs=None,remove_unused_tensors=True):
+    '''
+        Args:
+            graph: onnx.GraphProto
+            renametensor: boolean  eg.: resnetblock1_conv0_weight => 123
+            renamelayer: boolean eg.: resnetblock_conv0 => Conv_0
+            custom_inputs: [str] | {str:str} eg.: ['input'] without shapes, {'input':'Nx3xwidthxheight'} with shapes
+            custom_outputs: [str] | {str:str} eg.: ['output'] without shapes, {'output':'Nx1xwidthxheight'} with shapes
+        Returns:
+
+    '''
+    if remove_unused_tensors:
+        graph_remove_unused_tensors(graph)
+    if renamelayer:
+        count=0
+        for node in graph.node:
+            node.name=node.op_type+'_'+str(count)
+            count+=1
+    if renametensor:
+        total_t={}
+        for node in graph.node:
+            for input in node.input:
+                total_t[input]=0
+            for output in node.output:
+                total_t[output]=0
+        count=0
+        for key in total_t.keys():
+            total_t[key]=str(count)
+            count+=1
+
+        if custom_inputs is not None:
+            if isinstance(custom_inputs,list):
+                assert (len(custom_inputs)==len(graph.input))
+                for i,input in enumerate(graph.input):
+                    total_t[input.name] = custom_inputs[i]
+            elif isinstance(custom_inputs,dict):
+                keylist=list(custom_inputs.keys())
+                assert (len(keylist)==len(graph.input))
+                for i,input in enumerate(graph.input):
+                    total_t[input.name] = keylist[i]
+
+                    # maybe consider create a new valueinfoproto
+                    shapes=custom_inputs[keylist[i]].split('x')
+                    dim = input.type.tensor_type.shape.dim
+                    assert(len(shapes)==len(dim))
+                    for nb, shapeval in zip(dim, shapes):
+                        if shapeval.isnumeric():
+                            if nb.HasField('dim_param'):
+                                nb.ClearField('dim_param')
+                            nb.dim_value = int(shapeval)
+                        else:
+                            if nb.HasField('dim_value'):
+                                nb.ClearField('dim_value')
+                            nb.dim_param = shapeval
+            else:
+                raise NotImplementedError()
+
+
+        if custom_outputs is not None:
+            if isinstance(custom_outputs,list):
+                assert (len(custom_outputs)==len(graph.output))
+                for i,output in enumerate(graph.output):
+                    total_t[output.name] = custom_outputs[i]
+            elif isinstance(custom_outputs,dict):
+                keylist = list(custom_outputs.keys())
+                assert (len(keylist)==len(graph.output))
+                for i,output in enumerate(graph.output):
+                    total_t[output.name] = keylist[i]
+                    shapes=custom_outputs[keylist[i]].split('x')
+                    # maybe consider create a new valueinfoproto
+                    dim = output.type.tensor_type.shape.dim
+                    assert(len(shapes)==len(dim))
+                    for nb, shapeval in zip(dim, shapes):
+                        if shapeval.isnumeric():
+                            if nb.HasField('dim_param'):
+                                nb.ClearField('dim_param')
+                            nb.dim_value = int(shapeval)
+                        else:
+                            if nb.HasField('dim_value'):
+                                nb.ClearField('dim_value')
+                            nb.dim_param = shapeval
+            else:
+                raise NotImplementedError()
+
+
+        for initial in graph.initializer:
+            initial.name=total_t[initial.name]
+        for node in graph.node:
+            for i,input in enumerate(node.input):
+                node.input[i]=total_t[input]
+            for i,output in enumerate(node.output):
+                node.output[i]=total_t[output]
+
+        for input in graph.input:
+            input.name = total_t[input.name]
+
+        for output in graph.output:
+            output.name = total_t[output.name]
+
+def graph_remove_unused_tensors(graph):
+    producer={}
+    consumer={}
+    for initial in graph.initializer:
+        producer[initial.name]=0
+    for node in graph.node:
+        for input in node.input:
+            consumer[input]=0
+        for output in node.output:
+            producer[output]=0
+    inputs=[]
+    outputs=[]
+    for key in consumer.keys():
+        if key not in producer:
+            inputs.append(key)
+    for key in producer.keys():
+        if key not in consumer:
+            outputs.append(key)
+    valid_inputs=[]
+    valid_outputs=[]
+    for input in graph.input:
+        if input.name in inputs:
+            valid_inputs.append(input)
+    for output in graph.output:
+        if output.name in outputs:
+            valid_outputs.append(output)
+    graph.ClearField('input')
+    for input in valid_inputs:
+        graph.input.append(input)
+    graph.ClearField('output')
+    for output in valid_outputs:
+        graph.output.append(output)
+
+def model_simplify_names(m,savemodel: str,renametensor=True,renamelayer=True,custom_inputs=None,custom_outputs=None,remove_unused_tensors=True):
+    if isinstance(m, str):
+        m = onnx.load_model(m)
+    if isinstance(m, onnx.ModelProto):
+        graph_simplify_names(m.graph,renametensor,renamelayer,custom_inputs,custom_outputs,remove_unused_tensors)
+        onnx.save_model(m, savemodel)

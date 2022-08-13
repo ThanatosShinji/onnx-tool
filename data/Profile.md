@@ -13,7 +13,7 @@
     modelpath = 'resnet50-v1-12.onnx'
     model = onnx.load_model(modelpath)
     onnx_tool.model_shape_infer(model, None, saveshapesmodel='resnet50_shapes.onnx',shapesonly=True)  
-  # pass ONNX.ModelProto and remove static weights, minimize storage space, but may lead to display problem.
+  # pass ONNX.ModelProto and remove static weights, minimize storage space.
     ```    
     ```python
     import onnx

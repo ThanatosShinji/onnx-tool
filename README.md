@@ -3,7 +3,9 @@
 * *Shape inference.*  
 * *MACs(FLOPs) counting for each layer.*   
 * *Add any layer's output tensors to model's outputs.*  
-* *Export any weights tensors to numpy file. fp16 conversion included.*
+* *Export any weights tensors to numpy file. fp16 conversion included.*  
+...  
+**and any operation you can image with ONNX.**
 
 ---
 ## Shape inference
@@ -30,8 +32,12 @@ how to use: [data/Profile.md](https://github.com/ThanatosShinji/onnx-tool/blob/m
 how to use: [data/Profile.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Profile.md).  
 
 ---
-## Export weight tensors to files
-how to use: [data/ExportTensors.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/ExportTensors.md).  
+## Tensor operations
+* *Export weight tensors to files*  
+* *Simplify tensor and node names, convert name from a long string to a short string*  
+* *Remove unused tensors, models like vgg19-7.onnx set its static weight tensors as its input tensors*  
+* *Set custom input and output tensors' name and dimension, change model from fixed input to dynamic input*  
+how to use: [data/Tensors.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Tensors.md).  
 
 ---
 ## How to install

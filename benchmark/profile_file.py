@@ -23,6 +23,9 @@ models=[
         #
         #         }
         # },
+    {
+        'name':'data/public/resnet18-v1-7_shapes.onnx'
+    }
         # {
         #     'name': 'data/public/t5-decoder-with-lm-head-12.onnx',
         #     'dynamic_input':
@@ -45,7 +48,10 @@ def add_outputs(modelname,savemodel,newoutputs):
     onnx.save_model(model,savemodel)
 
 for modelinfo in models:
-    onnx_tool.model_profile(modelinfo['name'],modelinfo['dynamic_input'],saveshapesmodel='tmp.onnx',shapesonly=True)
+    # onnx_tool.model_profile(modelinfo['name'],modelinfo['dynamic_input'],saveshapesmodel='tmp.onnx',shapesonly=True)
+    onnx_tool.model_subgraph(modelinfo['name'],['resnetv15_stage4_conv0_fwd'],['resnetv15_stage4_batchnorm1_fwd'])
+    onnx_tool.model_opfusion(modelinfo['name'],'fused','fused_0','fused.onnx',nodenames=['resnetv15_stage1_conv0_fwd','resnetv15_stage1_batchnorm0_fwd',
+                                                                                         'resnetv15_stage1_relu0_fwd'])
     # set_inputs(modelinfo['name'],'inputs_set.onnx',modelinfo['dynamic_input'])
     # add_outputs(modelinfo['name'],'outputs_set.onnx',['443','586'])
     # onnx_tool.model_profile(modelinfo['name'],modelinfo['dynamic_input'] \

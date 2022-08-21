@@ -5,7 +5,7 @@ from setuptools import setup, find_packages
 
 readme = open("README.md").read()
 
-VERSION = "0.2.2"
+from onnx_tool import VERSION
 
 requirements = [
     "onnx",
@@ -23,8 +23,7 @@ setup(
     description="A tool for ONNX model:"
                 "Shape inference, "
                 "MACs(FLOPs) counting for each layer, "
-                "Add any layer's output tensors to model's outputs, "
-                "Export any weights tensors to numpy file. fp16 conversion included,"
+                "Extract subgraph from ONNX model, or do inplace op fusion, "
                 "and any operation you can image with ONNX.",
     long_description=readme,
     long_description_content_type="text/markdown",

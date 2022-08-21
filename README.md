@@ -2,8 +2,7 @@
 **A tool for ONNX model:**  
 * *Shape inference.*  
 * *MACs(FLOPs) counting for each layer.*   
-* *Add any layer's output tensors to model's outputs.*  
-* *Export any weights tensors to numpy file. fp16 conversion included.*  
+* *Extract subgraph from ONNX model, or do inplace op fusion.*
 ...  
 **and any operation you can image with ONNX.**
 
@@ -24,6 +23,20 @@ how to use: [data/Profile.md](https://github.com/ThanatosShinji/onnx-tool/blob/m
 how to use: [data/Profile.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Profile.md).  
 
 ---
+## Extract subgraph from ONNX model
+<p align="center">
+  <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/resnet18_subgraph.png">
+</p>
+
+---
+
+## Inplace op fusion
+<p align="center">
+  <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/resnet18_fused.png">
+</p>
+
+---
+
 ## Add any hidden tensors to model's outputs
 <p align="center">
   <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/add_otuput_tensors.png">

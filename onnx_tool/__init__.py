@@ -7,7 +7,9 @@ import numpy
 from .node_profilers import NodeBase,node_profile,node_infer_shape,Constant
 from .tensors import graph_addoutputs,graph_set_inputs,shape_of_tensor,is_valid_ndarray,tensorproto2ndarray,volume,\
                 create_ndarray_f32, create_ndarray_int64, update_static_tensors
-from .utils import NODEPROFILER_REGISTRY,timer,tuple2str,GLOBAL_VARS
+from .utils import NODEPROFILER_REGISTRY,timer,tuple2str,GLOBAL_VARS,VERSION
+from .graph import Graph
+
 
 def __remove_initilisers(model:onnx.ModelProto):
     model.graph.ClearField('initializer')
@@ -388,3 +390,35 @@ def model_simplify_names(m,savemodel: str,renametensor=True,renamelayer=True,cus
     if isinstance(m, onnx.ModelProto):
         graph_simplify_names(m.graph,renametensor,renamelayer,custom_inputs,custom_outputs,remove_unused_tensors)
         onnx.save_model(m, savemodel)
+
+def model_subgraph(m,in_tensor_names:[str]=None,out_tensor_names:[str]=None,nodenames:[str]=None,savefolder='./'):
+    if isinstance(m, str):
+        mname = os.path.basename(m)
+        mname = os.path.splitext(mname)[0]
+        m = onnx.load_model(m)
+    else:
+        mname=''
+    if isinstance(m, onnx.ModelProto):
+        graph=Graph(m.graph)
+        if in_tensor_names is not None and out_tensor_names is not None:
+            graph_lvl0,graph_lvl1,graph_lvl2=graph.get_subgraph(inputs=in_tensor_names,outputs=out_tensor_names)
+            graph_lvl0.save_model(os.path.join(savefolder,mname+'_level0.onnx'))
+            graph_lvl1.save_model(os.path.join(savefolder,mname+'_level1.onnx'))
+            graph_lvl2.save_model(os.path.join(savefolder,mname+'_level2.onnx'))
+        if nodenames is not None:
+            rawgraph=graph.get_onnxgraph_by_nodenames(nodenames)
+            subgraph=Graph(rawgraph)
+            subgraph.save_model(os.path.join(savefolder,mname+'_subgraph.onnx'))
+
+def model_opfusion(m,op_type:str,op_name:str,savefile,in_tensor_names:[str]=None,out_tensor_names:[str]=None,nodenames:[str]=None,keep_attr=True):
+    if isinstance(m, str):
+        m = onnx.load_model(m)
+
+    if isinstance(m, onnx.ModelProto):
+        graph=Graph(m.graph)
+        if in_tensor_names is not None and out_tensor_names is not None:
+            graph=graph.fuse_subgraph_iotensors(inputs=in_tensor_names,outputs=out_tensor_names,name=op_name,nodeop=op_type,keep_attr=keep_attr)
+            graph.save_model(savefile)
+        if nodenames is not None:
+            graph=graph.fuse_subgraph_node_names(nodenames,nodeop=op_type,name=op_name,keep_attr=keep_attr)
+            graph.save_model(savefile)

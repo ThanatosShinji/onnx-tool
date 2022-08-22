@@ -28,12 +28,16 @@ how to use: [data/Profile.md](https://github.com/ThanatosShinji/onnx-tool/blob/m
   <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/resnet18_subgraph.png">
 </p>
 
+how to use: [data/Subgraph.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Subgraph.md).     
+
 ---
 
 ## Inplace op fusion
 <p align="center">
   <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/resnet18_fused.png">
 </p>
+
+how to use: [data/Subgraph.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Subgraph.md).  
 
 ---
 

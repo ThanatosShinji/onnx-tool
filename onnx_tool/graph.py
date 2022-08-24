@@ -282,6 +282,7 @@ class Graph():
                                 search_flag[consumer] = True
                                 nextnodes.append(consumer)
                     tensor_produced.append(output)
+                reorderednode.append(node)
 
         while len(nextnodes):
             execnodes=[]

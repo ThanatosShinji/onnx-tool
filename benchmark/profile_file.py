@@ -49,7 +49,8 @@ def add_outputs(modelname,savemodel,newoutputs):
 
 for modelinfo in models:
     # onnx_tool.model_profile(modelinfo['name'],modelinfo['dynamic_input'],saveshapesmodel='tmp.onnx',shapesonly=True)
-    onnx_tool.model_subgraph(modelinfo['name'], ['StatefulPartitionedCall/model/conv2d_101/BiasAdd:0'], ['StatefulPartitionedCall/model/tf_op_layer_Reshape_1/Reshape_1:0'])
+    onnx_tool.model_subgraph(modelinfo['name'], ['StatefulPartitionedCall/model/conv2d_101/BiasAdd:0'], ['Identity_1:0'])
+    # onnx_tool.model_opfusion(modelinfo['name'],'fused','fused_0','fused.onnx', ['StatefulPartitionedCall/model/conv2d_101/BiasAdd:0'], ['Identity_1:0'])
     # onnx_tool.model_subgraph(modelinfo['name'],['resnetv15_stage4_conv0_fwd'],['resnetv15_stage4_batchnorm1_fwd'])
     # onnx_tool.model_opfusion(modelinfo['name'],'fused','fused_0','fused.onnx',nodenames=['resnetv15_stage1_conv0_fwd','resnetv15_stage1_batchnorm0_fwd',
     #                                                                                      'resnetv15_stage1_relu0_fwd'])

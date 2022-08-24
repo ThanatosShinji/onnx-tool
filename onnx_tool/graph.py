@@ -253,17 +253,35 @@ class Graph():
         graph=onnx.helper.make_graph(nodes=nodes,name=gname,inputs=inputs,outputs=outputs,initializer=initializer)
         return graph
 
+    def is_node_constant(self, node):
+        for input in self.nodemap[node].input:
+            if input not in self.initials:
+                return False
+        return True
+
     def reorder_nodes(self,nodenames,itnames):
         tensor_consumed=[]
         tensor_produced=[]
         nextnodes=[]
         reorderednode=[]
+        search_flag={}
         for name in itnames:
             for consumer in self.consumedby[name]:
                 if consumer in nodenames:
                     if consumer not in nextnodes:
+                        search_flag[consumer]=True
                         nextnodes.append(consumer)
             tensor_produced.append(name)
+
+        for node in nodenames:
+            if self.is_node_constant(node):
+                for output in self.nodemap[node].output:
+                    for consumer in self.consumedby[output]:
+                        if consumer in nodenames:
+                            if consumer not in nextnodes:
+                                search_flag[consumer] = True
+                                nextnodes.append(consumer)
+                    tensor_produced.append(output)
 
         while len(nextnodes):
             execnodes=[]
@@ -294,7 +312,10 @@ class Graph():
                     if output in self.consumedby:
                         for consumer in self.consumedby[output]:
                             if consumer in nodenames:
+                                if consumer in search_flag:
+                                    continue
                                 newnodes.append(consumer)
+                                search_flag[consumer]=True
             nextnodes=set(newnodes)
 
         return reorderednode

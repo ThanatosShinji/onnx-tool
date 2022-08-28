@@ -1311,6 +1311,12 @@ class Mul(PWNBase):
         return [intensors[0]*intensors[1]]
 
 @NODEPROFILER_REGISTRY.register()
+class InstanceNormalization(PWNBase):
+    def __init__(self, node_proto):
+        super().__init__(node_proto)
+        self.op_mac=ADD_MACS+MUL_MACS+ADD_MACS+DIV_MACS
+
+@NODEPROFILER_REGISTRY.register()
 class Sqrt(PWNBase):
     def __init__(self, node_proto):
         super().__init__(node_proto)

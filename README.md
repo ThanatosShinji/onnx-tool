@@ -6,6 +6,8 @@
 ...  
 **and any operation you can image with ONNX.**
 
+New: Pytorch models are also valid if torch.onnx.export succeeded.
+
 ---
 ## Shape inference
 <p align="center">  
@@ -13,7 +15,7 @@
 </p>  
 
 how to use: [data/Profile.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Profile.md).  
-
+pytorch usage: [data/PytorchUsage.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/PytorchUsage.md).
 ---
 ## MACs counting for each layer (FLOPs=2*MACs)
 <p align="center">
@@ -21,7 +23,7 @@ how to use: [data/Profile.md](https://github.com/ThanatosShinji/onnx-tool/blob/m
 </p>
 
 how to use: [data/Profile.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Profile.md).  
-
+pytorch usage: [data/PytorchUsage.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/PytorchUsage.md).
 ---
 ## Extract subgraph from ONNX model
 <p align="center">

@@ -16,6 +16,7 @@ New: Pytorch models are also valid if torch.onnx.export succeeded.
 
 how to use: [data/Profile.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Profile.md).  
 pytorch usage: [data/PytorchUsage.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/PytorchUsage.md).
+
 ---
 ## MACs counting for each layer (FLOPs=2*MACs)
 <p align="center">
@@ -24,6 +25,7 @@ pytorch usage: [data/PytorchUsage.md](https://github.com/ThanatosShinji/onnx-too
 
 how to use: [data/Profile.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Profile.md).  
 pytorch usage: [data/PytorchUsage.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/PytorchUsage.md).
+
 ---
 ## Extract subgraph from ONNX model
 <p align="center">

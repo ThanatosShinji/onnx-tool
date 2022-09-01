@@ -24,8 +24,15 @@ models=[
         #         }
         # },
     {
-        'name':'data/public/yolov4_shapes.onnx'
-    }
+        'name': 'data/public/bertsquad-12.onnx',
+        'dynamic_input':
+            {
+                'unique_ids_raw_output___9:0': numpy.array((1,), dtype=numpy.int64),
+                'segment_ids:0': numpy.zeros((1, 256), dtype=numpy.int64),
+                'input_mask:0': numpy.zeros((1, 256), dtype=numpy.int64),
+                'input_ids:0': numpy.zeros((1, 256), dtype=numpy.int64),
+            }
+    },
         # {
         #     'name': 'data/public/t5-decoder-with-lm-head-12.onnx',
         #     'dynamic_input':
@@ -48,8 +55,8 @@ def add_outputs(modelname,savemodel,newoutputs):
     onnx.save_model(model,savemodel)
 
 for modelinfo in models:
-    # onnx_tool.model_profile(modelinfo['name'],modelinfo['dynamic_input'],saveshapesmodel='tmp.onnx',shapesonly=True)
-    onnx_tool.model_subgraph(modelinfo['name'], ['StatefulPartitionedCall/model/conv2d_101/BiasAdd:0'], ['Identity_1:0'])
+    onnx_tool.model_profile(modelinfo['name'],modelinfo['dynamic_input'],saveshapesmodel='tmp.onnx',shapesonly=True)
+    # onnx_tool.model_subgraph(modelinfo['name'], ['StatefulPartitionedCall/model/conv2d_101/BiasAdd:0'], ['Identity_1:0'])
     # onnx_tool.model_opfusion(modelinfo['name'],'fused','fused_0','fused.onnx', ['StatefulPartitionedCall/model/conv2d_101/BiasAdd:0'], ['Identity_1:0'])
     # onnx_tool.model_subgraph(modelinfo['name'],['resnetv15_stage4_conv0_fwd'],['resnetv15_stage4_batchnorm1_fwd'])
     # onnx_tool.model_opfusion(modelinfo['name'],'fused','fused_0','fused.onnx',nodenames=['resnetv15_stage1_conv0_fwd','resnetv15_stage1_batchnorm0_fwd',

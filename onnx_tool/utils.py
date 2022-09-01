@@ -1,5 +1,5 @@
 import time
-VERSION = "0.2.6"
+VERSION = "0.2.7"
 
 class timer():
     def __init__(self):

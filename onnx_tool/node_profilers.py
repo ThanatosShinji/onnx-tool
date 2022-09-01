@@ -917,7 +917,7 @@ class Gemm(NodeBase):
             if self.__class__ == Gemm:
                 macs*=weight_shape[0]
             else:
-                macs*=weight_shape[1]
+                macs*=weight_shape[-1]
 
             if self.nbinput==3:
                 macs+=volume(outtensors[0].shape)*ADD_MACS

@@ -12,7 +12,7 @@ for modelinfo in public_models['models']:
     basen=os.path.basename(modelinfo['name'])
     name=os.path.splitext(basen)[0]
     model_profile(model,modelinfo['dynamic_input'],os.path.join(folder,name+'_info.log')
-                  ,os.path.join(folder,name+'_shapes_only.onnx'),True)
+                  ,os.path.join(folder,name+'_shapes_only.onnx'),True,verbose=True)
     print('-'*64)
 
 folder=private_models['folder']
@@ -23,6 +23,6 @@ for modelinfo in private_models['models']:
     basen=os.path.basename(modelinfo['name'])
     name=os.path.splitext(basen)[0]
     model_profile(model, modelinfo['dynamic_input'], os.path.join(folder, name + '_info.log')
-                  , os.path.join(folder, name + '_shapes_only.onnx'), True)
+                  , os.path.join(folder, name + '_shapes_only.onnx'), True,verbose=True)
     print('-'*64)
 

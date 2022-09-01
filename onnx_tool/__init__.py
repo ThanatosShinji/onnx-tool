@@ -137,34 +137,55 @@ def graph_profile(graph:onnx.GraphProto,dynamic_shapes:{},verbose=False)-> [floa
     """
     macs=0.0
     params=0
+    memory=0
 
     gtmr=timer()
 
     gtmr.start()
     tmap,pmap=infer_shapes(graph,dynamic_shapes,verbose=verbose)
     if verbose:
-        print('infered all tensor shapes, time cost',gtmr.stop(),'s')
+        print(f'infered all tensor shapes, time cost {gtmr.stop():.3f} s')
 
     node_map={}
     index=0
     gtmr.start()
+    params_map = GLOBAL_VARS['params_map']
+    params_flag_map={}
+    for key in params_map.keys():
+        params_flag_map[key]=0
+    params_shared_nodes={}
+    for input in graph.input:
+        tensor=tmap[input.name]
+        _memory=volume(tensor.shape)*4
+        node_map.update({input.name:{'macs':0,'params':0,'memory':_memory,'inshape':tensor.shape,'outshape':tensor.shape}})
+        memory+=_memory
+
     for node in graph.node:
         ins=[]
         _params=0
+        _memory=0
         for input in node.input:
             if input == '':
                 continue
             ins.append(tmap[input])
             if input in pmap.keys():
-                _params+=pmap[input]
+                if params_flag_map[input]==0:
+                    _params+=pmap[input]
+                    _memory+=pmap[input]
+
+                params_flag_map[input] += 1
+
         outs=[]
         for output in node.output:
             if tmap.keys().__contains__(output):
                 outs.append(tmap[output])
+                if node.op_type == 'Constant':
+                    # Constant's output tensors are already counted as weight tensors
+                    continue
+                _memory+=volume(tmap[output].shape)
         _macs,_params_c=node_profile(node,ins,outs)
-        #TODO can't handle intializer and constant
-        if len(graph.initializer) == 0:
-            _params=_params_c
+        # @deprecated _params_c
+
         outshape=(0,)
         if len(outs)>0:
             outshape=outs[0].shape
@@ -176,14 +197,40 @@ def graph_profile(graph:onnx.GraphProto,dynamic_shapes:{},verbose=False)-> [floa
         if len(node.name)==0:
             node.name=node.op_type+'_{}'.format(index)
         index+=1
-        node_map.update({node.name:{'macs':_macs,'params':_params,'inshape':inshape,'outshape':outshape}})
+        _memory*=4
+        node_map.update({node.name:{'macs':_macs,'params':_params,'memory':_memory,'inshape':inshape,'outshape':outshape}})
         macs+=_macs
         params+=_params
+        memory+=_memory
     if verbose:
-        print('profile all nodes, time cost',gtmr.stop(),'s')
+        print(f'profile all nodes, time cost {gtmr.stop():.3f} s')
+
+    for node in graph.node:
+        for input in node.input:
+            if input == '':
+                continue
+            if input in pmap.keys():
+                if params_flag_map[input]>1 and volume(tmap[input].shape)>0:
+                    if input in params_shared_nodes:
+                        params_shared_nodes[input].append(node.name)
+                    else:
+                        params_shared_nodes[input]=[node.name]
+
+
     GLOBAL_VARS['macs']=macs
     GLOBAL_VARS['params']=params
+    GLOBAL_VARS['memory']=memory
     GLOBAL_VARS['node_map']=node_map
+    GLOBAL_VARS['params_shared_nodes']=params_shared_nodes
+    if verbose:
+        tmem_count=0
+        for t in tmap:
+            tmem_count+=volume(tmap[t].shape)
+        tmem_count*=4
+        diffratio=abs(memory-tmem_count)/tmem_count
+        print(f'Memory sum from TensorMap:{tmem_count} Memory sum from NodeMap sum:{memory}, diff ratio:{diffratio:.3%}')
+        assert (diffratio<0.1)
+
     return macs,params,node_map
 
 def model_profile(m, dynamic_shapes: {str: tuple} = None, savenode: str = None,
@@ -223,13 +270,32 @@ def print_node_map(f:str=None,metric='MACs'):
     from tabulate import tabulate
     assert(metric in ['MACs','FLOPs'])
     node_map=GLOBAL_VARS['node_map']
+    saveformat='txt'
+    splitch = 'x'
+
+    if f is not None and '.csv' in f:
+        saveformat='csv'
+
     ptable=[]
-    macs=0
-    params=0
-    for key in node_map.keys():
-        item=node_map[key]
-        macs += int(item['macs'])
-        params += int(item['params'])
+
+    macs = int(round(GLOBAL_VARS['macs']))
+    params = int(GLOBAL_VARS['params'])
+    memory = int(GLOBAL_VARS['memory'])
+
+    shared_params=GLOBAL_VARS['params_shared_nodes']
+    if len(shared_params.keys()):
+        print()
+        print('*'*64)
+        print(f'Please note that Weight Tensors Sharing is detected:')
+        for key in shared_params.keys():
+            print(f'Tensor:{key} ')
+            print('Shared by: ')
+            for node in shared_params[key]:
+                print('           ',node)
+            print()
+        print('*'*64)
+
+
     factor=1
     if metric=='FLOPs':
         factor=2
@@ -238,18 +304,38 @@ def print_node_map(f:str=None,metric='MACs'):
     macs+=1e-18
     for key in node_map.keys():
         item=node_map[key]
-        row=[key,'{:,}'.format(int(item['macs'])*factor),'{:.2%}'.format(item['macs']/macs),'{:,}'.format(int(item['params'])),
-             '{:.2%}'.format(item['params'] / params),
-             tuple2str(item['inshape']),tuple2str(item['outshape'])]
+        if saveformat == 'csv':
+            row = [key, '{}'.format(
+                int(item['macs']) * factor), '{:.2%}'.format(item['macs'] / macs)
+                , '{}'.format(int(item['memory'])), '{:.2%}'.format(item['memory'] / memory)
+                , '{}'.format(int(item['params'])), '{:.2%}'.format(item['params'] / params),
+                   tuple2str(item['inshape'], splitch), tuple2str(item['outshape'], splitch)]
+        else:
+            row=[key,'{:,}'.format(
+                int(item['macs'])*factor),'{:.2%}'.format(item['macs']/macs)
+                ,'{:,}'.format(int(item['memory'])),'{:.2%}'.format(item['memory'] / memory)
+                , '{:,}'.format(int(item['params'])),'{:.2%}'.format(item['params'] / params),
+                 tuple2str(item['inshape'],splitch),tuple2str(item['outshape'],splitch)]
         ptable.append(row)
 
-    row=['Total','{:,}'.format(macs*factor),'100%','{:,}'.format(params),'100%','_','_']
+    row=['Total',f'{int(macs*factor):,}','100%',f'{memory:,}','100%',f'{int(params):,}','100%','_','_']
     ptable.append(row)
     if f is None:
-        print(tabulate(ptable,headers=['Name',metric,'MPercent','Params','PPercent','InShape','OutShape']))
+        print(tabulate(ptable,headers=['Name',metric,'CPercent','Memory','MPercent','Params','PPercent','InShape','OutShape']))
     else:
         fp=open(f,'w')
-        fp.write(tabulate(ptable,headers=['Name',metric,'MPercent','Params','PPercent','InShape','OutShape']))
+        if saveformat == 'csv':
+            fp.write(f'Name,{metric},CPercent,Memory,MPercent,Params,PPercent,InShape,OutShape\n')
+            for row in ptable:
+                str=''
+                for i,ele in enumerate(row):
+                    str+=ele
+                    if i!=len(row)-1:
+                        str+=','
+                str+='\n'
+                fp.write(str)
+        else:
+            fp.write(tabulate(ptable,headers=['Name',metric,'CPercent','Memory','MPercent','Params','PPercent','InShape','OutShape']))
         fp.close()
 
 def graph_simplify_names(graph,renametensor=True,renamelayer=True,custom_inputs=None,custom_outputs=None,remove_unused_tensors=True):

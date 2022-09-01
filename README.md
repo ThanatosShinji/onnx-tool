@@ -20,8 +20,9 @@ pytorch usage: [data/PytorchUsage.md](https://github.com/ThanatosShinji/onnx-too
 ---
 ## MACs counting for each layer (FLOPs=2*MACs)
 <p align="center">
-  <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/macs_counting.jpg">
+  <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/macs_counting.png">
 </p>
+Float MultipleAdd Count, Memory Usage(in bytes), Parameters(elements number)
 
 how to use: [data/Profile.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Profile.md).  
 pytorch usage: [data/PytorchUsage.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/PytorchUsage.md).

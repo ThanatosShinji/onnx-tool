@@ -12,11 +12,12 @@ class timer():
         timens=time.time()-self._startt
         return timens
 
-def tuple2str(t:tuple):
-    s='('
-    for v in t:
-        s+=str(v)+','
-    s+=')'
+def tuple2str(t:tuple,splitch=','):
+    s=''
+    for i,v in enumerate(t):
+        s+=str(v)
+        if i!=len(t)-1:
+            s+=splitch
     return s
 
 # modify from https://github.com/XPixelGroup/BasicSR/blob/master/basicsr/utils/registry.py # noqa: E501

@@ -5,6 +5,8 @@
     import onnx_tool
     modelpath = 'resnet50-v1-12.onnx'
     onnx_tool.model_profile(modelpath, None, None) #pass file name
+    onnx_tool.model_profile(modelpath, savenode='node_table.txt') #save profile table to txt file
+    onnx_tool.model_profile(modelpath, savenode='node_table.csv') #save profile table to csv file
     ```    
   
     ```python
@@ -79,3 +81,76 @@
     onnx_tool.model_profile('./rrdb_new.onnx', {'input': create_ndarray_f32((1, 3, 335, 619))},
                             savenode='rrdb_new_nodemap.txt', saveshapesmodel='rrdb_new_shapes.onnx')
     ```
+## Notes
+* Parameter's statistics is very accurate now, weight sharing among nodes will be detected, and only count it for the first node.  
+  You may see something like this (e.g. 'bidaf-9.onnx' ):
+```shell
+bidaf-9.onnx
+infered all tensor shapes, time cost 0.028 s
+profile all nodes, time cost 0.002 s
+
+****************************************************************
+Please note that Weight Tensors Sharing is detected:
+Tensor:Word_Embedding 
+Shared by: 
+            Gather_8
+            Gather_10
+
+Tensor:Char_Embedding 
+Shared by: 
+            Gather_9
+            Gather_11
+
+Tensor:W_0 
+Shared by: 
+            Convolution10413
+            Convolution10253
+
+Tensor:b 
+Shared by: 
+            Plus10415
+            Plus10255
+
+Tensor:0_WU 
+Shared by: 
+            0_U_0
+            0_U
+
+Tensor:0_bU 
+Shared by: 
+            Plus10470
+            Plus10310
+
+Tensor:0_WT 
+Shared by: 
+            0_T_0
+            0_T
+
+Tensor:0_bT 
+Shared by: 
+            Plus10463
+            Plus10303
+
+Tensor:1_WU 
+Shared by: 
+            1_U_0
+            1_U
+
+Tensor:1_bU 
+Shared by: 
+            Plus10515
+            Plus10355
+
+Tensor:1_WT 
+Shared by: 
+            1_T_0
+            1_T
+
+Tensor:1_bT 
+Shared by: 
+            Plus10508
+            Plus10348
+
+****************************************************************
+```
+* Profile result's memory value = static tensors' memory + output tensors' memory

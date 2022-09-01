@@ -1398,6 +1398,7 @@ def node_profile(node_proto:str,ins:[],outs:[]):
                   f'Use NODEPROFILER_REGISTRY to register your profiler for this node.')
     return 0,0
 
+
 def node_infer_shape(node_proto:str,ins:[]):
     node_class=NODEPROFILER_REGISTRY.get(node_proto.op_type)
     if node_class!=None:

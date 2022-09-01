@@ -311,23 +311,29 @@ def print_node_map(f:str=None,metric='MACs'):
                 , '{}'.format(int(item['params'])), '{:.2%}'.format(item['params'] / params),
                    tuple2str(item['inshape'], splitch), tuple2str(item['outshape'], splitch)]
         else:
-            row=[key,'{:,}'.format(
-                int(item['macs'])*factor),'{:.2%}'.format(item['macs']/macs)
-                ,'{:,}'.format(int(item['memory'])),'{:.2%}'.format(item['memory'] / memory)
-                , '{:,}'.format(int(item['params'])),'{:.2%}'.format(item['params'] / params),
-                 tuple2str(item['inshape'],splitch),tuple2str(item['outshape'],splitch)]
+            row = [key, '{:,}'.format(
+                int(item['macs']) * factor), '{:.2%}'.format(item['macs'] / macs)
+                , '{:,}'.format(int(item['memory'])), '{:.2%}'.format(item['memory'] / memory)
+                , '{:,}'.format(int(item['params'])), '{:.2%}'.format(item['params'] / params),
+                   tuple2str(item['inshape'], splitch), tuple2str(item['outshape'], splitch)]
         ptable.append(row)
 
-    row=['Total',f'{int(macs*factor):,}','100%',f'{memory:,}','100%',f'{int(params):,}','100%','_','_']
+    if saveformat == 'csv':
+        row = ['Total', f'{int(macs * factor)}', '100%', f'{memory}', '100%', f'{int(params)}', '100%', '_', '_']
+    else:
+        row = ['Total', f'{int(macs * factor):,}', '100%', f'{memory:,}', '100%', f'{int(params):,}', '100%', '_', '_']
+
     ptable.append(row)
     if f is None:
-        print(tabulate(ptable,headers=['Name',metric,'CPercent','Memory','MPercent','Params','PPercent','InShape','OutShape']))
+        print(tabulate(ptable,
+                       headers=['Name', metric, 'CPercent', 'Memory', 'MPercent', 'Params', 'PPercent', 'InShape',
+                                'OutShape']))
     else:
-        fp=open(f,'w')
+        fp = open(f, 'w')
         if saveformat == 'csv':
             fp.write(f'Name,{metric},CPercent,Memory,MPercent,Params,PPercent,InShape,OutShape\n')
             for row in ptable:
-                str=''
+                str = ''
                 for i,ele in enumerate(row):
                     str+=ele
                     if i!=len(row)-1:

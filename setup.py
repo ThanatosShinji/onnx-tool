@@ -1,11 +1,10 @@
 #!/usr/bin/env python
-import datetime
 
 from setuptools import setup, find_packages
 
 readme = open("README.md").read()
 
-VERSION = "0.2.9"
+VERSION = "0.2.10"
 
 requirements = [
     "onnx",

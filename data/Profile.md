@@ -1,14 +1,23 @@
-    
-## How to use 
+## Updates
+
+* v0.2.10:
+  * You can pass a list of remove ops for the profile table. This will get a more  
+    practical memory usage, e.g. Relu. See hidden_ops of model_profile.
+* v0.2.9:
+  * Support memory usage profile for each layer
+  * Export profile table to a .csv file is valid, you can use excel to operate the table
+
+## How to use
+
 * Basic usage
     ```python
     import onnx_tool
     modelpath = 'resnet50-v1-12.onnx'
-    onnx_tool.model_profile(modelpath, None, None) #pass file name
-    onnx_tool.model_profile(modelpath, savenode='node_table.txt') #save profile table to txt file
-    onnx_tool.model_profile(modelpath, savenode='node_table.csv') #save profile table to csv file
+    onnx_tool.model_profile(modelpath, None, None) # pass file name
+    onnx_tool.model_profile(modelpath, savenode='node_table.txt') # save profile table to txt file
+    onnx_tool.model_profile(modelpath, savenode='node_table.csv') # save profile table to csv file
     ```    
-  
+
     ```python
     import onnx
     import onnx_tool
@@ -153,4 +162,6 @@ Shared by:
 
 ****************************************************************
 ```
-* Profile result's memory value = static tensors' memory + output tensors' memory
+
+* Profile result's memory value = static tensors' memory + output tensors' memory.  
+  The memory of the same tensor will be counted once like the parameter's statistics.

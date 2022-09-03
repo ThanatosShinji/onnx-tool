@@ -1,24 +1,28 @@
 import time
-VERSION = "0.2.9"
+
+VERSION = "0.2.10"
+
 
 class timer():
     def __init__(self):
-        self._startt=time.time()
+        self._startt = time.time()
 
     def start(self):
-        self._startt=time.time()
+        self._startt = time.time()
 
     def stop(self):
-        timens=time.time()-self._startt
+        timens = time.time() - self._startt
         return timens
 
-def tuple2str(t:tuple,splitch=','):
-    s=''
-    for i,v in enumerate(t):
-        s+=str(v)
-        if i!=len(t)-1:
-            s+=splitch
+
+def tuple2str(t: tuple, splitch=','):
+    s = ''
+    for i, v in enumerate(t):
+        s += str(v)
+        if i != len(t) - 1:
+            s += splitch
     return s
+
 
 # modify from https://github.com/XPixelGroup/BasicSR/blob/master/basicsr/utils/registry.py # noqa: E501
 class Registry():
@@ -82,7 +86,7 @@ class Registry():
     def get(self, name):
         ret = self._obj_map.get(name)
         # if ret is None:
-            # raise KeyError(f"No object named '{name}' found in '{self._name}' registry!")
+        # raise KeyError(f"No object named '{name}' found in '{self._name}' registry!")
         return ret
 
     def __getitem__(self, item):
@@ -118,7 +122,7 @@ class GlobalVars():
         return self._obj_map[item]
 
     def __setitem__(self, key, value):
-        self._obj_map[key]=value
+        self._obj_map[key] = value
 
     def __contains__(self, name):
         return name in self._obj_map
@@ -129,4 +133,5 @@ class GlobalVars():
     def keys(self):
         return self._obj_map.keys()
 
-GLOBAL_VARS=GlobalVars('Shared')
+
+GLOBAL_VARS = GlobalVars('Shared')

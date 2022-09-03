@@ -1,28 +1,29 @@
 import numpy
-from onnx_tool.node_profilers import create_ndarray_f32,create_ndarray_int64
 
-public_models={
-    'folder':'data/public',
-    'models':[
+from onnx_tool.node_profilers import create_ndarray_f32, create_ndarray_int64
+
+public_models = {
+    'folder': 'data/public',
+    'models': [
         {
             'name': 'bertsquad-12.onnx',
             'dynamic_input':
                 {
-                    'unique_ids_raw_output___9:0':numpy.array((1,),dtype=numpy.int64),
-                    'segment_ids:0':numpy.zeros((1,256),dtype=numpy.int64),
-                    'input_mask:0':numpy.zeros((1,256),dtype=numpy.int64),
-                    'input_ids:0':numpy.zeros((1,256),dtype=numpy.int64),
+                    'unique_ids_raw_output___9:0': numpy.array((1,), dtype=numpy.int64),
+                    'segment_ids:0': numpy.zeros((1, 256), dtype=numpy.int64),
+                    'input_mask:0': numpy.zeros((1, 256), dtype=numpy.int64),
+                    'input_ids:0': numpy.zeros((1, 256), dtype=numpy.int64),
                 }
         },
         {
-            'name':'bvlcalexnet-12.onnx',
-            'dynamic_input':None,
+            'name': 'bvlcalexnet-12.onnx',
+            'dynamic_input': None,
         },
         {
             'name': 'convnext_large.onnx',
             'dynamic_input':
                 {
-                    'input.1':numpy.zeros((1,3,224,224),numpy.float32)
+                    'input.1': numpy.zeros((1, 3, 224, 224), numpy.float32)
                 }
         },
         {
@@ -72,8 +73,9 @@ public_models={
             'name': 'rvm_mobilenetv3_fp32.onnx',
             'dynamic_input':
                 {'src': create_ndarray_f32((1, 3, 1080, 1920)), 'r1i': create_ndarray_f32((1, 16, 135, 240)),
-                                 'r2i':create_ndarray_f32((1,20,68,120)),'r3i':create_ndarray_f32((1,40,34,60)),
-                                 'r4i':create_ndarray_f32((1,64,17,30)),'downsample_ratio':numpy.array((0.25,),dtype=numpy.float32)}
+                 'r2i': create_ndarray_f32((1, 20, 68, 120)), 'r3i': create_ndarray_f32((1, 40, 34, 60)),
+                 'r4i': create_ndarray_f32((1, 64, 17, 30)),
+                 'downsample_ratio': numpy.array((0.25,), dtype=numpy.float32)}
         },
         {
             'name': 'shufflenet-v2-12.onnx',
@@ -104,7 +106,7 @@ public_models={
             'name': 'yolov4.onnx',
             'dynamic_input':
                 {
-                    'input_1:0': create_ndarray_f32((1,416,416,3))
+                    'input_1:0': create_ndarray_f32((1, 416, 416, 3))
                 }
         },
         {
@@ -119,7 +121,7 @@ public_models={
             'name': 'ssd-12.onnx',
             'dynamic_input':
                 {
-                    'image':create_ndarray_f32((1,3,1200,1200)),
+                    'image': create_ndarray_f32((1, 3, 1200, 1200)),
                 }
         },
         {
@@ -141,7 +143,7 @@ public_models={
             'name': 'arcfaceresnet100-8.onnx',
             'dynamic_input':
                 {
-                    'data':create_ndarray_f32((1,3,112,112)),
+                    'data': create_ndarray_f32((1, 3, 112, 112)),
 
                 }
         },
@@ -157,14 +159,14 @@ public_models={
             'name': 'emotion-ferplus-8.onnx',
             'dynamic_input':
                 {
-                    'Input3':create_ndarray_f32((1,1,64,64)),
+                    'Input3': create_ndarray_f32((1, 1, 64, 64)),
                 }
         },
         {
             'name': 'vgg_ilsvrc_16_age_chalearn_iccv2015.onnx',
             'dynamic_input':
                 {
-                    'input':create_ndarray_f32((1,3,224,224)),
+                    'input': create_ndarray_f32((1, 3, 224, 224)),
 
                 }
         },
@@ -172,7 +174,7 @@ public_models={
             'name': 'version-RFB-640.onnx',
             'dynamic_input':
                 {
-                    'input':create_ndarray_f32((1,3,480,640)),
+                    'input': create_ndarray_f32((1, 3, 480, 640)),
 
                 }
         },
@@ -180,10 +182,10 @@ public_models={
             'name': 'bidaf-9.onnx',
             'dynamic_input':
                 {
-                    'context_word':create_ndarray_f32((16,1)),
-                    'context_char':create_ndarray_f32((16,1,1,16)),
-                    'query_word':create_ndarray_f32((16,1)),
-                    'query_char':create_ndarray_f32((16,1,1,16)),
+                    'context_word': create_ndarray_f32((16, 1)),
+                    'context_char': create_ndarray_f32((16, 1, 1, 16)),
+                    'query_word': create_ndarray_f32((16, 1)),
+                    'query_char': create_ndarray_f32((16, 1, 1, 16)),
 
                 }
         },
@@ -235,7 +237,7 @@ public_models={
             'name': 'FasterRCNN-12.onnx',
             'dynamic_input':
                 {
-                    'image': create_ndarray_f32(( 3, 416, 416)),
+                    'image': create_ndarray_f32((3, 416, 416)),
                 }
         },
         {

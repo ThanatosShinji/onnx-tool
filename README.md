@@ -1,15 +1,22 @@
 # onnx-tool
-**A tool for ONNX model:**  
-* *Shape inference.*  
-* *MACs(FLOPs) counting for each layer.*   
-* *Extract subgraph from ONNX model, or do inplace op fusion.*
-...  
-**and any operation you can image with ONNX.**
 
-New: Pytorch models are also valid if torch.onnx.export succeeded.
+**A tool for ONNX model:**
+
+* *Shape inference.*
+* *MACs(FLOPs) counting for each layer.*
+* *Extract subgraph from ONNX model, or do inplace op fusion.*
+  ...  
+  **and any operation you can image with ONNX.**
+
+New:
+
+* Memory usage of each layer is valid in v0.2.10 release.
+* Pytorch models are also valid if torch.onnx.export succeeded.
 
 ---
+
 ## Shape inference
+
 <p align="center">  
   <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/shape_inference.jpg">
 </p>  

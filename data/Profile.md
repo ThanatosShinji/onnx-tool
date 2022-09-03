@@ -16,7 +16,21 @@
     onnx_tool.model_profile(modelpath, None, None) # pass file name
     onnx_tool.model_profile(modelpath, savenode='node_table.txt') # save profile table to txt file
     onnx_tool.model_profile(modelpath, savenode='node_table.csv') # save profile table to csv file
-    ```    
+    ```
+    ```python
+    import onnx_tool
+    from torchvision.models import ResNet
+    from torchvision.models.resnet import Bottleneck
+    from onnx_tool import FusedOps
+    net = ResNet(Bottleneck,[3,4,6,3],num_classes=1000) # build ResNet50 for ImageNet
+    x=torch.randn(1, 3, 224, 224)
+    torch.onnx.export(net,x,'tmp.onnx')
+    hops=list(FusedOps) # import onnx_tool's suggested ops
+    hops.extend(('Add','Flatten')) # add Add and Flatten op to hidden list
+    onnx_tool.model_profile('tmp.onnx',hidden_ops=hops)
+    # the profile result will only contain Conv, Gemm, AveragePool, and MaxPool, 
+    # which makes the table more clear for analysis
+    ```
 
     ```python
     import onnx
@@ -26,6 +40,7 @@
     onnx_tool.model_shape_infer(model, None, saveshapesmodel='resnet50_shapes.onnx',shapesonly=True)  
   # pass ONNX.ModelProto and remove static weights, minimize storage space.
     ```    
+
     ```python
     import onnx
     import onnx_tool

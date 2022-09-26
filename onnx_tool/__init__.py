@@ -241,6 +241,12 @@ def graph_profile(graph: onnx.GraphProto, dynamic_shapes: {}, verbose=False, hid
     return macs, params, node_map
 
 
+# These ops are created by onnx exporter, they are out of programmer's sense
+DefaultFilter = (
+    'Identity', 'Constant',
+)
+
+# These ops are usually not executed in the inference time
 FusedOps = (
     'Identity', 'Relu', 'LeakyRelu', 'Constant', 'Shape', 'Squeeze', 'Unsqueeze', 'Reshape', 'ConstantOfShape', 'Cast'
 )
@@ -248,7 +254,7 @@ FusedOps = (
 
 def model_profile(m, dynamic_shapes: {str: tuple} = None, savenode: str = None,
                   saveshapesmodel: str = None, shapesonly: bool = False, verbose: bool = False,
-                  hidden_ops: [str] = (),
+                  hidden_ops: [str] = DefaultFilter,
                   dump_outputs: [str] = None, remove_unused_tensors=True) -> None:
     if isinstance(m, str):
         m = onnx.load_model(m)

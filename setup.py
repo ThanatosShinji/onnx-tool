@@ -4,7 +4,7 @@ from setuptools import setup, find_packages
 
 readme = open("README.md").read()
 
-VERSION = "0.2.12"
+VERSION = "0.2.13"
 
 requirements = [
     "onnx",

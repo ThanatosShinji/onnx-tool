@@ -29,13 +29,20 @@ models = [
     #             'input1': create_ndarray_int64((1, 1, 8)),
     #         }
     # },
+    # {
+    #     'name': 'data/public/t5-decoder-with-lm-head-12.onnx',
+    #     'dynamic_input':
+    #         {
+    #             'input_ids': create_ndarray_f32((1, 8)),
+    #             'encoder_hidden_states': create_ndarray_f32((1, 8, 768)),
+    #
+    #         }
+    # },
     {
-        'name': 'data/public/t5-decoder-with-lm-head-12.onnx',
+        'name': 'data/public/yolop-1280-1280.onnx',
         'dynamic_input':
             {
-                'input_ids': create_ndarray_f32((1, 8)),
-                'encoder_hidden_states': create_ndarray_f32((1, 8, 768)),
-
+                'images': create_ndarray_f32((1, 3, 512, 512)),
             }
     },
 ]
@@ -55,9 +62,9 @@ def add_outputs(modelname, savemodel, newoutputs):
 
 for modelinfo in models:
     onnx_tool.model_profile(modelinfo['name'], modelinfo['dynamic_input'], savenode='tmp.csv',
-                            saveshapesmodel='tmp.onnx', shapesonly=True, verbose=True)
+                            saveshapesmodel='tmp.onnx', shapesonly=False, verbose=True)
     onnx_tool.print_node_map()
-    # onnx_tool.model_subgraph(modelinfo['name'], ['StatefulPartitionedCall/model/conv2d_101/BiasAdd:0'], ['Identity_1:0'])
+    onnx_tool.model_subgraph('tmp.onnx', ['sequential/mobilenetv2_1.00_160/Conv1/Conv2D__7426:0'], ['dense'])
     # onnx_tool.model_opfusion(modelinfo['name'],'fused','fused_0','fused.onnx', ['StatefulPartitionedCall/model/conv2d_101/BiasAdd:0'], ['Identity_1:0'])
     # onnx_tool.model_subgraph(modelinfo['name'],['resnetv15_stage4_conv0_fwd'],['resnetv15_stage4_batchnorm1_fwd'])
     # onnx_tool.model_opfusion(modelinfo['name'],'fused','fused_0','fused.onnx',nodenames=['resnetv15_stage1_conv0_fwd','resnetv15_stage1_batchnorm0_fwd',

@@ -217,7 +217,7 @@ def graph_profile(graph: onnx.GraphProto, dynamic_shapes: {}, verbose=False, hid
             if input == '':
                 continue
             if input in pmap.keys():
-                if params_flag_map[input] > 1 and volume(tmap[input].shape) > 0:
+                if params_flag_map[input] > 1 and volume(tmap[input].shape) > 128:  # set 128 as sharing threshold
                     if input in params_shared_nodes:
                         params_shared_nodes[input].append(node.name)
                     else:

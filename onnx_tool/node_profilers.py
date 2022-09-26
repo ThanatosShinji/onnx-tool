@@ -1249,8 +1249,6 @@ class Slice(FusedNode):
         auto_add_attributes(nodeproto.attribute, attnames, self)
 
     def infer_shape(self, intensors: [numpy.ndarray]):
-        if self.name == 'Slice_612':
-            print("ues")
         if len(intensors) == 3:
             data = intensors[0]
             starts = intensors[1]
@@ -1272,7 +1270,9 @@ class Slice(FusedNode):
                     if i == 2:
                         x = x[:, :, starts[index]:ends[index], ...]
                     if i == 3:
-                        x = x[:, :, starts[index]:ends[index], ...]
+                        x = x[:, :, :, starts[index]:ends[index], ...]
+                    if i == 4:
+                        x = x[:, :, :, :, starts[index]:ends[index], ...]
                     index += 1
             return [x]
         if len(intensors) == 5:

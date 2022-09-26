@@ -42,7 +42,7 @@ models = [
         'name': 'data/public/yolop-1280-1280.onnx',
         'dynamic_input':
             {
-                'images': create_ndarray_f32((1, 3, 512, 512)),
+                'images': create_ndarray_f32((1, 3, 1280, 1280)),
             }
     },
 ]

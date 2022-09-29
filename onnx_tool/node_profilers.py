@@ -7,14 +7,14 @@ import numpy as np
 from .tensors import volume, create_ndarray_f32, create_ndarray_int64, get_attribute_data, is_valid_ndarray
 from .utils import NODEPROFILER_REGISTRY, tuple2str
 
-ADD_MACS = 0.5
+ADD_MACS = 1
 EXP_MACS = 16
 LOG_MACS = 16
 SQRT_MACS = 4
 POW_MACS = 32
 MUL_MACS = 1
 DIV_MACS = 2
-CMP_MACS = 0.2
+CMP_MACS = 1
 SIN_MACS = 14
 COS_MACS = 14
 

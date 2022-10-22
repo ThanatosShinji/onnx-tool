@@ -1029,14 +1029,16 @@ class Constant(NodeBase):
 class Unsqueeze(NodeBase):
     def __init__(self, nodeproto):
         super().__init__(nodeproto)
-        self.axes = [0]
-        for att in nodeproto.attribute:
-            if att.name == 'axes':
-                self.axes = get_attribute_data(att)
+        self.axes = None
+        auto_add_attributes(nodeproto.attribute, ['axes'], self)
 
     def infer_shape(self, intensors: [numpy.ndarray]):
         outtensor = intensors[0]
-        for axis in self.axes:
+        if self.axes is None:
+            axes = intensors[1]
+        else:
+            axes = self.axes
+        for axis in axes:
             outtensor = numpy.expand_dims(outtensor, axis=axis)
         return [outtensor]
 
@@ -1199,7 +1201,11 @@ class Split(NodeBase):
         split = []
         end = 0
         if self.split is None:
-            self.split = [intensors[0].shape[self.axis] // 2]
+            if len(intensors) == 2:
+                self.split = intensors[1]
+            else:
+                self.split = [intensors[0].shape[self.axis] // 2]
+
         self.axis = axes_neg2pos(len(intensors[0].shape), [self.axis])[0]
         for v in self.split:
             if end + v >= intensors[0].shape[self.axis]:
@@ -1486,6 +1492,41 @@ class LeakyRelu(PWNBase):
         super().__init__(node_proto)
         self.op_mac = MUL_MACS + CMP_MACS
 
+
+@NODEPROFILER_REGISTRY.register()
+class Einsum(NodeBase):
+    def __init__(self, node_proto):
+        super().__init__(node_proto)
+        auto_add_attributes(node_proto.attribute, ['equation'], self)
+        strs = self.equation.split(b',')
+        self.ashape = strs[0].replace(b' ', b'')
+        strs = strs[1].split(b'->')
+        self.bshape = strs[0].replace(b' ', b'')
+        self.cshape = strs[1].replace(b' ', b'')
+
+    def infer_shape(self, intensors: [numpy.ndarray]):
+        shape = []
+        map = {}
+        for i, v in enumerate(intensors[0].shape):
+            map[self.ashape[i]] = v
+        for i, v in enumerate(intensors[1].shape):
+            map[self.bshape[i]] = v
+        for k in self.cshape:
+            shape.append(map[k])
+        outtensor = create_ndarray_f32(shape)
+        return [outtensor]
+
+    def profile(self, intensors: [numpy.ndarray], outtensors: [numpy.ndarray]):
+        macs = 1
+        params = 0
+        map = {}
+        for i, v in enumerate(intensors[0].shape):
+            map[self.ashape[i]] = v
+        for i, v in enumerate(intensors[1].shape):
+            map[self.bshape[i]] = v
+        for key in map.keys():
+            macs *= map[key]
+        return macs, params
 
 def node_profile(node_proto: str, ins: [], outs: []):
     node_class = NODEPROFILER_REGISTRY.get(node_proto.op_type)

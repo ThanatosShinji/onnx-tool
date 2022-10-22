@@ -6,6 +6,18 @@ public_models = {
     'folder': 'data/public',
     'models': [
         {
+            'name': 'vae_encoder.onnx',
+            'dynamic_input': None
+        },
+        {
+            'name': 'vae_decoder.onnx',
+            'dynamic_input': None
+        },
+        {
+            'name': 'text_encoder.onnx',
+            'dynamic_input': None
+        },
+        {
             'name': 'bertsquad-12.onnx',
             'dynamic_input':
                 {

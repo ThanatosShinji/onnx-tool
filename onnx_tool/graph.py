@@ -266,6 +266,9 @@ class Graph():
                 return False
         return True
 
+    def graph_reorder(self):
+        return Graph(self.get_onnxgraph_by_nodenames(self.nodemap.keys()))
+
     def reorder_nodes(self, nodenames, itnames):
         tensor_consumed = []
         tensor_produced = []

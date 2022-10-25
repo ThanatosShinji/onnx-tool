@@ -9,7 +9,7 @@
   **and any operation you can image with ONNX.**
 
 New:
-
+* Quantized models are initially supported in v0.3.0 release.
 * 4 onnx models of Stable Diffusion are supported in v0.2.14 release. view  [results](#results)
 * Memory usage of each layer is valid in v0.2.10 release.
 * Pytorch models are also valid if torch.onnx.export succeeded.

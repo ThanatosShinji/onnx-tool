@@ -40,6 +40,8 @@ def onnxdtype2npdtype(initial):
         return numpy.int64
     if initial.data_type == initial.INT8:
         return numpy.int8
+    if initial.data_type == initial.UINT8:
+        return numpy.uint8
     if initial.data_type == initial.BOOL:
         return numpy.bool
 

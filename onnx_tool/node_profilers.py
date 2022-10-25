@@ -1528,6 +1528,115 @@ class Einsum(NodeBase):
             macs *= map[key]
         return macs, params
 
+
+@NODEPROFILER_REGISTRY.register()
+class DequantizeLinear(PWNBase):
+    def __init__(self, node_proto):
+        super().__init__(node_proto)
+        self.op_mac = MUL_MACS
+
+
+@NODEPROFILER_REGISTRY.register()
+class QuantizeLinear(PWNBase):
+    def __init__(self, node_proto):
+        super().__init__(node_proto)
+        self.op_mac = MUL_MACS
+
+
+@NODEPROFILER_REGISTRY.register()
+class MatMulInteger(Gemm):
+    pass
+
+
+@NODEPROFILER_REGISTRY.register()
+class QLinearMatMul(Gemm):
+    def __init__(self, nodeproto):
+        super().__init__(nodeproto)
+        attnames = ['transA', 'transB']
+        self.transA = None
+        self.transB = None
+        auto_add_attributes(nodeproto.attribute, attnames, self)
+
+    def infer_shape(self, intensors: [numpy.ndarray]):
+        x = intensors[0]
+        w = intensors[3]
+
+        if self.__class__ == Gemm:
+            if self.transA is not None and self.transA > 0:
+                xshape = x.shape[::-1]
+            else:
+                xshape = x.shape
+            if self.transB is not None and self.transB > 0:
+                yshape = xshape[:-1] + (w.shape[-2],)
+            else:
+                yshape = xshape[:-1] + (w.shape[-1],)
+        else:
+            yshape = x.shape[:-1] + (w.shape[-1],)
+
+        return [create_ndarray_f32(yshape)]
+
+    def profile(self, intensors: [numpy.ndarray], outtensors: [numpy.ndarray]):
+        params = 0
+        xshape = intensors[0].shape
+        weight_shape = intensors[3].shape
+        macs = volume(xshape)
+        if self.__class__ == Gemm:
+            macs *= weight_shape[0]
+        else:
+            macs *= weight_shape[-1]
+        return macs, params
+
+
+@NODEPROFILER_REGISTRY.register()
+class QLinearConv(Conv):
+    def infer_shape(self, intensors: [numpy.ndarray]):
+        outtensors = []
+        xtensor = intensors[0]
+        wtensor = intensors[3]
+        xshape = xtensor.shape
+        wshape = wtensor.shape
+        shape = []
+        if self.auto_pad is not None and self.auto_pad != b'NOTSET':
+            if self.auto_pad in [b'SAME_LOWER', b'SAME_UPPER']:
+                shape = (xshape[0], wshape[0], math.ceil(xshape[2] / self.strides[0]))
+                if len(xshape) == 4:
+                    shape += (math.ceil(xshape[3] / self.strides[1]),)
+        else:
+            if len(xshape) == 4:
+                oh = conv_output_shape(xshape[2], self.pads[0] + self.pads[2], wshape[2], self.strides[0],
+                                       self.dilations[0])
+                ow = conv_output_shape(xshape[3], self.pads[1] + self.pads[3], wshape[3], self.strides[1],
+                                       self.dilations[1])
+                shape = (xshape[0], wshape[0], oh, ow)
+            elif len(xshape) == 3:
+                oh = conv_output_shape(xshape[2], self.pads[0] + self.pads[1], wshape[2], self.strides[0],
+                                       self.dilations[0])
+                shape = (xshape[0], wshape[0], oh)
+        outtensors.append(create_ndarray_f32(shape))
+        return outtensors
+
+    def profile(self, intensors: [numpy.ndarray], outtensors: [numpy.ndarray]):
+        macs = 0
+        params = 0
+        if self.nboutput == 1:
+            kernel_shape = intensors[3].shape
+            params += volume(kernel_shape)
+            if self.nbinput == 3:
+                params += kernel_shape[0]
+
+            if len(kernel_shape) > 3:
+                outvol = volume(outtensors[0].shape)
+                macs += outvol * kernel_shape[1] * kernel_shape[2] * kernel_shape[3]
+            elif len(kernel_shape) == 3:
+                outvol = volume(outtensors[0].shape)
+                macs += outvol * kernel_shape[1] * kernel_shape[2]
+
+            if self.nbinput == 9:
+                macs += (outvol * ADD_MACS)
+
+        return macs, params
+
+
 def node_profile(node_proto: str, ins: [], outs: []):
     node_class = NODEPROFILER_REGISTRY.get(node_proto.op_type)
     if node_class != None:

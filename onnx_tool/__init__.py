@@ -505,12 +505,14 @@ def graph_remove_unused_tensors(graph):
 
 
 def model_simplify_names(m, savemodel: str, renametensor=True, renamelayer=True, custom_inputs=None,
-                         custom_outputs=None, remove_unused_tensors=True):
+                         custom_outputs=None, remove_unused_tensors=True, node_reorder=False):
     if isinstance(m, str):
         m = onnx.load_model(m)
     if isinstance(m, onnx.ModelProto):
         graph_simplify_names(m.graph, renametensor, renamelayer, custom_inputs, custom_outputs, remove_unused_tensors)
         G = Graph(m.graph)
+        if node_reorder:
+            G = G.graph_reorder()
         G.save_model(savemodel)
 
 

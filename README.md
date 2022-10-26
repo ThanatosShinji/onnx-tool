@@ -33,12 +33,12 @@ pytorch usage: [data/PytorchUsage.md](https://github.com/ThanatosShinji/onnx-too
 <p align="center">
   <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/macs_counting.png">
 </p>
-Float MultipleAdd Count, Memory Usage(in bytes), Parameters(elements number)
+Float MultipleAdd Count, Memory Usage(in bytes), Parameters(elements number)<br><br>
 
 <p id="sparsity" align="center">
   <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/sparse_model.png">
 </p>
-Sparse Pattern, Sparse Block Ratio, Sparse Element Ratio
+Sparse Pattern, Sparse Block Ratio, Sparse Element Ratio<br><br>
 
 how to use: [data/Profile.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Profile.md).  
 pytorch usage: [data/PytorchUsage.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/PytorchUsage.md).

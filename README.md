@@ -9,6 +9,7 @@
   **and any operation you can image with ONNX.**
 
 New:
+* Sparse Models are initially supported in v0.3.1 release. view [Sparse Model](#sparsity)
 * Quantized models are initially supported in v0.3.0 release.
 * 4 onnx models of Stable Diffusion are supported in v0.2.14 release. view  [results](#results)
 * Memory usage of each layer is valid in v0.2.10 release.
@@ -26,17 +27,26 @@ how to use: [data/Profile.md](https://github.com/ThanatosShinji/onnx-tool/blob/m
 pytorch usage: [data/PytorchUsage.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/PytorchUsage.md).
 
 ---
+
 ## MACs counting for each layer (FLOPs=2*MACs)
+
 <p align="center">
   <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/macs_counting.png">
 </p>
 Float MultipleAdd Count, Memory Usage(in bytes), Parameters(elements number)
 
+<p id="sparsity" align="center">
+  <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/sparse_model.png">
+</p>
+Sparse Pattern, Sparse Block Ratio, Sparse Element Ratio
+
 how to use: [data/Profile.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Profile.md).  
 pytorch usage: [data/PytorchUsage.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/PytorchUsage.md).
 
 ---
+
 ## Extract subgraph from ONNX model
+
 <p align="center">
   <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/resnet18_subgraph.png">
 </p>

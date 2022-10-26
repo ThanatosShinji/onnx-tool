@@ -266,5 +266,43 @@ public_models = {
                     'input': create_ndarray_f32((1, 3, 64, 64)),
                 }
         },
+        {
+            'name': 'distilbert_quan80_vnni.onnx',
+            'dynamic_input': None
+        },
+        {
+            'name': 'BERT_quan95.onnx',
+            'dynamic_input': None
+        },
+        {
+            'name': 'BERT_quant80_vnni.onnx',
+            'dynamic_input': None
+        },
+        {
+            'name': 'resnet50_quan75_4blk.onnx',
+            'dynamic_input': None
+        },
+        {
+            'name': 'resnet50_quan95.onnx',
+            'dynamic_input': None
+        },
+        {
+            'name': 'yolov5s_quanpruned.onnx',
+            'dynamic_input': {
+                'input': create_ndarray_f32((1, 3, 640, 640))
+            }
+        },
+        {
+            'name': 'mobilenetv1_quanpruned_sim.onnx',
+            'dynamic_input': None
+        },
+        {
+            'name': 'obert_quan90.onnx',
+            'dynamic_input': None
+        },
+        {
+            'name': 'vgg19_quanpruned.onnx',
+            'dynamic_input': None
+        },
     ]
 }

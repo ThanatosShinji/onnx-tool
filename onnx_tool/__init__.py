@@ -65,6 +65,151 @@ def model_export_tensors_numpy(m, tensornames: [str] = None, savefolder: str = N
                 save_numpy(tensor_map[name], fp16, os.path.join(savefolder, fname + '.npy'))
 
 
+def narray_calc_sparsity(arr):
+    if len(arr.shape) != 2 and len(arr.shape) != 4:
+        return None
+    if arr.dtype == numpy.float32 or arr.dtype == numpy.float64 or arr.dtype == numpy.int32 or arr.dtype == numpy.int8:
+        flag = arr == 0
+        return flag.sum() / arr.size
+    if arr.dtype == numpy.uint8:
+        flag = arr == 128
+        return flag.sum() / arr.size
+
+
+def narray_zero_flag(arr):
+    if arr.dtype == numpy.float32 or arr.dtype == numpy.float64 or arr.dtype == numpy.int32 or arr.dtype == numpy.int8:
+        flag = arr == 0
+    if arr.dtype == numpy.uint8:
+        flag = arr == 128
+    return flag
+
+
+def search_sparse_blocksize(arr, ratio, deltar_thres=0.1):
+    if len(arr.shape) == 2:  # gemm or matmul
+        initsize = 2
+        validsize = 1
+        prevalid0 = True
+        prevalid1 = True
+        validratio = ratio
+        while True:
+            # try axis=1
+            if prevalid1 and arr.shape[1] % initsize == 0:
+                rearr = arr.reshape(arr.shape[0], -1, initsize)
+                flag = narray_zero_flag(rearr)
+                arrsum = numpy.sum(flag, -1)
+                ratio1 = (arrsum == initsize).sum() / arrsum.size
+                if ratio1 > ratio - deltar_thres:
+                    valid1 = True
+                    validratio = ratio1
+                else:
+                    valid1 = False
+            else:
+                valid1 = False
+
+            # try axis=0
+            if prevalid0 and arr.shape[0] % initsize == 0:
+                rearr = arr.reshape(-1, initsize, arr.shape[1])
+                flag = narray_zero_flag(rearr)
+                arrsum = numpy.sum(flag, 1)
+                ratio0 = (arrsum == initsize).sum() / arrsum.size
+                if ratio0 > ratio - deltar_thres:
+                    valid0 = True
+                    validratio = ratio0
+                else:
+                    valid0 = False
+            else:
+                valid0 = False
+
+            if not valid1 and not valid0:
+                break
+            validsize = initsize
+            initsize *= 2
+            prevalid0 = valid0
+            prevalid1 = valid1
+
+        # check square
+        if prevalid1 and prevalid0:
+            rearr = arr.reshape(arr.shape[0] // validsize, validsize, arr.shape[1] // validsize, validsize)
+            flag = narray_zero_flag(rearr)
+            arrsum = numpy.sum(flag, axis=(1, -1))
+            ratios = (arrsum == (validsize * validsize)).sum() / arrsum.size
+            if ratios > ratio - deltar_thres:
+                return (validsize, validsize), ratios
+
+        return (validsize if prevalid0 else 1, validsize if prevalid1 else 1), validratio
+
+    if len(arr.shape) == 4:  # conv2d
+        initsize = 2
+        validsize = 1
+        prevalid0 = True
+        prevalid1 = True
+        validratio0 = ratio
+        validratio1 = ratio
+        while True:
+            # try axis=1
+            if prevalid1 and arr.shape[1] % initsize == 0:
+                rearr = arr.reshape(arr.shape[0], -1, initsize, *arr.shape[2:])
+                flag = narray_zero_flag(rearr)
+                arrsum = numpy.sum(flag, 2)
+                ratio1 = (arrsum == initsize).sum() / arrsum.size
+                if ratio1 > ratio - deltar_thres:
+                    valid1 = True
+                    validratio1 = ratio1
+                else:
+                    valid1 = False
+            else:
+                valid1 = False
+
+            # try axis=0
+            if prevalid0 and arr.shape[0] % initsize == 0:
+                rearr = arr.reshape(-1, initsize, *arr.shape[1:])
+                flag = narray_zero_flag(rearr)
+                arrsum = numpy.sum(flag, 1)
+                ratio0 = (arrsum == initsize).sum() / arrsum.size
+                if ratio0 > ratio - deltar_thres:
+                    valid0 = True
+                    validratio0 = ratio0
+                else:
+                    valid0 = False
+            else:
+                valid0 = False
+
+            if not valid1 and not valid0:
+                break
+            validsize = initsize
+            initsize *= 2
+            prevalid0 = valid0
+            prevalid1 = valid1
+        # check square
+        if validsize > 1 and prevalid1 and prevalid0:
+            rearr = arr.reshape(arr.shape[0] // validsize, validsize, arr.shape[1] // validsize, validsize,
+                                *arr.shape[2:])
+            flag = narray_zero_flag(rearr)
+            arrsum = numpy.sum(flag, axis=(1, 3))
+            ratios = (arrsum == (validsize * validsize)).sum() / arrsum.size
+            if ratios > ratio - deltar_thres:
+                return (validsize, validsize), ratios
+        if validratio0 > validratio1:
+            return (validsize, 1), validratio0
+        return (1, validsize), validratio1
+
+    return (1, 1), ratio
+
+
+def sparsity_search(thres_size=128, thres_ratio=0.4):
+    tensor_map = GLOBAL_VARS['tensor_map']
+    GLOBAL_VARS['sparse_map'] = {}
+    sparse_map = GLOBAL_VARS['sparse_map']
+    for key in tensor_map.keys():
+        arr = tensor_map[key]
+        if (volume(arr.shape) > thres_size):
+            ratio = narray_calc_sparsity(arr)
+            if ratio is not None and ratio > thres_ratio:
+                blocksize, blockratio = search_sparse_blocksize(arr, ratio)
+                sparse_map[key] = {'blocksize': blocksize, 'blockratio': blockratio, 'ratio': ratio}
+    GLOBAL_VARS['sparse_map'] = sparse_map
+
+
 def infer_shapes(graph: onnx.GraphProto, dynamic_tensors: {}, verbose: bool = False) -> [map, map]:
     """
         Returns: {TensorName:ndarray},{NodeName:int}
@@ -73,6 +218,8 @@ def infer_shapes(graph: onnx.GraphProto, dynamic_tensors: {}, verbose: bool = Fa
     GLOBAL_VARS['params_map'] = {}
 
     update_static_tensors(graph)
+
+    sparsity_search()
 
     if dynamic_tensors is not None:
         graph_set_inputs(graph, dynamic_tensors)
@@ -89,17 +236,6 @@ def infer_shapes(graph: onnx.GraphProto, dynamic_tensors: {}, verbose: bool = Fa
 
         if not is_valid_ndarray(tensor_map[input.name]):
             raise ValueError(f"Input {input.name}'s shape is dynamic, please set it a fixed input dimension")
-
-    # itmr = timer()
-    # for initial in graph.initializer:
-    #     arr=tensorproto2ndarray(initial)
-    #     tensor_map.update({initial.name:arr})
-    #     vol=volume(arr.shape)
-    #     if vol==0:#scalar
-    #         vol=1
-    #     params_map.update({initial.name:vol})
-    #     if verbose:
-    #         print(initial.name, itmr.stop(), arr.shape)
 
     for node in graph.node:
         ins = []
@@ -132,7 +268,7 @@ def infer_shapes(graph: onnx.GraphProto, dynamic_tensors: {}, verbose: bool = Fa
     return tensor_map, params_map
 
 
-def graph_profile(graph: onnx.GraphProto, dynamic_shapes: {}, verbose=False, hidden_ops: [str] = None,
+def graph_profile(graph: onnx.GraphProto, dynamic_shapes: {}, verbose=False, hidden_ops: [str] = None
                   ) -> [float, float, map]:
     """
         return MACs,Params,NodeMap
@@ -152,6 +288,9 @@ def graph_profile(graph: onnx.GraphProto, dynamic_shapes: {}, verbose=False, hid
     index = 0
     gtmr.start()
     params_map = GLOBAL_VARS['params_map']
+
+    sparse_map = GLOBAL_VARS['sparse_map']
+    sparse_model = len(sparse_map.keys()) > 0
     params_flag_map = {}
     for key in params_map.keys():
         params_flag_map[key] = 0
@@ -159,8 +298,10 @@ def graph_profile(graph: onnx.GraphProto, dynamic_shapes: {}, verbose=False, hid
     for input in graph.input:
         tensor = tmap[input.name]
         _memory = volume(tensor.shape) * 4
-        node_map.update({input.name: {'macs': 0, 'params': 0, 'memory': _memory, 'inshape': tensor.shape,
-                                      'outshape': tensor.shape}})
+        nodedata = {'macs': 0, 'params': 0, 'memory': _memory, 'inshape': tensor.shape,
+                    'outshape': tensor.shape}
+        nodedata.update({'blocksize': (1, 1), 'ratio': 0, 'blockratio': 0})
+        node_map.update({input.name: nodedata})
         memory += _memory
 
     for node in graph.node:
@@ -204,8 +345,20 @@ def graph_profile(graph: onnx.GraphProto, dynamic_shapes: {}, verbose=False, hid
             node.name = node.op_type + '_{}'.format(index)
         index += 1
         _memory *= 4
-        node_map.update({node.name: {'macs': _macs, 'params': _params, 'memory': _memory, 'inshape': inshape,
-                                     'outshape': outshape}})
+        nodedata = {'macs': _macs, 'params': _params, 'memory': _memory, 'inshape': inshape,
+                    'outshape': outshape}
+        if sparse_model:
+            is_sparse = False
+            for input in node.input:
+                if input == '':
+                    continue
+                if input in sparse_map.keys():
+                    nodedata.update(sparse_map[input])
+                    is_sparse = True
+                    break
+            if not is_sparse:
+                nodedata.update({'blocksize': (1, 1), 'ratio': 0, 'blockratio': 0})
+        node_map.update({node.name: nodedata})
         macs += _macs
         params += _params
         memory += _memory
@@ -296,11 +449,18 @@ def print_node_map(f: str = None, metric='MACs'):
     from tabulate import tabulate
     assert (metric in ['MACs', 'FLOPs'])
     node_map = GLOBAL_VARS['node_map']
+    sparse_map = GLOBAL_VARS['sparse_map']
+    print_sparse_table = True
+    if len(sparse_map.keys()) == 0:
+        print_sparse_table = False
     saveformat = 'txt'
     splitch = 'x'
 
     if f is not None and '.csv' in f:
         saveformat = 'csv'
+        csvformat = True
+    else:
+        csvformat = False
 
     ptable = []
 
@@ -325,38 +485,66 @@ def print_node_map(f: str = None, metric='MACs'):
     if metric == 'FLOPs':
         factor = 2
 
+    def num2str(num, csv=False):
+        if csv:
+            return '{}'.format(num)
+        else:
+            return '{:,}'.format(num)
+
     params += 1e-18
     macs += 1e-18
     for key in node_map.keys():
         item = node_map[key]
-        if saveformat == 'csv':
-            row = [key, '{}'.format(
-                int(item['macs']) * factor), '{:.2%}'.format(item['macs'] / macs)
-                , '{}'.format(int(item['memory'])), '{:.2%}'.format(item['memory'] / memory)
-                , '{}'.format(int(item['params'])), '{:.2%}'.format(item['params'] / params),
-                   tuple2str(item['inshape'], splitch), tuple2str(item['outshape'], splitch)]
-        else:
-            row = [key, '{:,}'.format(
-                int(item['macs']) * factor), '{:.2%}'.format(item['macs'] / macs)
-                , '{:,}'.format(int(item['memory'])), '{:.2%}'.format(item['memory'] / memory)
-                , '{:,}'.format(int(item['params'])), '{:.2%}'.format(item['params'] / params),
-                   tuple2str(item['inshape'], splitch), tuple2str(item['outshape'], splitch)]
-        ptable.append(row)
+        row = [key]
+        if print_sparse_table:
+            row.append(tuple2str(item['blocksize'], splitch))
+            row.append('{:.2%}'.format(item['blockratio']))
+            row.append('{:.2%}'.format(item['ratio']))
+        row.append(num2str(int(item['macs']) * factor, csvformat))
+        row.append('{:.2%}'.format(item['macs'] / macs))
+        row.append(num2str(int(item['memory']), csvformat))
+        row.append('{:.2%}'.format(item['memory'] / memory))
+        row.append(num2str(int(item['params'])))
+        row.append('{:.2%}'.format(item['params'] / params))
+        row.append(tuple2str(item['inshape'], splitch))
+        row.append(tuple2str(item['outshape'], splitch))
 
-    if saveformat == 'csv':
-        row = ['Total', f'{int(macs * factor)}', '100%', f'{memory}', '100%', f'{int(params)}', '100%', '_', '_']
-    else:
-        row = ['Total', f'{int(macs * factor):,}', '100%', f'{memory:,}', '100%', f'{int(params):,}', '100%', '_', '_']
+        ptable.append(row)
+    row = ['Total']
+    if print_sparse_table:
+        row.append('_')
+        row.append('_')
+        row.append('_')
+    row.append(num2str(int(macs * factor), csvformat))
+    row.append('100%')
+    row.append(num2str(int(memory), csvformat))
+    row.append('100%')
+    row.append(num2str(int(params), csvformat))
+    row.append('100%')
+    row.append('_')
+    row.append('_')
 
     ptable.append(row)
+    header = ['Name']
+    if print_sparse_table:
+        header.append('Sparse Pattern')
+        header.append('Sparse Block Ratio')
+        header.append('Sparse Ratio')
+    header.extend([metric, 'CPercent', 'Memory', 'MPercent', 'Params', 'PPercent', 'InShape',
+                   'OutShape'])
+
     if f is None:
-        print(tabulate(ptable,
-                       headers=['Name', metric, 'CPercent', 'Memory', 'MPercent', 'Params', 'PPercent', 'InShape',
-                                'OutShape']))
+        print(tabulate(ptable, headers=header))
     else:
         fp = open(f, 'w')
         if saveformat == 'csv':
-            fp.write(f'Name,{metric},CPercent,Memory,MPercent,Params,PPercent,InShape,OutShape\n')
+            headerstr = ''
+            for i, item in enumerate(header):
+                headerstr += item
+                if i < len(header) - 1:
+                    headerstr += ','
+            headerstr += '\n'
+            fp.write(headerstr)
             for row in ptable:
                 str = ''
                 for i, ele in enumerate(row):
@@ -366,8 +554,7 @@ def print_node_map(f: str = None, metric='MACs'):
                 str += '\n'
                 fp.write(str)
         else:
-            fp.write(tabulate(ptable, headers=['Name', metric, 'CPercent', 'Memory', 'MPercent', 'Params', 'PPercent',
-                                               'InShape', 'OutShape']))
+            fp.write(tabulate(ptable, headers=header))
         fp.close()
 
 

@@ -12,9 +12,9 @@ def get_parser():
     )
     parser.add_argument(
         "-m", "--mode",
-        choices=['profile', 'export_tensors'],
+        choices=['profile', 'export_tensors', 'rm_iden', 'io_modify'],
         default='profile',
-        help="path of input ONNX model")
+        help="rm_iden: remove Identity layers")
     parser.add_argument(
         "-i", "--in", dest='in_', required=True,
         help="path of input ONNX model")
@@ -28,10 +28,11 @@ def get_parser():
         help='tensor names as: --names 410 420'
     )
     parser.add_argument(
-        '--dynamic_inputs',
+        '-d', '--dynamic_shapes',
         nargs='+',
         default=None,
-        help='dynamic shapes for inputs as: --dynamic_inputs input:f32:1x3x224x224 scale:f32:1x2:0.25x0.25'
+        help='dynamic shape for io tensors as: --dynamic_shapes input:f32:1x3x224x224 scale:f32:1x2:0.25x0.25 '
+             'or input:1x3x224x224 input:1x3xhxw'
     )
     parser.add_argument(
         "--fp16",
@@ -76,11 +77,25 @@ def __args2dynamicshapes__(args: [str]):
     return dic
 
 
+def __args2strshapes__(args: [str]):
+    dic = {}
+    for arg in args:
+        strs = arg.split(':')
+        dic[strs[0]] = strs[1]
+    return dic
+
+
 if args.mode == 'profile':
-    if args.dynamic_inputs is not None:
-        dynamic = __args2dynamicshapes__(args.dynamic_inputs)
+    if args.dynamic_shapes is not None:
+        dynamic = __args2dynamicshapes__(args.dynamic_shapes)
     else:
         dynamic = None
     onnx_tool.model_profile(args.in_, dynamic, args.file, args.out, dump_outputs=args.names)
 elif args.mode == 'export_tensors':
     onnx_tool.model_export_tensors_numpy(args.in_, tensornames=args.names, savefolder=args.out, fp16=args.fp16)
+elif args.mode == 'rm_iden':
+    onnx_tool.model_remove_Identity(args.in_, args.out)
+elif args.mode == 'io_modify':
+    if args.dynamic_shapes is not None:
+        shapedic = __args2strshapes__(args.dynamic_shapes)
+    onnx_tool.model_io_modify(args.in_, args.out, shapedic)

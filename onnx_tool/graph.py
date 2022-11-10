@@ -225,7 +225,7 @@ class Graph():
 
     def save_model(self, f: str):
         if self.rawgraph is not None and f is not None:
-            model = onnx.helper.make_model(self.rawgraph, producer_name='onnx-tool', producer_version=VERSION)
+            model = onnx.helper.make_model(self.rawgraph, producer_name='onnx-tool', producer_version='v' + VERSION)
             onnx.save_model(model, f)
 
     def make_graph(self, nodenames, gname, inputnames, outputnames, with_initializer=True):
@@ -285,14 +285,22 @@ class Graph():
 
         for node in nodenames:
             if self.is_node_constant(node):
+                dummy_node = True
                 for output in self.nodemap[node].output:
-                    for consumer in self.consumedby[output]:
-                        if consumer in nodenames:
-                            if consumer not in nextnodes:
-                                search_flag[consumer] = True
-                                nextnodes.append(consumer)
+                    if output in self.consumedby.keys():
+                        for consumer in self.consumedby[output]:
+                            if consumer in nodenames:
+                                if consumer not in nextnodes:
+                                    search_flag[consumer] = True
+                                    nextnodes.append(consumer)
+                        dummy_node = False
+                    else:
+                        if dummy_node:
+                            if output in self.output:
+                                dummy_node = False
                     tensor_produced.append(output)
-                reorderednode.append(node)
+                if not dummy_node:
+                    reorderednode.append(node)
 
         while len(nextnodes):
             execnodes = []

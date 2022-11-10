@@ -426,6 +426,28 @@ def model_profile(m, dynamic_shapes: {str: tuple} = None, savenode: str = None,
             G = Graph(m.graph)
             G.save_model(saveshapesmodel)
 
+def model_remove_Identity(m, f: str):
+    if isinstance(m, str):
+        m = onnx.load_model(m)
+    if isinstance(m, onnx.ModelProto):
+        graph = m.graph
+        iden_map = {}
+        iden_set = []
+        for node in graph.node:
+            if node.op_type == 'Identity':
+                iden_map[node.output[0]] = node.input[0]
+                iden_set.append(node.name)
+        for node in graph.node:
+            for i, input in enumerate(node.input):
+                if input in iden_map.keys():
+                    node.input[i] = iden_map[input]
+        G = Graph(graph)
+        nodes = list(G.nodemap.keys())
+        for idenn in iden_set:
+            nodes.remove(idenn)
+        onnxg = G.get_onnxgraph_by_nodenames(nodes)
+        G = Graph(onnxg)
+        G.save_model(f)
 
 def model_shape_infer(m, dynamic_shapes: {str: tuple} = None,
                       saveshapesmodel: str = None, shapesonly: bool = False, verbose: bool = False,
@@ -702,6 +724,54 @@ def model_simplify_names(m, savemodel: str, renametensor=True, renamelayer=True,
             G = G.graph_reorder()
         G.save_model(savemodel)
 
+
+def model_io_modify(m, savemodel: str, custom_io):
+    '''
+        Args:
+            m: onnx.ModelProto or file path
+            custom_io: {str:str} e.g. {'input':'Nx3xwidthxheight'}
+        Returns:
+
+    '''
+    if isinstance(m, str):
+        m = onnx.load_model(m)
+    if isinstance(m, onnx.ModelProto):
+        graph = m.graph
+        if custom_io is not None:
+            keylist = list(custom_io.keys())
+            for i, input in enumerate(graph.input):
+                if input.name in keylist:
+                    shapes = custom_io[input.name].split('x')
+                    # maybe consider create a new valueinfoproto
+                    dim = input.type.tensor_type.shape.dim
+                    assert (len(shapes) == len(dim))
+                    for nb, shapeval in zip(dim, shapes):
+                        if shapeval.isnumeric():
+                            if nb.HasField('dim_param'):
+                                nb.ClearField('dim_param')
+                            nb.dim_value = int(shapeval)
+                        else:
+                            if nb.HasField('dim_value'):
+                                nb.ClearField('dim_value')
+                            nb.dim_param = shapeval
+
+            for i, output in enumerate(graph.output):
+                if output.name in keylist:
+                    shapes = custom_io[output.name].split('x')
+                    # maybe consider create a new valueinfoproto
+                    dim = output.type.tensor_type.shape.dim
+                    assert (len(shapes) == len(dim))
+                    for nb, shapeval in zip(dim, shapes):
+                        if shapeval.isnumeric():
+                            if nb.HasField('dim_param'):
+                                nb.ClearField('dim_param')
+                            nb.dim_value = int(shapeval)
+                        else:
+                            if nb.HasField('dim_value'):
+                                nb.ClearField('dim_value')
+                            nb.dim_param = shapeval
+        graph = Graph(graph)
+        graph.save_model(savemodel)
 
 def model_subgraph(m, in_tensor_names: [str] = None, out_tensor_names: [str] = None, nodenames: [str] = None,
                    savefolder='./'):

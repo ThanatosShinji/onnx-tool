@@ -324,10 +324,14 @@ def scatter_nd_impl(data, indices, updates, reduction='none'):  # type: ignore
     output = numpy.copy(data)
     for i in numpy.ndindex(indices.shape[:-1]):
         # NOTE: The order of iteration in this loop is not specified.
-        if reduction == 'add':
+        if reduction == "add":
             output[indices[i]] += updates[i]
-        elif reduction == 'mul':
+        elif reduction == "mul":
             output[indices[i]] *= updates[i]
+        elif reduction == "max":
+            output[indices[i]] = np.maximum(output[indices[i]], updates[i])
+        elif reduction == "min":
+            output[indices[i]] = np.minimum(output[indices[i]], updates[i])
         else:
             output[indices[i]] = updates[i]
     return output
@@ -778,7 +782,7 @@ def scatter_elements(data, indices, updates, axis=0, reduction='none'):  # type:
     if axis < 0:
         axis = data.ndim + axis
 
-    idx_xsection_shape = indices.shape[:axis] + indices.shape[axis + 1:]
+    idx_xsection_shape = indices.shape[:axis] + indices.shape[axis + 1 :]
 
     def make_slice(arr, axis, i):  # type: ignore
         slc = [slice(None)] * arr.ndim
@@ -792,35 +796,51 @@ def scatter_elements(data, indices, updates, axis=0, reduction='none'):  # type:
         return unpacked
 
     def make_indices_for_duplicate(idx):  # type: ignore
-        final_idx = ()
+        final_idx = list()
         for i in range(len(idx[0])):
             final_idx.append(tuple(idx_element[i] for idx_element in idx))
-        return (final_idx)
+        return list(final_idx)
 
     # We use indices and axis parameters to create idx
     # idx is in a form that can be used as a NumPy advanced indices for scattering of updates param. in data
-    idx = [[unpack(np.indices(idx_xsection_shape).reshape(indices.ndim - 1, -1)),
-            indices[tuple(make_slice(indices, axis, i))].reshape(1, -1)[0]] for i in range(indices.shape[axis])]
-    idx = (np.concatenate(idx, axis=1))
+    idx = [
+        [
+            unpack(np.indices(idx_xsection_shape).reshape(indices.ndim - 1, -1)),
+            indices[tuple(make_slice(indices, axis, i))].reshape(1, -1)[0],
+        ]
+        for i in range(indices.shape[axis])
+    ]
+    idx = list(np.concatenate(idx, axis=1))
     idx.insert(axis, idx.pop())
 
     # updates_idx is a NumPy advanced indices for indexing of elements in the updates
-    updates_idx = (idx)
+    updates_idx = list(idx)
     updates_idx.pop(axis)
-    updates_idx.insert(axis, np.repeat(np.arange(indices.shape[axis]), np.prod(idx_xsection_shape)))
+    updates_idx.insert(
+        axis, np.repeat(np.arange(indices.shape[axis]), np.prod(idx_xsection_shape))
+    )
 
     scattered = np.copy(data)
-    if reduction == 'none':
+    if reduction == "none":
         scattered[tuple(idx)] = updates[tuple(updates_idx)]
     else:
-        idx, updates_idx = make_indices_for_duplicate(idx), make_indices_for_duplicate(updates_idx)
+        idx, updates_idx = make_indices_for_duplicate(idx), make_indices_for_duplicate(
+            updates_idx
+        )
         for iter, idx_set in enumerate(idx):
-            if reduction == 'add':
+            if reduction == "add":
                 scattered[idx_set] += updates[updates_idx[iter]]
-            elif reduction == 'mul':
+            elif reduction == "mul":
                 scattered[idx_set] *= updates[updates_idx[iter]]
+            elif reduction == "max":
+                scattered[idx_set] = np.maximum(
+                    scattered[idx_set], updates[updates_idx[iter]]
+                )
+            elif reduction == "min":
+                scattered[idx_set] = np.minimum(
+                    scattered[idx_set], updates[updates_idx[iter]]
+                )
     return scattered
-
 
 @NODEPROFILER_REGISTRY.register()
 class ScatterElements(NodeBase):

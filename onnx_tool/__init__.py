@@ -526,7 +526,7 @@ def print_node_map(f: str = None, metric='MACs'):
         row.append('{:.2%}'.format(item['macs'] / macs))
         row.append(num2str(int(item['memory']), csvformat))
         row.append('{:.2%}'.format(item['memory'] / memory))
-        row.append(num2str(int(item['params'])))
+        row.append(num2str(int(item['params']), csvformat))
         row.append('{:.2%}'.format(item['params'] / params))
         row.append(tuple2str(item['inshape'], splitch))
         row.append(tuple2str(item['outshape'], splitch))

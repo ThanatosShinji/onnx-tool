@@ -1,8 +1,9 @@
 import warnings
 
+import numpy
 import onnx
-
-from .tensors import get_attribute_data
+from .node import create_node
+from .tensor import get_attribute_data, tensorproto2ndarray, shape_of_tensor, is_valid_ndarray
 from .utils import VERSION
 
 
@@ -16,22 +17,81 @@ def __shape_of_initializer__(initial):
 
 class Tensor():
     def __init__(self, t):
-        self.name = t.name
-        self.proto = t
-        if isinstance(t, onnx.ValueInfoProto):
-            self.shape = [2, ]
+        if isinstance(t, str):
+            self.name = t
+            self.proto = None
+            self.shape = []
+            self.numpy = None
+        elif isinstance(t, onnx.ValueInfoProto):
+            self.name = t.name
+            self.proto = t
+            self.shape = shape_of_tensor(t)
+            self.numpy = None
         elif isinstance(t, onnx.TensorProto):
-            self.shape = [2, ]
+            self.name = t.name
+            self.proto = t
+            self.numpy = tensorproto2ndarray(t)
+            self.shape = self.numpy.shape
+        elif isinstance(t, onnx.NodeProto):
+            if t.op_type == 'Constant':
+                self.name = t.output[0]
+                for att in t.attribute:
+                    if att.name == 'value':
+                        self.numpy = get_attribute_data(att)
+                        if not is_valid_ndarray(self.numpy):
+                            self.numpy = None
+                        if self.numpy is not None:
+                            self.shape = self.numpy.shape
+                        else:
+                            self.shape = []
+
+    def update_tensor(self, data: numpy.ndarray):
+        self.numpy = data
+        self.shape = data.shape
+
+    def update_shape(self, shape: numpy.ndarray):
+        if isinstance(shape, numpy.ndarray):
+            print("111")
+        self.shape = shape
+
+    def get_shape(self):
+        return self.shape
 
 
-class Node():
-    def __init__(self, n: onnx.NodeProto):
-        self.name = n.name
-        self.nextnodes = []
-        self.prevnodes = []
-        self.output = []
-        self.input = []
-        self.proto = n
+_SHAPE_TENSORS = {
+    'Reshape': ('1of2',),
+    'Resize': ('2of3', '3of4'),
+    'Slice': ('1,2of3', '1,2,3of4', '1,2,3,4of5')
+}
+
+
+def _contains_shape_tensor(n):
+    nodeset = _SHAPE_TENSORS.keys()
+    shape_tensors = []
+    if n.op_type in nodeset:
+        tensor_descs = _SHAPE_TENSORS[n.op_type]
+        for desc in tensor_descs:
+            strs = desc.split('of')
+            indice = strs[0]
+            count = int(strs[1])
+            if len(n.input) == count:
+                indistr = indice.split(',')
+                for istr in indistr:
+                    shape_tensors.append(n.input[int(istr)])
+    return shape_tensors
+
+
+#
+# class Node():
+#     def __init__(self, n: onnx.NodeProto):
+#         self.name = n.name
+#         self.op_type = n.op_type
+#         self.nextnodes = []
+#         self.prevnodes = []
+#         self.output = []
+#         self.input = []
+#         self.proto = n
+#         self.shape_calc = False
 
 
 class Graph():
@@ -42,14 +102,19 @@ class Graph():
         self.consumedby = {}
         self.rawgraph = g
         self.initials = []
+        self.dynamics = []
         self.input = []
         self.output = []
+        self.__init_graph_from_onnxproto__(g)
+        self.__find_shape_tensors__()
 
+    def __init_graph_from_onnxproto__(self, g):
         if g is None:
             return
 
         for node in g.node:
-            newnode = Node(node)
+            newnode = create_node(node)
+
             for tensor in node.input:
                 if tensor in self.producedby:
                     for producer in self.producedby[tensor]:
@@ -86,16 +151,59 @@ class Graph():
 
         for initial in g.initializer:
             self.initials.append(initial.name)
+            tensor = Tensor(initial)
+            self.tensormap[initial.name] = tensor
 
         for node in g.node:
             if node.op_type == 'Constant':
+                tensor = Tensor(node)
+                self.tensormap[node.output[0]] = tensor
                 self.initials.append(node.output[0])
+        self.initials = set(self.initials)
+
+        for key in self.nodemap.keys():
+            node = self.nodemap[key]
+            for input in node.input:
+                if input not in self.initials:
+                    self.dynamics.append(input)
+                    self.tensormap[input] = Tensor(input)
 
         for t in g.input:
             self.input.append(t.name)
+            self.dynamics.append(t.name)
 
         for t in g.output:
             self.output.append(t.name)
+            self.dynamics.append(t.name)
+
+        self.dynamics = set(self.dynamics)
+
+    def __find_shape_tensors__(self):
+        self.shape_tensors = []
+        shape_calc_nodes = []
+        for n in self.nodemap.keys():
+            shape_tensors = _contains_shape_tensor(self.nodemap[n])
+            for st in shape_tensors:
+                self.shape_tensors.append(st)
+        self.shape_tensors = set(self.shape_tensors)
+        # print(self.shape_tensors)
+        for tensor in self.shape_tensors:
+            if tensor not in self.initials and tensor in self.producedby.keys():
+                searchnodes = self.producedby[tensor]
+                while len(searchnodes) > 0:
+                    nextnodes = []
+                    for nname in searchnodes:
+                        node = self.nodemap[nname]
+                        node.shape_calc = True
+                        shape_calc_nodes.append(nname)
+                        if node.op_type == 'Shape':
+                            continue
+                        for input in node.input:
+                            if input not in self.initials and input in self.producedby.keys():
+                                nextnodes.extend(self.producedby[input])
+                    searchnodes = nextnodes
+        # print(shape_calc_nodes)
+        shape_calc_nodes = set(shape_calc_nodes)
 
     def __get_subnodes_byio__(self, inputs: [], outputs: []):
         graph_level0 = []
@@ -374,6 +482,58 @@ class Graph():
                     outtensors.append(output)
 
         return intensors, outtensors
+
+    def update_input_by_map(self, inputs: {}):
+        for key in inputs.keys():
+            if key in self.tensormap.keys():
+                self.tensormap[key].update_tensor(inputs[key])
+
+    def shape_infer(self, inputs: {} = None):
+        if inputs is not None:
+            self.update_input_by_map(inputs)
+
+        for key in self.nodemap.keys():
+            node = self.nodemap[key]
+            if node.name == 'Add_348':
+                print("111")
+            if node.shape_calc:
+                itensors = []
+                for input in node.input:
+                    if self.tensormap[input].numpy is None:
+                        itensors.append(self.tensormap[input].get_shape())
+                    else:
+                        itensors.append(self.tensormap[input].numpy)
+                otensors = node.value_infer(itensors)
+                if len(otensors) > 0:
+                    for i, output in enumerate(node.output):
+                        self.tensormap[output].update_tensor(otensors[i])
+            else:
+                itensors = []
+                for input in node.input:
+                    if input in self.shape_tensors:
+                        itensors.append(self.tensormap[input].numpy)
+                    else:
+                        itensors.append(self.tensormap[input].get_shape())
+                oshapes = node.shape_infer(itensors)
+                if len(oshapes) > 0:
+                    for i, output in enumerate(node.output):
+                        self.tensormap[output].update_shape(oshapes[i])
+        print('done!')
+
+    def value_infer(self, inputs: {}):
+        self.update_input_by_map(inputs)
+        for key in self.nodemap.keys():
+            node = self.nodemap[key]
+            itensors = []
+            for input in node.input:
+                itensors.append(self.tensormap[input].numpy)
+            otensors = node.value_infer(itensors)
+            for i, output in enumerate(node.output):
+                self.tensormap[output].update_tensor(otensors[i])
+        outputs = []
+        for output in self.output:
+            outputs.append(self.tensormap[output].numpy)
+        return outputs
 
 
 if __name__ == '__main__':

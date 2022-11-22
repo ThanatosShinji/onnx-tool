@@ -6,7 +6,7 @@ import onnx
 
 from .graph import Graph
 from .node_profilers import NodeBase, node_profile, node_infer_shape, Constant
-from .tensors import graph_addoutputs, graph_set_inputs, shape_of_tensor, is_valid_ndarray, tensorproto2ndarray, volume, \
+from .tensor import graph_addoutputs, graph_set_inputs, shape_of_tensor, is_valid_ndarray, tensorproto2ndarray, volume, \
     create_ndarray_f32, create_ndarray_int64, update_static_tensors
 from .utils import NODEPROFILER_REGISTRY, timer, tuple2str, GLOBAL_VARS, VERSION
 
@@ -425,6 +425,31 @@ def model_profile(m, dynamic_shapes: {str: tuple} = None, savenode: str = None,
                 graph_addoutputs(m.graph, dump_outputs)
             G = Graph(m.graph)
             G.save_model(saveshapesmodel)
+
+
+def model_profile_v2(m, dynamic_shapes: {str: tuple} = None, savenode: str = None,
+                     saveshapesmodel: str = None, shapesonly: bool = False, verbose: bool = False,
+                     hidden_ops: [str] = DefaultFilter,
+                     dump_outputs: [str] = None, remove_unused_tensors=True) -> None:
+    if isinstance(m, str):
+        m = onnx.load_model(m)
+    if isinstance(m, onnx.ModelProto):
+        G = Graph(m.graph)
+        G.shape_infer(dynamic_shapes)
+        if remove_unused_tensors:
+            graph_remove_unused_tensors(m.graph)
+        graph_profile(m.graph, dynamic_shapes, verbose, hidden_ops=hidden_ops)
+        print_node_map(savenode)
+        if saveshapesmodel is not None:
+            if shapesonly:
+                __remove_initilisers(m)
+                __remove_constantnodes(m)
+
+            if dump_outputs is not None:
+                graph_addoutputs(m.graph, dump_outputs)
+            G = Graph(m.graph)
+            G.save_model(saveshapesmodel)
+
 
 def model_remove_Identity(m, f: str):
     if isinstance(m, str):

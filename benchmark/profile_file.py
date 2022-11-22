@@ -1,7 +1,8 @@
 import onnx
-
+import numpy
 import onnx_tool
 from onnx_tool import create_ndarray_f32
+
 
 models = [
     # {
@@ -38,13 +39,19 @@ models = [
     #
     #         }
     # },
+    # {
+    #     'name': 'data/public/obert_quan90.onnx',
+    #     'dynamic_input': None
+    # },
     {
-        'name': 'data/public/Inceptionv3_rerodered.onnx',
+        'name': 'data/public/rvm_mobilenetv3_fp32.onnx',
         'dynamic_input':
-            {
-                'image': create_ndarray_f32((16, 3, 299, 299))
-            }
+            {'src': create_ndarray_f32((1, 3, 1080, 1920)), 'r1i': create_ndarray_f32((1, 16, 135, 240)),
+             'r2i': create_ndarray_f32((1, 20, 68, 120)), 'r3i': create_ndarray_f32((1, 40, 34, 60)),
+             'r4i': create_ndarray_f32((1, 64, 17, 30)),
+             'downsample_ratio': numpy.array((0.25,), dtype=numpy.float32)}
     },
+
 ]
 
 
@@ -62,11 +69,9 @@ def add_outputs(modelname, savemodel, newoutputs):
 
 for modelinfo in models:
     # onnx_tool.model_simplify_names(modelinfo['name'],'mobilenetv1_quanpruned_sim.onnx',node_reorder=True)
-
-    # onnx_tool.model_reorder_nodes(modelinfo['name'],'rerodered.onnx')
-    onnx_tool.model_profile(modelinfo['name'], modelinfo['dynamic_input'], savenode='tmp.csv',
-                            saveshapesmodel='unet_condition.onnx', shapesonly=True, verbose=True)
-    onnx_tool.print_node_map()
+    onnx_tool.model_profile_v2(modelinfo['name'], modelinfo['dynamic_input'], savenode='tmp.csv',
+                               saveshapesmodel='unet_condition.onnx', shapesonly=True, verbose=True)
+    # onnx_tool.print_node_map()
     # onnx_tool.model_io_modify(modelinfo['name'], 'newio.onnx', {"input": "1x3x128x128"}, {"output": '1x3x512x512'})
     # onnx_tool.model_subgraph('tmp.onnx', ['sequential/mobilenetv2_1.00_160/Conv1/Conv2D__7426:0'], ['dense'])
     # onnx_tool.model_opfusion(modelinfo['name'],'fused','fused_0','fused.onnx', ['StatefulPartitionedCall/model/conv2d_101/BiasAdd:0'], ['Identity_1:0'])

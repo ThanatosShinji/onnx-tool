@@ -1,4 +1,5 @@
 import time
+import warnings
 
 VERSION = "0.4.0"
 
@@ -60,8 +61,12 @@ class Registry():
         self._obj_map = {}
 
     def __setitem__(self, name, obj):
-        assert (name not in self._obj_map), (f"An object named '{name}' was already registered "
-                                             f"in '{self._name}' registry!")
+        # assert (name not in self._obj_map), (f"An object named '{name}' was already registered "
+        #                                      f"in '{self._name}' registry!")
+        if name in self._obj_map:
+            warnings.warn(
+                f"An object named '{name}' was already registered "
+                f"in '{self._name}' registry!")
         self._obj_map[name] = obj
 
     def register(self, obj=None):
@@ -105,6 +110,7 @@ class Registry():
 
 
 NODEPROFILER_REGISTRY = Registry('nodeprofiler')
+NODE_REGISTRY = Registry('NODE')
 
 
 class GlobalVars():

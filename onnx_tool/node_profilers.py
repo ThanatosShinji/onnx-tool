@@ -4,7 +4,7 @@ import warnings
 import numpy
 import numpy as np
 
-from .tensors import volume, create_ndarray_f32, create_ndarray_int64, get_attribute_data, is_valid_ndarray
+from .tensor import volume, create_ndarray_f32, create_ndarray_int64, get_attribute_data, is_valid_ndarray
 from .utils import NODEPROFILER_REGISTRY, tuple2str
 
 ADD_MACS = 1

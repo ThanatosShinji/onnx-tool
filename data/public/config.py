@@ -54,6 +54,13 @@ public_models = {
             'dynamic_input': None,
         },
         {
+            'name': 'Inceptionv3_rerodered.onnx',
+            'dynamic_input':
+                {
+                    'image': numpy.zeros((1, 3, 299, 299), numpy.float32)
+                }
+        },
+        {
             'name': 'mobilenetv2-12.onnx',
             'dynamic_input':
                 {

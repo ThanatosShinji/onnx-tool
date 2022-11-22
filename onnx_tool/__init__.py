@@ -449,6 +449,7 @@ def model_remove_Identity(m, f: str):
         G = Graph(onnxg)
         G.save_model(f)
 
+
 def model_shape_infer(m, dynamic_shapes: {str: tuple} = None,
                       saveshapesmodel: str = None, shapesonly: bool = False, verbose: bool = False,
                       dump_outputs: [str] = None):
@@ -722,6 +723,15 @@ def model_simplify_names(m, savemodel: str, renametensor=True, renamelayer=True,
         G = Graph(m.graph)
         if node_reorder:
             G = G.graph_reorder()
+        G.save_model(savemodel)
+
+
+def model_reorder_nodes(m, savemodel: str, ):
+    if isinstance(m, str):
+        m = onnx.load_model(m)
+    if isinstance(m, onnx.ModelProto):
+        G = Graph(m.graph)
+        G = G.graph_reorder()
         G.save_model(savemodel)
 
 

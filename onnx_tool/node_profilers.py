@@ -51,6 +51,14 @@ def conv_output_shape(xin, pad, ksize, stride, dilation):
     return int((xin + pad - dilation * (ksize - 1) - 1) / stride + 1)
 
 
+def auto_pad_valid_shape_calc(x, ksize, stride):
+    return math.ceil((x - ksize + 1) / stride)
+
+
+def auto_pad_same_shape_calc(x, stride):
+    return math.ceil((x) / stride)
+
+
 def convtranspose_output_shape(xin, output_padding, pad, ksize, stride, dilation):
     return stride * (xin - 1) + output_padding + ((ksize - 1) * dilation + 1) - pad
 
@@ -94,10 +102,17 @@ class Conv(NodeBase):
         wshape = wtensor.shape
         shape = []
         if self.auto_pad is not None and self.auto_pad != b'NOTSET':
+            assert (self.dilations[0] == 1 and self.dilations[1] == 1)  # dilation=1 only
             if self.auto_pad in [b'SAME_LOWER', b'SAME_UPPER']:
                 shape = (xshape[0], wshape[0], math.ceil(xshape[2] / self.strides[0]))
                 if len(xshape) == 4:
                     shape += (math.ceil(xshape[3] / self.strides[1]),)
+            elif self.auto_pad == b'VALID':
+                oh = math.ceil((xshape[2] - wshape[2] + 1) / self.strides[0])
+                shape = (xshape[0], wshape[0], oh)
+                if len(xshape) == 4:
+                    ow = math.ceil((xshape[3] - wshape[3] + 1) / self.strides[1])
+                    shape += (ow,)
         else:
             if len(xshape) == 4:
                 oh = conv_output_shape(xshape[2], self.pads[0] + self.pads[2], wshape[2], self.strides[0],
@@ -464,7 +479,8 @@ def auto_add_attributes(atts, attnames, obj):
 class PoolBase(NodeBase):
     def __init__(self, nodeproto):
         super().__init__(nodeproto)
-        validAttr = ['kernel_shape', 'pads', 'strides', 'ceil_mode']
+        validAttr = ['kernel_shape', 'pads', 'strides', 'ceil_mode', 'auto_pad']
+        self.auto_pad = None
         self.kernel_shape = (3, 3)
         self.ceil_mode = 0
         self.pads = (0, 0, 0, 0)
@@ -474,23 +490,35 @@ class PoolBase(NodeBase):
         self.op_mac = CMP_MACS
 
     def infer_shape(self, intensors: [numpy.ndarray]):
-        if len(self.kernel_shape) == 1:
+        if self.auto_pad is not None and self.auto_pad != b'NOTSET':
             inshape = intensors[0].shape
-            outshape = inshape[:2] + (
-                pooling_shape_calc(inshape[2], self.pads[0] + self.pads[1], self.kernel_shape[0], self.dilations[0],
-                                   self.strides[0], self.ceil_mode),)
-            return [create_ndarray_f32(outshape)]
-        if len(self.kernel_shape) == 2:
-            inshape = intensors[0].shape
-            outshape = inshape[:2] + (
-                pooling_shape_calc(inshape[2], self.pads[0] + self.pads[2], self.kernel_shape[0], self.dilations[0],
-                                   self.strides[0],
-                                   self.ceil_mode),
-                pooling_shape_calc(inshape[3], self.pads[1] + self.pads[3], self.kernel_shape[1], self.dilations[1],
-                                   self.strides[1],
-                                   self.ceil_mode),
-            )
-            return [create_ndarray_f32(outshape)]
+            outshape = inshape[:2]
+            if self.auto_pad in [b'SAME_LOWER', b'SAME_UPPER']:
+                outshape += (auto_pad_same_shape_calc(inshape[2], self.strides[0]),)
+                if len(self.strides) == 2:
+                    outshape += (auto_pad_same_shape_calc(inshape[3], self.strides[1]),)
+            elif self.auto_pad == b'VALID':
+                outshape += (auto_pad_valid_shape_calc(inshape[2], self.kernel_shape[0], self.strides[0]),)
+                if len(self.strides) == 2:
+                    outshape += (auto_pad_valid_shape_calc(inshape[3], self.kernel_shape[1], self.strides[1]),)
+        else:
+            if len(self.kernel_shape) == 1:
+                inshape = intensors[0].shape
+                outshape = inshape[:2] + (
+                    pooling_shape_calc(inshape[2], self.pads[0] + self.pads[1], self.kernel_shape[0], self.dilations[0],
+                                       self.strides[0], self.ceil_mode),)
+                return [create_ndarray_f32(outshape)]
+            if len(self.kernel_shape) == 2:
+                inshape = intensors[0].shape
+                outshape = inshape[:2] + (
+                    pooling_shape_calc(inshape[2], self.pads[0] + self.pads[2], self.kernel_shape[0], self.dilations[0],
+                                       self.strides[0],
+                                       self.ceil_mode),
+                    pooling_shape_calc(inshape[3], self.pads[1] + self.pads[3], self.kernel_shape[1], self.dilations[1],
+                                       self.strides[1],
+                                       self.ceil_mode),
+                )
+        return [create_ndarray_f32(outshape)]
 
     def profile(self, intensors: [numpy.ndarray], outtensors: [numpy.ndarray]):
         outvol = volume(outtensors[0].shape)
@@ -1423,6 +1451,13 @@ class Mul(PWNBase):
 
 
 @NODEPROFILER_REGISTRY.register()
+class ImageScaler(PWNBase):
+    def __init__(self, node_proto):
+        super().__init__(node_proto)
+        self.op_mac = ADD_MACS + MUL_MACS
+        self.ratio = 1
+
+@NODEPROFILER_REGISTRY.register()
 class InstanceNormalization(PWNBase):
     def __init__(self, node_proto):
         super().__init__(node_proto)
@@ -1655,6 +1690,18 @@ class QLinearConv(Conv):
                 macs += (outvol * ADD_MACS)
 
         return macs, params
+
+
+@NODEPROFILER_REGISTRY.register()
+class ArrayFeatureExtractor(NodeBase):
+    def infer_shape(self, intensors: [numpy.ndarray]):
+        return [intensors[1]]
+
+
+@NODEPROFILER_REGISTRY.register()
+class ZipMap(NodeBase):
+    def infer_shape(self, intensors: [numpy.ndarray]):
+        return [create_ndarray_f32((intensors[0].shape[0]), )]
 
 
 def node_profile(node_proto: str, ins: [], outs: []):

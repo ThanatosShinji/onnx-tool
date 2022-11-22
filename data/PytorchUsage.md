@@ -41,4 +41,4 @@
         #all pretrained weight and bias tensors will be exported as a numpy file in './alexnet'
     ```    
 
-* You can do other operations with your pytorch model.
+* sample code [pytorch_sample.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/pytorch_sample.py)

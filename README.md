@@ -9,11 +9,11 @@
   **and any operation you can image with ONNX.**
 
 New:
+* Better support of Tensorflow-converted models in v0.4.0 release.
 * Sparse Models are initially supported in v0.3.1 release. view [Sparse Model](#sparsity)
 * Quantized models are initially supported in v0.3.0 release.
 * 4 onnx models of Stable Diffusion are supported in v0.2.14 release. view  [results](#results)
 * Memory usage of each layer is valid in v0.2.10 release.
-* Pytorch models are also valid if torch.onnx.export succeeded.
 
 ---
 
@@ -25,6 +25,8 @@ New:
 
 how to use: [data/Profile.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Profile.md).  
 pytorch usage: [data/PytorchUsage.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/PytorchUsage.md).
+tensorflow
+usage: [data/TensorflowUsage.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/TensorflowUsage.md).
 
 ---
 
@@ -42,6 +44,8 @@ Sparse Pattern, Sparse Block Ratio, Sparse Element Ratio<br><br>
 
 how to use: [data/Profile.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Profile.md).  
 pytorch usage: [data/PytorchUsage.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/PytorchUsage.md).
+tensorflow
+usage: [data/TensorflowUsage.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/TensorflowUsage.md).
 
 ---
 

@@ -32,6 +32,8 @@ def shape_of_initializer(initial):
 def onnxdtype2npdtype(initial):
     if initial.data_type == initial.FLOAT:
         return numpy.float32
+    if initial.data_type == initial.FLOAT16:
+        return numpy.float16
     if initial.data_type == initial.INT32:
         return numpy.int32
     if initial.data_type == initial.INT16:
@@ -57,6 +59,9 @@ def tensorproto2ndarray(initial):
         if ndtype == numpy.int32:
             for i in range(len(initial.int32_data)):
                 arr[i] = initial.int32_data[i]
+        if ndtype == numpy.float16:
+            for i in range(len(initial.int32_data)):
+                arr[i] = numpy.float16(initial.int32_data[i])  # TODO wrong conversion from int16 to float16
         if ndtype == numpy.int64:
             for i in range(len(initial.int64_data)):
                 arr[i] = initial.int64_data[i]

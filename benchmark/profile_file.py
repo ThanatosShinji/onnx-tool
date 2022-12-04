@@ -31,6 +31,49 @@ models = [
     #         }
     # },
     # {
+    #     'name': 'data/public/googlenet-12.onnx',
+    #     'dynamic_input':
+    #         {
+    #             'data_0': numpy.zeros((1, 3, 224, 224), numpy.float32)
+    #         }
+    # },
+    {
+        'name': 'data/public/vgg19-7.onnx',
+        'dynamic_input': None
+    },
+    # {
+    #     'name': 'data/public/bidaf-9.onnx',
+    #     'dynamic_input':
+    #         {
+    #             'context_word': create_ndarray_f32((16, 1)),
+    #             'context_char': create_ndarray_f32((16, 1, 1, 16)),
+    #             'query_word': create_ndarray_f32((16, 1)),
+    #             'query_char': create_ndarray_f32((16, 1, 1, 16)),
+    #
+    #         }
+    # },
+    # {
+    #     'name': 'data/public/vae_encoder.onnx',
+    #     'dynamic_input': None
+    # },
+    # {
+    #     'name': 'data/public/Inceptionv3_rerodered.onnx',
+    #     'dynamic_input':
+    #         {
+    #             'image': numpy.zeros((1, 3, 299, 299), numpy.float32)
+    #         }
+    # },
+    # {
+    #     'name': 'data/public/bertsquad-12.onnx',
+    #     'dynamic_input':
+    #         {
+    #             'unique_ids_raw_output___9:0': numpy.array((1,), dtype=numpy.int64),
+    #             'segment_ids:0': numpy.zeros((1, 256), dtype=numpy.int64),
+    #             'input_mask:0': numpy.zeros((1, 256), dtype=numpy.int64),
+    #             'input_ids:0': numpy.zeros((1, 256), dtype=numpy.int64),
+    #         }
+    # },
+    # {
     #     'name': 'data/public/t5-decoder-with-lm-head-12.onnx',
     #     'dynamic_input':
     #         {
@@ -40,17 +83,24 @@ models = [
     #         }
     # },
     # {
-    #     'name': 'data/public/obert_quan90.onnx',
+    #     'name': 'data/public/MobileNetV1_Pruned_Quantized.onnx',
     #     'dynamic_input': None
     # },
-    {
-        'name': 'data/public/rvm_mobilenetv3_fp32.onnx',
-        'dynamic_input':
-            {'src': create_ndarray_f32((1, 3, 1080, 1920)), 'r1i': create_ndarray_f32((1, 16, 135, 240)),
-             'r2i': create_ndarray_f32((1, 20, 68, 120)), 'r3i': create_ndarray_f32((1, 40, 34, 60)),
-             'r4i': create_ndarray_f32((1, 64, 17, 30)),
-             'downsample_ratio': numpy.array((0.25,), dtype=numpy.float32)}
-    },
+    # {
+    #     'name': 'data/public/rvm_mobilenetv3_fp32.onnx',
+    #     'dynamic_input':
+    #         {'src': create_ndarray_f32((1, 3, 1080, 1920)), 'r1i': create_ndarray_f32((1, 16, 135, 240)),
+    #          'r2i': create_ndarray_f32((1, 20, 68, 120)), 'r3i': create_ndarray_f32((1, 40, 34, 60)),
+    #          'r4i': create_ndarray_f32((1, 64, 17, 30)),
+    #          'downsample_ratio': numpy.array((0.25,), dtype=numpy.float32)}
+    # },
+    # {
+    #     'name':'yuvasr.onnx',
+    #     'dynamic_input':
+    #         {
+    #             'input':create_ndarray_f32((1,3,128,128))
+    #         }
+    # }
 
 ]
 
@@ -69,8 +119,8 @@ def add_outputs(modelname, savemodel, newoutputs):
 
 for modelinfo in models:
     # onnx_tool.model_simplify_names(modelinfo['name'],'mobilenetv1_quanpruned_sim.onnx',node_reorder=True)
-    onnx_tool.model_profile_v2(modelinfo['name'], modelinfo['dynamic_input'], savenode='tmp.csv',
-                               saveshapesmodel='unet_condition.onnx', shapesonly=True, verbose=True)
+    # onnx_tool.model_api_test(modelinfo['name'], modelinfo['dynamic_input'])
+    onnx_tool.model_profile(modelinfo['name'], modelinfo['dynamic_input'], None, 'tmp.onnx', shapesonly=True)
     # onnx_tool.print_node_map()
     # onnx_tool.model_io_modify(modelinfo['name'], 'newio.onnx', {"input": "1x3x128x128"}, {"output": '1x3x512x512'})
     # onnx_tool.model_subgraph('tmp.onnx', ['sequential/mobilenetv2_1.00_160/Conv1/Conv2D__7426:0'], ['dense'])

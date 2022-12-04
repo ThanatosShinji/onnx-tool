@@ -3,8 +3,8 @@ import warnings
 import numpy
 import onnx
 from .node import create_node
-from .tensor import get_attribute_data, tensorproto2ndarray, shape_of_tensor, is_valid_ndarray
-from .utils import VERSION
+from .tensor import get_attribute_data, Tensor, volume
+from .utils import VERSION, tuple2str
 
 
 def __shape_of_initializer__(initial):
@@ -15,53 +15,20 @@ def __shape_of_initializer__(initial):
     return shape
 
 
-class Tensor():
-    def __init__(self, t):
-        if isinstance(t, str):
-            self.name = t
-            self.proto = None
-            self.shape = []
-            self.numpy = None
-        elif isinstance(t, onnx.ValueInfoProto):
-            self.name = t.name
-            self.proto = t
-            self.shape = shape_of_tensor(t)
-            self.numpy = None
-        elif isinstance(t, onnx.TensorProto):
-            self.name = t.name
-            self.proto = t
-            self.numpy = tensorproto2ndarray(t)
-            self.shape = self.numpy.shape
-        elif isinstance(t, onnx.NodeProto):
-            if t.op_type == 'Constant':
-                self.name = t.output[0]
-                for att in t.attribute:
-                    if att.name == 'value':
-                        self.numpy = get_attribute_data(att)
-                        if not is_valid_ndarray(self.numpy):
-                            self.numpy = None
-                        if self.numpy is not None:
-                            self.shape = self.numpy.shape
-                        else:
-                            self.shape = []
 
-    def update_tensor(self, data: numpy.ndarray):
-        self.numpy = data
-        self.shape = data.shape
-
-    def update_shape(self, shape: numpy.ndarray):
-        if isinstance(shape, numpy.ndarray):
-            print("111")
-        self.shape = shape
-
-    def get_shape(self):
-        return self.shape
 
 
 _SHAPE_TENSORS = {
     'Reshape': ('1of2',),
     'Resize': ('2of3', '3of4'),
-    'Slice': ('1,2of3', '1,2,3of4', '1,2,3,4of5')
+    'Expand': ('1of2',),
+    'Slice': ('1,2of3', '1,2,3of4', '1,2,3,4of5'),
+    'ConstantOfShape': ('0of1',),
+    'Tile': ('1of2',),
+    'Range': ('0,1,2of3',),
+    'OneHot': ('1of3',),
+    'TopK': ('1of2',),
+    'Pad': ('1of3',),
 }
 
 
@@ -81,21 +48,9 @@ def _contains_shape_tensor(n):
     return shape_tensors
 
 
-#
-# class Node():
-#     def __init__(self, n: onnx.NodeProto):
-#         self.name = n.name
-#         self.op_type = n.op_type
-#         self.nextnodes = []
-#         self.prevnodes = []
-#         self.output = []
-#         self.input = []
-#         self.proto = n
-#         self.shape_calc = False
-
-
 class Graph():
-    def __init__(self, g: onnx.GraphProto):
+    def __init__(self, g: onnx.GraphProto, noderename: bool = False, tensorrename: bool = False,
+                 reorder_graph: bool = True):
         self.nodemap = {}
         self.tensormap = {}
         self.producedby = {}
@@ -105,16 +60,22 @@ class Graph():
         self.dynamics = []
         self.input = []
         self.output = []
-        self.__init_graph_from_onnxproto__(g)
+        self.__init_graph_from_onnxproto__(g, noderename)
         self.__find_shape_tensors__()
 
-    def __init_graph_from_onnxproto__(self, g):
+    def __init_graph_from_onnxproto__(self, g, noderename, remove_dummytensors=True):
         if g is None:
             return
+        ncount = 0
+        from .utils import timer
 
+        tm = timer()
+        tm.start()
         for node in g.node:
             newnode = create_node(node)
-
+            if noderename or len(newnode.name) == 0:
+                newnode.name = newnode.op_type + '_' + str(ncount)
+            ncount += 1
             for tensor in node.input:
                 if tensor in self.producedby:
                     for producer in self.producedby[tensor]:
@@ -131,56 +92,78 @@ class Graph():
 
             self.nodemap[newnode.name] = newnode
 
-        for node in g.node:
-            for tensor in node.output:
-                if tensor in self.consumedby:
-                    for consumer in self.consumedby[tensor]:
-                        self.nodemap[node.name].nextnodes.append(self.nodemap[consumer])
+        print(f'Node Init Time Elapsed {tm.stop()}')
 
+        tm.start()
         for input in g.input:
             tensor = Tensor(input)
             self.tensormap[input.name] = tensor
+            self.input.append(input.name)
+            self.dynamics.append(input.name)
 
         for output in g.output:
             tensor = Tensor(output)
             self.tensormap[output.name] = tensor
+            self.output.append(output.name)
+            self.dynamics.append(output.name)
+
+        for key in self.nodemap.keys():
+            node = self.nodemap[key]
+            dummy_lists = []
+            for tensor in node.output:
+                if tensor in self.consumedby:
+                    for consumer in self.consumedby[tensor]:
+                        self.nodemap[node.name].nextnodes.append(self.nodemap[consumer])
+                else:
+                    if tensor not in self.output:
+                        print(f'Dummy tensors detected: {tensor}')
+                        if remove_dummytensors:
+                            dummy_lists.append(tensor)
+            for tensor in dummy_lists:
+                node.output.remove(tensor)
 
         for valinfo in g.value_info:
             tensor = Tensor(valinfo)
             self.tensormap[valinfo.name] = tensor
 
+        print(f'IO Tensor Init Time Elapsed {tm.stop()}')
+
+        tm.start()
         for initial in g.initializer:
             self.initials.append(initial.name)
             tensor = Tensor(initial)
             self.tensormap[initial.name] = tensor
 
-        for node in g.node:
+        for key in self.nodemap.keys():
+            node = self.nodemap[key]
             if node.op_type == 'Constant':
                 tensor = Tensor(node)
                 self.tensormap[node.output[0]] = tensor
                 self.initials.append(node.output[0])
         self.initials = set(self.initials)
 
+        print(f'Static Tensor Init Time Elapsed {tm.stop()}')
+
+        tm.start()
         for key in self.nodemap.keys():
             node = self.nodemap[key]
             for input in node.input:
-                if input not in self.initials:
+                if input not in self.initials and input not in self.tensormap.keys():
                     self.dynamics.append(input)
                     self.tensormap[input] = Tensor(input)
 
-        for t in g.input:
-            self.input.append(t.name)
-            self.dynamics.append(t.name)
-
-        for t in g.output:
-            self.output.append(t.name)
-            self.dynamics.append(t.name)
-
         self.dynamics = set(self.dynamics)
+        self.sparse_model = False
+        for key in self.tensormap.keys():
+            tensor = self.tensormap[key]
+            if tensor.sparsity is not None and tensor.sparsity['ratio'] > 0:
+                self.sparse_model = True
+                break
+
+        print(f'Misc Tensor Init Time Elapsed {tm.stop()}')
 
     def __find_shape_tensors__(self):
         self.shape_tensors = []
-        shape_calc_nodes = []
         for n in self.nodemap.keys():
             shape_tensors = _contains_shape_tensor(self.nodemap[n])
             for st in shape_tensors:
@@ -195,15 +178,12 @@ class Graph():
                     for nname in searchnodes:
                         node = self.nodemap[nname]
                         node.shape_calc = True
-                        shape_calc_nodes.append(nname)
                         if node.op_type == 'Shape':
                             continue
                         for input in node.input:
                             if input not in self.initials and input in self.producedby.keys():
                                 nextnodes.extend(self.producedby[input])
                     searchnodes = nextnodes
-        # print(shape_calc_nodes)
-        shape_calc_nodes = set(shape_calc_nodes)
 
     def __get_subnodes_byio__(self, inputs: [], outputs: []):
         graph_level0 = []
@@ -239,10 +219,6 @@ class Graph():
             if node not in graph_level1 and node not in graph_level2:
                 graph_level0.append(node)
 
-        # print(len(self.nodemap.keys()))
-        # print(len(graph_level0))
-        # print(len(graph_level1))
-        # print(len(graph_level2))
         return graph_level0, graph_level1, graph_level2
 
     def get_subgraph(self, inputs: [], outputs: []):
@@ -278,9 +254,6 @@ class Graph():
             warnings.warn("subgraph input and output tensors can not reverse to raw graph.")
 
         return graph_level0, graph_level1, graph_level2
-        # graph_level0.save_model('graph_level0.onnx')
-        # graph_level1.save_model('graph_level1.onnx')
-        # graph_level2.save_model('graph_level2.onnx')
 
     def fuse_subgraph_node_names(self, nodes: [str], nodeop: str, name: str, keep_attr=True):
         _inputs, _outputs = self.get_iotensors(nodes, remove_initials=False)
@@ -331,15 +304,16 @@ class Graph():
             return subgraph
         return None
 
-    def save_model(self, f: str):
-        if self.rawgraph is not None and f is not None:
-            model = onnx.helper.make_model(self.rawgraph, producer_name='onnx-tool', producer_version='v' + VERSION)
+    def save_model(self, f: str, shape_only: bool = False):
+        graph = self.make_graph(self.nodemap.keys(), 'graph', self.input, self.output, not shape_only)
+        if graph is not None and f is not None:
+            model = onnx.helper.make_model(graph, producer_name='onnx-tool', producer_version='v' + VERSION)
             onnx.save_model(model, f)
 
     def make_graph(self, nodenames, gname, inputnames, outputnames, with_initializer=True):
         nodes = []
         for name in nodenames:
-            nodes.append(self.nodemap[name].proto)
+            nodes.append(self.nodemap[name].make_nodeproto())
 
         initializer = None
         if with_initializer:
@@ -357,15 +331,21 @@ class Graph():
         outputs = []
         for name in inputnames:
             if name in self.tensormap:
-                inputs.append(self.tensormap[name].proto)
+                inputs.append(self.tensormap[name].make_value_proto())
             else:
                 inputs.append(onnx.helper.make_tensor_value_info(name, 1, None))
         for name in outputnames:
             if name in self.tensormap:
-                outputs.append(self.tensormap[name].proto)
+                outputs.append(self.tensormap[name].make_value_proto())
             else:
                 outputs.append(onnx.helper.make_tensor_value_info(name, 1, None))
-        graph = onnx.helper.make_graph(nodes=nodes, name=gname, inputs=inputs, outputs=outputs, initializer=initializer)
+        value_infos = []
+        for key in self.tensormap.keys():
+            tensor = self.tensormap[key]
+            vinfo = tensor.make_value_proto()
+            value_infos.append(vinfo)
+        graph = onnx.helper.make_graph(nodes=nodes, name=gname, inputs=inputs, outputs=outputs, initializer=initializer,
+                                       value_info=value_infos)
         return graph
 
     def is_node_constant(self, node):
@@ -375,7 +355,13 @@ class Graph():
         return True
 
     def graph_reorder(self):
-        return Graph(self.get_onnxgraph_by_nodenames(self.nodemap.keys()))
+        old_order = self.nodemap.keys()
+        ordered_nodes = self.reorder_nodes(old_order, self.input)
+        new_map = {}
+        for nname in ordered_nodes:
+            new_map[nname] = self.nodemap[nname]
+        self.nodemap = new_map
+        self.rawgraph = self.make_graph(self.nodemap.keys(), 'reordered', self.input, self.output)
 
     def reorder_nodes(self, nodenames, itnames):
         tensor_consumed = []
@@ -415,6 +401,8 @@ class Graph():
             for node in nextnodes:
                 produced = True
                 for input in self.nodemap[node].input:
+                    if len(input) == 0:
+                        continue
                     if input in self.initials:
                         continue
                     if input not in tensor_produced:
@@ -452,6 +440,8 @@ class Graph():
         outtensors = []
         for name in nodenames:
             for input in self.nodemap[name].input:
+                if len(input) == 0:
+                    continue
                 if remove_initials and input in self.initials:
                     continue
                 if input in self.producedby:
@@ -464,6 +454,7 @@ class Graph():
                     if inner:
                         continue
                 if input not in intensors:
+
                     intensors.append(input)
 
             for output in self.nodemap[name].output:
@@ -491,15 +482,17 @@ class Graph():
     def shape_infer(self, inputs: {} = None):
         if inputs is not None:
             self.update_input_by_map(inputs)
-
+        self.shapeinfer_optime_map = {}
+        from .utils import timer
+        tm = timer()
         for key in self.nodemap.keys():
+            tm.start()
             node = self.nodemap[key]
-            if node.name == 'Add_348':
-                print("111")
             if node.shape_calc:
                 itensors = []
                 for input in node.input:
                     if self.tensormap[input].numpy is None:
+                        assert (node.op_type in ('Shape', 'Slice'))
                         itensors.append(self.tensormap[input].get_shape())
                     else:
                         itensors.append(self.tensormap[input].numpy)
@@ -510,7 +503,7 @@ class Graph():
             else:
                 itensors = []
                 for input in node.input:
-                    if input in self.shape_tensors:
+                    if self.tensormap[input].numpy is not None:
                         itensors.append(self.tensormap[input].numpy)
                     else:
                         itensors.append(self.tensormap[input].get_shape())
@@ -518,7 +511,11 @@ class Graph():
                 if len(oshapes) > 0:
                     for i, output in enumerate(node.output):
                         self.tensormap[output].update_shape(oshapes[i])
-        print('done!')
+            if node.op_type in self.shapeinfer_optime_map.keys():
+                self.shapeinfer_optime_map[node.op_type] += tm.stop()
+            else:
+                self.shapeinfer_optime_map[node.op_type] = tm.stop()
+        print(self.shapeinfer_optime_map)
 
     def value_infer(self, inputs: {}):
         self.update_input_by_map(inputs)
@@ -535,6 +532,182 @@ class Graph():
             outputs.append(self.tensormap[output].numpy)
         return outputs
 
+    def profile(self):
+        params_flag_map = {}
+        for key in self.initials:
+            params_flag_map[key] = 0
+
+        self.macs = 0
+        self.params = 0
+        self.memory = 0
+        for key in self.nodemap.keys():
+            node = self.nodemap[key]
+            itensors = []
+            _params = 0
+            _memory = 0
+            max_sparsity = 0
+            block_sparsity = {'blocksize': (1, 1), 'blockratio': 0, 'ratio': 0}
+            for input in node.input:
+                tensor = self.tensormap[input]
+                itensors.append(tensor.get_valueorshape())
+                if input in self.initials:
+                    if params_flag_map[input] == 0:
+                        elesize = volume(self.tensormap[input].get_shape())
+                        _params += elesize
+                        _memory += elesize * self.tensormap[input].get_elementsize()
+                    params_flag_map[input] += 1
+                if tensor.sparsity is not None and tensor.sparsity['ratio'] > max_sparsity:
+                    max_sparsity = tensor.sparsity['ratio']
+                    block_sparsity = tensor.sparsity
+            otensors = []
+            for output in node.output:
+                if self.tensormap[output].numpy is not None:
+                    otensors.append(self.tensormap[output].numpy)
+                else:
+                    otensors.append(self.tensormap[output].get_shape())
+                if node.op_type == 'Constant':
+                    # Constant's output tensors are already counted as weight tensors
+                    continue
+                _memory += volume(self.tensormap[output].get_shape()) * self.tensormap[output].get_elementsize()
+            macs = node.profile(itensors, otensors)
+            outshape = (0,)
+            if len(node.output) > 0:
+                outshape = self.tensormap[node.output[0]].get_shape()
+                outshape = (0,) if len(outshape) == 0 else outshape
+            inshape = (0,)
+            if len(node.input) > 0:
+                inshape = self.tensormap[node.input[0]].get_shape()
+                inshape = (0,) if len(inshape) == 0 else inshape
+
+            node.macs = macs
+            node.inshape = inshape
+            node.outshape = outshape
+            node.params = _params
+            node.memory = _memory
+            node.sparsity = block_sparsity
+
+            self.macs += macs
+            self.params += _params
+            self.memory += _memory
+
+    def print_node_map(self, f: str = None, metric='MACs', exclude_nodes=None):
+        from tabulate import tabulate
+        assert (metric in ['MACs', 'FLOPs'])
+        print_sparse_table = self.sparse_model
+        saveformat = 'txt'
+        splitch = 'x'
+
+        if f is not None and '.csv' in f:
+            saveformat = 'csv'
+            csvformat = True
+        else:
+            csvformat = False
+
+        ptable = []
+
+        macs = int(round(self.macs))
+        params = int(self.params)
+        memory = int(self.memory)
+
+        shared_size = 0
+        for key in self.tensormap.keys():
+            if key in self.initials:
+                if len(self.consumedby[key]) > 1:
+                    tensor = self.tensormap[key]
+                    shared_size += volume(tensor.get_shape())
+
+        if shared_size > 1024:
+            print()
+            print('*' * 64)
+            print(f'Please note that Weight Tensors Sharing is detected:')
+            for key in self.tensormap.keys():
+                if key in self.initials:
+                    if len(self.consumedby[key]) > 1:
+                        print(f'Tensor:{key} ')
+                        print('Shared by: ')
+                        for node in self.consumedby[key]:
+                            print('           ', node)
+                        print()
+            print('*' * 64)
+
+        factor = 1
+        if metric == 'FLOPs':
+            factor = 2
+
+        def num2str(num, csv=False):
+            if csv:
+                return '{}'.format(num)
+            else:
+                return '{:,}'.format(num)
+
+        params += 1e-18
+        macs += 1e-18
+        for key in self.nodemap.keys():
+            node = self.nodemap[key]
+            if exclude_nodes is not None and node.op_type in exclude_nodes:
+                continue
+            row = [key]
+            if print_sparse_table:
+                sparsity = node.sparsity
+                row.append(tuple2str(sparsity['blocksize'], splitch))
+                row.append('{:.2%}'.format(sparsity['blockratio']))
+                row.append('{:.2%}'.format(sparsity['ratio']))
+            row.append(num2str(int(node.macs) * factor, csvformat))
+            row.append('{:.2%}'.format(node.macs / macs))
+            row.append(num2str(int(node.memory), csvformat))
+            row.append('{:.2%}'.format(node.memory / memory))
+            row.append(num2str(int(node.params), csvformat))
+            row.append('{:.2%}'.format(node.params / params))
+            row.append(tuple2str(node.inshape, splitch))
+            row.append(tuple2str(node.outshape, splitch))
+
+            ptable.append(row)
+        row = ['Total']
+        if print_sparse_table:
+            row.append('_')
+            row.append('_')
+            row.append('_')
+        row.append(num2str(int(macs * factor), csvformat))
+        row.append('100%')
+        row.append(num2str(int(memory), csvformat))
+        row.append('100%')
+        row.append(num2str(int(params), csvformat))
+        row.append('100%')
+        row.append('_')
+        row.append('_')
+
+        ptable.append(row)
+        header = ['Name']
+        if print_sparse_table:
+            header.append('Sparse Pattern')
+            header.append('Sparse Block Ratio')
+            header.append('Sparse Ratio')
+        header.extend([metric, 'CPercent', 'Memory', 'MPercent', 'Params', 'PPercent', 'InShape',
+                       'OutShape'])
+
+        if f is None:
+            print(tabulate(ptable, headers=header))
+        else:
+            fp = open(f, 'w')
+            if saveformat == 'csv':
+                headerstr = ''
+                for i, item in enumerate(header):
+                    headerstr += item
+                    if i < len(header) - 1:
+                        headerstr += ','
+                headerstr += '\n'
+                fp.write(headerstr)
+                for row in ptable:
+                    str = ''
+                    for i, ele in enumerate(row):
+                        str += ele
+                        if i != len(row) - 1:
+                            str += ','
+                    str += '\n'
+                    fp.write(str)
+            else:
+                fp.write(tabulate(ptable, headers=header))
+            fp.close()
 
 if __name__ == '__main__':
     f = 'data/public/bertsquad-12.onnx'

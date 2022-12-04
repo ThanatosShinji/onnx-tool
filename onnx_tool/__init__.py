@@ -7,22 +7,22 @@ import onnx
 from .graph import Graph
 from .node_profilers import NodeBase, node_profile, node_infer_shape, Constant
 from .tensor import graph_addoutputs, graph_set_inputs, shape_of_tensor, is_valid_ndarray, tensorproto2ndarray, volume, \
-    create_ndarray_f32, create_ndarray_int64, update_static_tensors
+    create_ndarray_f32, create_ndarray_int64, update_static_tensors, volume_tensor
 from .utils import NODEPROFILER_REGISTRY, timer, tuple2str, GLOBAL_VARS, VERSION
 
 
-def __remove_initilisers(model: onnx.ModelProto):
-    model.graph.ClearField('initializer')
+def __remove_initilisers(graph: onnx.GraphProto):
+    graph.ClearField('initializer')
 
 
-def __remove_constantnodes(model: onnx.ModelProto):
+def __remove_constantnodes(graph: onnx.GraphProto):
     validnodes = []
-    for node in model.graph.node:
+    for node in graph.node:
         if node.op_type != 'Constant':
             validnodes.append(node)
-    model.graph.ClearField('node')
+    graph.ClearField('node')
     for node in validnodes:
-        model.graph.node.append(node)
+        graph.node.append(node)
 
 
 def model_export_tensors_numpy(m, tensornames: [str] = None, savefolder: str = None, fp16: bool = False) -> None:
@@ -202,7 +202,7 @@ def sparsity_search(thres_size=128, thres_ratio=0.4):
     sparse_map = GLOBAL_VARS['sparse_map']
     for key in tensor_map.keys():
         arr = tensor_map[key]
-        if (volume(arr.shape) > thres_size):
+        if (volume_tensor(arr) > thres_size):
             ratio = narray_calc_sparsity(arr)
             if ratio is not None and ratio > thres_ratio:
                 blocksize, blockratio = search_sparse_blocksize(arr, ratio)
@@ -399,56 +399,97 @@ DefaultFilter = (
     'Identity', 'Constant',
 )
 
-# These ops are usually not executed in the inference time
-FusedOps = (
-    'Identity', 'Relu', 'LeakyRelu', 'Constant', 'Shape', 'Squeeze', 'Unsqueeze', 'Reshape', 'ConstantOfShape', 'Cast'
+# These ops have no computation
+NoMacsOps = (
+    'Identity', 'Constant', 'Shape', 'Squeeze', 'Unsqueeze', 'Reshape', 'ConstantOfShape', 'Cast', 'Pad', 'Concat',
+    'Slice', 'Gather'
 )
 
 
-def model_profile(m, dynamic_shapes: {str: tuple} = None, savenode: str = None,
-                  saveshapesmodel: str = None, shapesonly: bool = False, verbose: bool = False,
+def model_profile(m, dynamic_shapes: {str: tuple} = None, savenode: str = None, saveshapesmodel: str = None,
+                  topsort: bool = True, shapesonly: bool = False, verbose: bool = False,
                   hidden_ops: [str] = DefaultFilter,
                   dump_outputs: [str] = None, remove_unused_tensors=True) -> None:
     if isinstance(m, str):
         m = onnx.load_model(m)
     if isinstance(m, onnx.ModelProto):
+        graph = m.graph
         if remove_unused_tensors:
-            graph_remove_unused_tensors(m.graph)
-        graph_profile(m.graph, dynamic_shapes, verbose, hidden_ops=hidden_ops)
+            graph_remove_unused_tensors(graph)
+        if topsort:
+            G = Graph(graph)
+            G.graph_reorder()
+            graph = G.rawgraph
+        graph_profile(graph, dynamic_shapes, verbose, hidden_ops=hidden_ops)
         print_node_map(savenode)
         if saveshapesmodel is not None:
             if shapesonly:
-                __remove_initilisers(m)
-                __remove_constantnodes(m)
+                __remove_initilisers(graph)
+                __remove_constantnodes(graph)
 
             if dump_outputs is not None:
-                graph_addoutputs(m.graph, dump_outputs)
-            G = Graph(m.graph)
+                graph_addoutputs(graph, dump_outputs)
+            G = Graph(graph)
             G.save_model(saveshapesmodel)
 
 
 def model_profile_v2(m, dynamic_shapes: {str: tuple} = None, savenode: str = None,
                      saveshapesmodel: str = None, shapesonly: bool = False, verbose: bool = False,
-                     hidden_ops: [str] = DefaultFilter,
+                     hidden_ops: [str] = NoMacsOps,
                      dump_outputs: [str] = None, remove_unused_tensors=True) -> None:
     if isinstance(m, str):
         m = onnx.load_model(m)
     if isinstance(m, onnx.ModelProto):
         G = Graph(m.graph)
+        gtmr = timer()
+        gtmr.start()
         G.shape_infer(dynamic_shapes)
-        if remove_unused_tensors:
-            graph_remove_unused_tensors(m.graph)
-        graph_profile(m.graph, dynamic_shapes, verbose, hidden_ops=hidden_ops)
-        print_node_map(savenode)
-        if saveshapesmodel is not None:
-            if shapesonly:
-                __remove_initilisers(m)
-                __remove_constantnodes(m)
+        if verbose:
+            print(f'infered all tensor shapes, time cost {gtmr.stop():.3f} s')
+        gtmr.start()
+        G.profile()
+        if verbose:
+            print(f'profile all nodes, time cost {gtmr.stop():.3f} s')
+        G.print_node_map(savenode, exclude_nodes=hidden_ops)
 
-            if dump_outputs is not None:
-                graph_addoutputs(m.graph, dump_outputs)
-            G = Graph(m.graph)
-            G.save_model(saveshapesmodel)
+        # if remove_unused_tensors:
+        #     graph_remove_unused_tensors(m.graph)
+        # graph_profile(m.graph, dynamic_shapes, verbose, hidden_ops=hidden_ops)
+        # print_node_map(savenode)
+        if saveshapesmodel is not None:
+            G.save_model(saveshapesmodel, shapesonly)
+
+
+def model_api_test(m, dynamic_shapes: {str: tuple} = None):
+    if isinstance(m, str):
+        m = onnx.load_model(m)
+    if isinstance(m, onnx.ModelProto):
+        G = Graph(m.graph)
+        G.graph_reorder()
+        gtmr = timer()
+        gtmr.start()
+        G.shape_infer(dynamic_shapes)
+        print(f'infered all tensor shapes, time cost {gtmr.stop():.3f} s')
+        gtmr.start()
+        G.profile()
+        print(f'profile all nodes, time cost {gtmr.stop():.3f} s')
+        graph_profile(G.rawgraph, dynamic_shapes, True)
+        node_map = GLOBAL_VARS['node_map']
+        node_map_v2 = G.nodemap
+        for key in node_map.keys():
+            if key in node_map_v2.keys():
+                diff = node_map[key]['macs'] - node_map_v2[key].macs
+                if diff != 0:
+                    print(f"Error macs: {key} {node_map[key]['macs']} {node_map_v2[key].macs}")
+                diff = node_map[key]['params'] - node_map_v2[key].params
+                if diff != 0:
+                    print(f"Error params: {key} {node_map[key]['params']} {node_map_v2[key].params}")
+                diff = node_map[key]['memory'] - node_map_v2[key].memory
+                if diff != 0:
+                    print(f"Error memory: {key} {node_map[key]['memory']} {node_map_v2[key].memory}")
+            else:
+                print(f"Error Key not match {key}")
+        # G.print_node_map(exclude_nodes=NoMacsOps)
 
 
 def model_remove_Identity(m, f: str):

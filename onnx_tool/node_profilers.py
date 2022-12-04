@@ -684,6 +684,8 @@ class Scan(NodeBase):
 
     def infer_shape(self, intensors: [numpy.ndarray]):
         # TODO
+        if self.nboutput == 2:
+            return [intensors[3], intensors[3]]
         return [create_ndarray_f32((1, 1)), create_ndarray_f32((1, 1)), create_ndarray_f32((1,)),
                 intensors[3], intensors[3], ]
 
@@ -1285,7 +1287,7 @@ class ConstantOfShape(NodeBase):
 
     def infer_shape(self, intensors: [numpy.ndarray]):
         arr = numpy.zeros(intensors[0].astype(numpy.int64), dtype=numpy.float32)
-        if self.value is not None and len(self.value) == 1:
+        if self.value is not None:
             arr.fill(self.value[0])
         return [arr]
 
@@ -1301,6 +1303,8 @@ class Slice(FusedNode):
         super().__init__(nodeproto)
         attnames = ['axes', 'ends', 'starts']
         auto_add_attributes(nodeproto.attribute, attnames, self)
+        if hasattr(self, 'axes') and isinstance(self.axes, int):
+            self.axes = [self.axes]
 
     def infer_shape(self, intensors: [numpy.ndarray]):
         if len(intensors) == 3:
@@ -1462,6 +1466,7 @@ class InstanceNormalization(PWNBase):
     def __init__(self, node_proto):
         super().__init__(node_proto)
         self.op_mac = ADD_MACS + MUL_MACS + ADD_MACS + DIV_MACS
+        self.ratio = 1
 
 
 @NODEPROFILER_REGISTRY.register()
@@ -1503,11 +1508,7 @@ class Div(PWNBase):
 
 
 @NODEPROFILER_REGISTRY.register()
-class Range(PWNBase):
-    def __init__(self, node_proto):
-        super().__init__(node_proto)
-        self.op_mac = 1
-
+class Range(NodeBase):
     def infer_shape(self, intensors: [numpy.ndarray]):
         start = intensors[0]
         limit = intensors[1]

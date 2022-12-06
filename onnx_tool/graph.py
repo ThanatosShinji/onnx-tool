@@ -20,7 +20,8 @@ def __shape_of_initializer__(initial):
 
 _SHAPE_TENSORS = {
     'Reshape': ('1of2',),
-    'Resize': ('2of3', '3of4'),
+    'Resize': ('2of3', '3of4', '1of2'),
+    'Upsample': ('2of3', '3of4', '1of2'),
     'Expand': ('1of2',),
     'Slice': ('1,2of3', '1,2,3of4', '1,2,3,4of5'),
     'ConstantOfShape': ('0of1',),
@@ -29,8 +30,8 @@ _SHAPE_TENSORS = {
     'OneHot': ('1of3',),
     'TopK': ('1of2',),
     'Pad': ('1of3',),
+    'NonMaxSuppression': ('2of5',),
 }
-
 
 def _contains_shape_tensor(n):
     nodeset = _SHAPE_TENSORS.keys()
@@ -143,6 +144,22 @@ class Graph():
         self.initials = set(self.initials)
 
         print(f'Static Tensor Init Time Elapsed {tm.stop()}')
+
+        rmlist = []
+        for input in self.input:
+            if input in self.initials:
+                rmlist.append(input)
+        for key in rmlist:
+            self.dynamics.remove(key)
+            self.input.remove(key)
+
+        rmlist = []
+        for output in self.output:
+            if output in self.consumedby.keys():
+                rmlist.append(output)
+        for key in rmlist:
+            self.dynamics.remove(key)
+            self.output.remove(key)
 
         tm.start()
         for key in self.nodemap.keys():
@@ -612,7 +629,7 @@ class Graph():
         shared_size = 0
         for key in self.tensormap.keys():
             if key in self.initials:
-                if len(self.consumedby[key]) > 1:
+                if key in self.consumedby.keys() and len(self.consumedby[key]) > 1:
                     tensor = self.tensormap[key]
                     shared_size += volume(tensor.get_shape())
 
@@ -622,7 +639,7 @@ class Graph():
             print(f'Please note that Weight Tensors Sharing is detected:')
             for key in self.tensormap.keys():
                 if key in self.initials:
-                    if len(self.consumedby[key]) > 1:
+                    if key in self.consumedby.keys() and len(self.consumedby[key]) > 1:
                         print(f'Tensor:{key} ')
                         print('Shared by: ')
                         for node in self.consumedby[key]:

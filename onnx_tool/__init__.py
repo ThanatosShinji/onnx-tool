@@ -281,6 +281,7 @@ def graph_profile(graph: onnx.GraphProto, dynamic_shapes: {}, verbose=False, hid
 
     gtmr.start()
     tmap, pmap = infer_shapes(graph, dynamic_shapes, verbose=verbose)
+    t_shapeinfer = gtmr.stop()
     if verbose:
         print(f'infered all tensor shapes, time cost {gtmr.stop():.3f} s')
 
@@ -362,8 +363,10 @@ def graph_profile(graph: onnx.GraphProto, dynamic_shapes: {}, verbose=False, hid
         macs += _macs
         params += _params
         memory += _memory
+
+    t_profile = gtmr.stop()
     if verbose:
-        print(f'profile all nodes, time cost {gtmr.stop():.3f} s')
+        print(f'profile all nodes, time cost {t_profile:.3f} s')
 
     for node in graph.node:
         for input in node.input:
@@ -381,6 +384,8 @@ def graph_profile(graph: onnx.GraphProto, dynamic_shapes: {}, verbose=False, hid
     GLOBAL_VARS['memory'] = memory
     GLOBAL_VARS['node_map'] = node_map
     GLOBAL_VARS['params_shared_nodes'] = params_shared_nodes
+    GLOBAL_VARS['t_shapeinfer'] = t_shapeinfer
+    GLOBAL_VARS['t_profile'] = t_profile
     if verbose:
         tmem_count = 0
         for t in tmap:
@@ -469,16 +474,21 @@ def model_api_test(m, dynamic_shapes: {str: tuple} = None):
         gtmr = timer()
         gtmr.start()
         G.shape_infer(dynamic_shapes)
-        print(f'infered all tensor shapes, time cost {gtmr.stop():.3f} s')
+        t_shapeinfer_new = gtmr.stop()
+        print(f'infered all tensor shapes, time cost {t_shapeinfer_new:.3f} s')
+
         gtmr.start()
         G.profile()
-        print(f'profile all nodes, time cost {gtmr.stop():.3f} s')
+        t_profile_new = gtmr.stop()
+        print(f'profile all nodes, time cost {t_profile_new:.3f} s')
         graph_profile(G.rawgraph, dynamic_shapes, True)
         node_map = GLOBAL_VARS['node_map']
         node_map_v2 = G.nodemap
+        macsdiffacc = 0
         for key in node_map.keys():
             if key in node_map_v2.keys():
                 diff = node_map[key]['macs'] - node_map_v2[key].macs
+                macsdiffacc += diff
                 if diff != 0:
                     print(f"Error macs: {key} {node_map[key]['macs']} {node_map_v2[key].macs}")
                 diff = node_map[key]['params'] - node_map_v2[key].params
@@ -490,6 +500,10 @@ def model_api_test(m, dynamic_shapes: {str: tuple} = None):
             else:
                 print(f"Error Key not match {key}")
         # G.print_node_map(exclude_nodes=NoMacsOps)
+        # G.save_model('shape.onnx')
+        return {'t_shapeinfer_new': t_shapeinfer_new, 't_profile_new': t_profile_new,
+                't_shapeinfer': GLOBAL_VARS['t_shapeinfer'], 't_profile': GLOBAL_VARS['t_profile'],
+                'macsdiff': macsdiffacc}
 
 
 def model_remove_Identity(m, f: str):

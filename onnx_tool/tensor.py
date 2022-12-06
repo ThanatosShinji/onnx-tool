@@ -52,6 +52,8 @@ def onnxdtype2npdtype(data_type):
 def npdtype2onnxdtype(npdtype):
     if npdtype == numpy.float32:
         return onnx.TensorProto.FLOAT
+    if npdtype == numpy.float64:
+        return onnx.TensorProto.DOUBLE
     if npdtype == numpy.float16:
         return onnx.TensorProto.FLOAT16
     if npdtype == numpy.int32:
@@ -94,7 +96,7 @@ def tensorproto2ndarray(initial):
             arr = numpy.fromiter(initial.double_data, dtype=ndtype)
 
         if ndtype == numpy.str:
-            arr = numpy.fromiter(initial.string_data)
+            arr = numpy.array(initial.string_data, dtype="S")
     else:
         arr = numpy.frombuffer(initial.raw_data, dtype=ndtype)
     # if len(shape):
@@ -123,6 +125,8 @@ def get_attribute_data(att):
 
 
 def volume(shape: []):
+    # if not isinstance(shape,list):
+    #     return 1 #scalar
     val = 1 if len(shape) > 0 else 0
     for v in shape:
         val *= v
@@ -381,7 +385,9 @@ class Tensor():
         self.numpy = data
         self.shape = data.shape
 
-    def update_shape(self, shape: numpy.ndarray):
+    def update_shape(self, shape: list):
+        if isinstance(shape, numpy.ndarray):
+            assert 0
         self.shape = shape
 
     def get_shape(self):

@@ -1,8 +1,7 @@
 import onnx
 import numpy
 import onnx_tool
-from onnx_tool import create_ndarray_f32
-
+from onnx_tool import create_ndarray_f32, create_ndarray_int64
 
 models = [
     # {
@@ -37,10 +36,6 @@ models = [
     #             'data_0': numpy.zeros((1, 3, 224, 224), numpy.float32)
     #         }
     # },
-    {
-        'name': 'data/public/vgg19-7.onnx',
-        'dynamic_input': None
-    },
     # {
     #     'name': 'data/public/bidaf-9.onnx',
     #     'dynamic_input':
@@ -63,16 +58,13 @@ models = [
     #             'image': numpy.zeros((1, 3, 299, 299), numpy.float32)
     #         }
     # },
-    # {
-    #     'name': 'data/public/bertsquad-12.onnx',
-    #     'dynamic_input':
-    #         {
-    #             'unique_ids_raw_output___9:0': numpy.array((1,), dtype=numpy.int64),
-    #             'segment_ids:0': numpy.zeros((1, 256), dtype=numpy.int64),
-    #             'input_mask:0': numpy.zeros((1, 256), dtype=numpy.int64),
-    #             'input_ids:0': numpy.zeros((1, 256), dtype=numpy.int64),
-    #         }
-    # },
+    {
+        'name': 'data/public/gpt2-10.onnx',
+        'dynamic_input':
+            {
+                'input1': create_ndarray_int64((1, 1, 8)),
+            }
+    },
     # {
     #     'name': 'data/public/t5-decoder-with-lm-head-12.onnx',
     #     'dynamic_input':
@@ -119,8 +111,8 @@ def add_outputs(modelname, savemodel, newoutputs):
 
 for modelinfo in models:
     # onnx_tool.model_simplify_names(modelinfo['name'],'mobilenetv1_quanpruned_sim.onnx',node_reorder=True)
-    # onnx_tool.model_api_test(modelinfo['name'], modelinfo['dynamic_input'])
-    onnx_tool.model_profile(modelinfo['name'], modelinfo['dynamic_input'], None, 'tmp.onnx', shapesonly=True)
+    onnx_tool.model_api_test(modelinfo['name'], modelinfo['dynamic_input'])
+    # onnx_tool.model_profile(modelinfo['name'], modelinfo['dynamic_input'], None, 'tmp.onnx', shapesonly=True)
     # onnx_tool.print_node_map()
     # onnx_tool.model_io_modify(modelinfo['name'], 'newio.onnx', {"input": "1x3x128x128"}, {"output": '1x3x512x512'})
     # onnx_tool.model_subgraph('tmp.onnx', ['sequential/mobilenetv2_1.00_160/Conv1/Conv2D__7426:0'], ['dense'])

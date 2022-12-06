@@ -87,6 +87,7 @@ def _get_shape(item):
         return list(item.shape)
     elif isinstance(item, (list, tuple)):
         return list(item)
+    return [1]
 
 
 def _get_tensor(item):
@@ -107,8 +108,6 @@ class Node():
         self.proto = n
         self.shape_calc = False
         self.attr = {}
-        if n.output[0] == 'onnx::Reshape_251':
-            print(111)
         for att in n.attribute:
             self.attr[att.name] = onnx.helper.get_attribute_value(att)
             self.__setattr__(att.name, get_attribute_data(att))
@@ -412,6 +411,7 @@ class SumNode(PWNode):
     def __init__(self, nodeproto):
         super().__init__(nodeproto)
         self.op_mac = ADD_MACS
+        self.ratio = len(nodeproto.input) - 1
 
     def value_infer(self, intensors: []):
         y = intensors[0]
@@ -424,7 +424,7 @@ class SumNode(PWNode):
 class NonMaxSuppressionNode(Node):
     # TODO
     def value_infer(self, intensors: []):
-        if self.nbinput >= 3:
+        if len(intensors) >= 3:
             max_output_boxes_per_class = int(intensors[2][0])
             return [numpy.zeros((max_output_boxes_per_class, 3), dtype=numpy.int)]
         return [numpy.zeros((200, 3), dtype=numpy.int)]
@@ -680,7 +680,20 @@ class EinsumNode(Node):
 class UnsqueezeNode(Node):
     def __init__(self, nodeproto):
         super().__init__(nodeproto)
-        self.add_default_value('axes', None)
+        self.add_default_value('axes', [0])
+
+    def shape_infer(self, intensors: []):
+        inshape = _get_shape(intensors[0])
+        axes = _axes_neg2pos(len(inshape), self.axes)
+        newshape = []
+        idx = 0
+        for i in range(len(inshape) + len(axes)):
+            if i in axes:
+                newshape.append(1)
+            else:
+                newshape.append(inshape[idx])
+                idx += 1
+        return [newshape]
 
     def value_infer(self, intensors: []):
         outtensor = intensors[0]
@@ -699,6 +712,19 @@ class SqueezeNode(Node):
         super().__init__(nodeproto)
         self.add_default_value('axes', [0])
 
+    def shape_infer(self, intensors: []):
+        inshape = _get_shape(intensors[0])
+        outshape = []
+        if len(intensors) == 2:
+            self.axes = intensors[1]
+        axes = _axes_neg2pos(len(inshape), self.axes)
+        for i in range(len(inshape)):
+            if i in axes:
+                continue
+            else:
+                outshape.append(inshape[i])
+        return [outshape]
+
     def value_infer(self, intensors: [numpy.ndarray]):
         outtensor = intensors[0]
         idx = 0
@@ -713,7 +739,8 @@ class SqueezeNode(Node):
 @NODE_REGISTRY.register()
 class ShapeNode(Node):
     def shape_infer(self, intensors: [numpy.ndarray]):
-        return [_get_shape(intensors[0])]
+        newshape = [len(_get_shape(intensors[0]))]
+        return [newshape]
 
     def value_infer(self, intensors: [numpy.ndarray]):
         return [numpy.array(_get_shape(intensors[0]), dtype=numpy.int)]
@@ -800,7 +827,6 @@ class PoolBase(Node):
                 outshape = inshape[:2] + [
                     pooling_shape_calc(inshape[2], self.pads[0] + self.pads[1], self.kernel_shape[0], self.dilations[0],
                                        self.strides[0], self.ceil_mode), ]
-                return [create_ndarray_f32(outshape)]
             if len(self.kernel_shape) == 2:
                 outshape = inshape[:2] + [
                     pooling_shape_calc(inshape[2], self.pads[0] + self.pads[2], self.kernel_shape[0], self.dilations[0],
@@ -863,6 +889,14 @@ class GlobalAveragePoolNode(Node):
 class ExpandNode(Node):
     def __init__(self, nodeproto):
         super().__init__(nodeproto)
+
+    def shape_infer(self, intensors: []):
+        xshape = _get_shape(intensors[0])
+        expandshape = intensors[1]
+        yshape = []
+        for x, e in zip(xshape, expandshape):
+            yshape.append(max(x, e))
+        return [yshape]
 
     def value_infer(self, intensors: []):
         output = intensors[0] * numpy.ones(intensors[1].astype(numpy.int64), dtype=numpy.float32)
@@ -951,6 +985,53 @@ class ZipMapNode(Node):
 
 @NODE_REGISTRY.register()
 class SliceNode(Node):
+    def __init__(self, n):
+        super(SliceNode, self).__init__(n)
+        self.add_default_value('steps', None)
+
+    def shape_infer(self, intensors: []):
+        inshape = _get_shape(intensors[0])
+        if len(intensors) == 1:
+            starts = self.starts
+            ends = self.ends
+            axes = self.axes
+            if self.steps is None:
+                steps = [1] * len(starts)
+            else:
+                steps = self.steps
+        else:
+            elesize = len(intensors[1])
+            starts = intensors[1]
+            ends = intensors[2]
+            if len(intensors) == 3:
+                # undef beheviour of bidaf-9.onnx
+                axes = [0]
+                steps = [1]
+            else:
+                axes = [0] * elesize
+                steps = [1] * elesize
+            if len(intensors) >= 4:
+                axes = intensors[3]
+            if len(intensors) >= 5:
+                steps = intensors[4]
+
+        axes = _axes_neg2pos(len(inshape), axes)
+        newshape = inshape.copy()
+        for a in axes:
+            newshape[a] = 0
+        for s, e, a, st in zip(starts, ends, axes, steps):
+            if s < 0:
+                s = max(0, inshape[a] + s)
+            else:
+                s = max(s, 0)
+            if e < 0:
+                e = max(0, inshape[a] + e)
+            else:
+                e = min(e, inshape[a])
+            tmp = abs(e - s)
+            newshape[a] += abs(math.ceil(tmp / st))
+        return [newshape]
+
     def value_infer(self, intensors: []):
         data = intensors[0]
         datashape = _get_shape(intensors[0])
@@ -1020,12 +1101,16 @@ class SliceNode(Node):
 class ReduceMeanNode(Node):
     def __init__(self, nodeproto):
         super().__init__(nodeproto)
+        self.add_default_value('axes', None)
         self.add_default_value('keepdims', 1)
 
     def shape_infer(self, intensors: []):
         xshape = _get_shape(intensors[0])
         yshape = []
-        self.axes = _axes_neg2pos(len(xshape), self.axes)
+        if self.axes is None:
+            return [[1]]
+        else:
+            self.axes = _axes_neg2pos(len(xshape), self.axes)
 
         for i in range(len(xshape)):
             if i in self.axes:
@@ -1110,9 +1195,13 @@ class ScanNode(Node):
         self.add_default_value('scan_input_directions', None)
 
     def shape_infer(self, intensors: []):
+        if len(self.output) == 2:
+            # first 3 useless tensors are removed from the graph
+            return [_get_shape(intensors[3]), _get_shape(intensors[3])]
+
         # TODO
-        return [create_ndarray_f32((1, 1)), create_ndarray_f32((1, 1)), create_ndarray_f32((1,)),
-                intensors[3], intensors[3], ]
+        return [(1, 1), (1, 1), (1,),
+                _get_shape(intensors[3]), _get_shape(intensors[3]), ]
 
 
 @NODE_REGISTRY.register()
@@ -1157,7 +1246,7 @@ class LSTMNode(Node):
         wshape = _get_shape(intensors[1])
         rshape = _get_shape(intensors[2])
         bshape = _get_shape(intensors[3])
-        batch = intensors[0].shape[1]
+        batch = _get_shape(intensors[0])[1]
         macs = volume(wshape) + volume(rshape) + volume(bshape) * ADD_MACS
         macs *= batch
         return macs
@@ -1256,7 +1345,7 @@ class NonZeroNode(Node):
         return [result]
 
     def profile(self, intensors: [numpy.ndarray], outtensors: [numpy.ndarray]):
-        return volume(outtensors[0].shape) * CMP_MACS
+        return volume(_get_shape(outtensors[0])) * CMP_MACS
 
 
 @NODE_REGISTRY.register()
@@ -1286,7 +1375,7 @@ class RoiAlignNode(Node):
     def shape_infer(self, intensors: []):
         xshape = _get_shape(intensors[0])
         if len(xshape) == 4 and self.output_height is not None and self.output_width is not None:
-            newshape = xshape[:2] + (self.output_height, self.output_width)
+            newshape = xshape[:2] + [self.output_height, self.output_width]
         else:
             raise NotImplementedError()
         return [newshape]
@@ -1320,19 +1409,25 @@ class GreaterNode(Node):
         result = numpy.greater(intensors[0], intensors[1])
         return [result]
 
+    def profile(self, intensors: [], outtensors: []):
+        outshape = _get_shape(outtensors[0])
+        return volume(outshape) * CMP_MACS
+
 
 @NODE_REGISTRY.register()
 class DequantizeLinearNode(PWNode):
     def __init__(self, node_proto):
         super().__init__(node_proto)
-        self.op_mac = MUL_MACS
+        self.op_mac = MUL_MACS + ADD_MACS
+        self.ratio = 1
 
 
 @NODE_REGISTRY.register()
 class QuantizeLinearNode(PWNode):
     def __init__(self, node_proto):
         super().__init__(node_proto)
-        self.op_mac = MUL_MACS
+        self.op_mac = MUL_MACS + ADD_MACS
+        self.ratio = 1
 
 
 @NODE_REGISTRY.register()
@@ -1357,11 +1452,11 @@ class QLinearMatMulNode(GemmNode):
             else:
                 xshape = xshape
             if self.transB is not None and self.transB > 0:
-                yshape = xshape[:-1] + (wshape[-2],)
+                yshape = xshape[:-1] + [wshape[-2], ]
             else:
-                yshape = xshape[:-1] + (wshape[-1],)
+                yshape = xshape[:-1] + [wshape[-1], ]
         else:
-            yshape = xshape[:-1] + (wshape[-1],)
+            yshape = xshape[:-1] + [wshape[-1], ]
 
         return [yshape]
 
@@ -1385,32 +1480,33 @@ class QLinearConvNode(ConvNode):
         shape = []
         if self.auto_pad is not None and self.auto_pad != b'NOTSET':
             if self.auto_pad in [b'SAME_LOWER', b'SAME_UPPER']:
-                shape = (xshape[0], wshape[0], math.ceil(xshape[2] / self.strides[0]))
+                shape = [xshape[0], wshape[0], math.ceil(xshape[2] / self.strides[0])]
                 if len(xshape) == 4:
-                    shape += (math.ceil(xshape[3] / self.strides[1]),)
+                    shape += [math.ceil(xshape[3] / self.strides[1]), ]
         else:
             if len(xshape) == 4:
                 oh = _conv_output_shape(xshape[2], self.pads[0] + self.pads[2], wshape[2], self.strides[0],
                                         self.dilations[0])
                 ow = _conv_output_shape(xshape[3], self.pads[1] + self.pads[3], wshape[3], self.strides[1],
                                         self.dilations[1])
-                shape = (xshape[0], wshape[0], oh, ow)
+                shape = [xshape[0], wshape[0], oh, ow]
             elif len(xshape) == 3:
                 oh = _conv_output_shape(xshape[2], self.pads[0] + self.pads[1], wshape[2], self.strides[0],
                                         self.dilations[0])
-                shape = (xshape[0], wshape[0], oh)
+                shape = [xshape[0], wshape[0], oh]
         outtensors.append(shape)
         return outtensors
 
     def profile(self, intensors: [numpy.ndarray], outtensors: [numpy.ndarray]):
         macs = 0
+        outshape = _get_shape(outtensors[0])
         if len(outtensors) == 1:
             kernel_shape = intensors[3].shape
             if len(kernel_shape) > 3:
-                outvol = volume(outtensors[0].shape)
+                outvol = volume(outshape)
                 macs += outvol * kernel_shape[1] * kernel_shape[2] * kernel_shape[3]
             elif len(kernel_shape) == 3:
-                outvol = volume(outtensors[0].shape)
+                outvol = volume(outshape)
                 macs += outvol * kernel_shape[1] * kernel_shape[2]
             if len(intensors) == 9:
                 macs += (outvol * ADD_MACS)
@@ -1458,11 +1554,11 @@ class ConvTransposeNode(Node):
             if len(intensors) == 3 or len(intensors) == 2:
                 kernel_shape = intensors[1].shape
                 if len(kernel_shape) > 3:
-                    outvol = volume(outtensors[0].shape)
+                    outvol = volume(_get_shape(outtensors[0]))
                     macs += outvol * kernel_shape[1] * kernel_shape[2] * kernel_shape[3]
                     macs += outvol * ADD_MACS  # treat bias add as 0.5 MACs
                 elif len(kernel_shape) == 3:
-                    outvol = volume(outtensors[0].shape)
+                    outvol = volume(_get_shape(outtensors[0]))
                     macs += outvol * kernel_shape[1] * kernel_shape[2]
                     macs += (outvol * ADD_MACS)
         return macs
@@ -1472,6 +1568,8 @@ class ConvTransposeNode(Node):
 class ReshapeNode(Node):
     def shape_infer(self, intensors: []):
         srcshape = _get_shape(intensors[0])
+        if not is_valid_ndarray(intensors[1]):
+            return [[1, ]]
         shape = intensors[1]
         newshape = []
         for i in range(len(shape)):
@@ -1506,15 +1604,14 @@ class GRUNode(Node):
         return [(seq_len, num_dir, batch, h_len), (num_dir, batch, h_len)]
 
     def profile(self, intensors: [], outtensors: []):
-        w = intensors[1]
-        r = intensors[2]
-        b = intensors[3]
-        params = 0
-        params += volume(w.shape) + volume(r.shape) + volume(b.shape)
-        batch = intensors[0].shape[1]
-        macs = volume(w.shape) + volume(r.shape) + volume(b.shape) * ADD_MACS
+        xshape = _get_shape(intensors[0])
+        wshape = _get_shape(intensors[1])
+        rshape = _get_shape(intensors[2])
+        bshape = _get_shape(intensors[3])
+        batch = xshape[1]
+        macs = volume(wshape) + volume(rshape) + volume(bshape) * ADD_MACS
         macs *= batch
-        return macs, params
+        return macs
 
 
 @NODE_REGISTRY.register()
@@ -1524,7 +1621,7 @@ class ConstantOfShapeNode(Node):
         self.add_default_value('value', None)
 
     def value_infer(self, intensors: []):
-        arr = numpy.zeros(intensors[0].astype(numpy.int64), dtype=numpy.float32)
+        arr = numpy.zeros(intensors[0].astype(numpy.int64), dtype=self.value.dtype)
         if self.value is not None and len(self.value) == 1:
             arr.fill(self.value[0])
         return [arr]

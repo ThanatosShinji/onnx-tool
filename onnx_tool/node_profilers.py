@@ -778,14 +778,14 @@ class Max(Min):
 
 
 @NODEPROFILER_REGISTRY.register()
-class Equal(NodeBase):
+class Equal(Min):
     def infer_shape(self, intensors: [numpy.ndarray]):
         result = numpy.equal(intensors[0], intensors[1])
         return [result]
 
 
 @NODEPROFILER_REGISTRY.register()
-class Greater(NodeBase):
+class Greater(Min):
     def infer_shape(self, intensors: [numpy.ndarray]):
         result = numpy.greater(intensors[0], intensors[1])
         return [result]
@@ -888,7 +888,10 @@ class ScatterElements(NodeBase):
 
 @NODEPROFILER_REGISTRY.register()
 class Hardmax(PWNBase):
-    pass
+    def __init__(self, n):
+        super(Hardmax, self).__init__(n)
+        self.ratio = 1
+        self.op_mac = CMP_MACS
 
 
 @NODEPROFILER_REGISTRY.register()
@@ -1517,15 +1520,26 @@ class Range(NodeBase):
 
 
 @NODEPROFILER_REGISTRY.register()
-class Floor(FusedNode):
+class Floor(PWNBase):
+    def __init__(self, n):
+        super().__init__(n)
+        self.ratio = 1
+        self.op_mac = CMP_MACS
+
     def infer_shape(self, intensors: [numpy.ndarray]):
         return [numpy.floor(intensors[0])]
 
 
 @NODEPROFILER_REGISTRY.register()
-class Ceil(FusedNode):
+class Ceil(PWNBase):
+    def __init__(self, n):
+        super().__init__(n)
+        self.ratio = 1
+        self.op_mac = CMP_MACS
+
     def infer_shape(self, intensors: [numpy.ndarray]):
         return [numpy.ceil(intensors[0])]
+
 
 
 @NODEPROFILER_REGISTRY.register()
@@ -1589,14 +1603,16 @@ class Einsum(NodeBase):
 class DequantizeLinear(PWNBase):
     def __init__(self, node_proto):
         super().__init__(node_proto)
-        self.op_mac = MUL_MACS
+        self.op_mac = MUL_MACS + ADD_MACS
+        self.ratio = 1
 
 
 @NODEPROFILER_REGISTRY.register()
 class QuantizeLinear(PWNBase):
     def __init__(self, node_proto):
         super().__init__(node_proto)
-        self.op_mac = MUL_MACS
+        self.op_mac = MUL_MACS + ADD_MACS
+        self.ratio = 1
 
 
 @NODEPROFILER_REGISTRY.register()

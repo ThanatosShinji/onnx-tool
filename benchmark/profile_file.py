@@ -12,17 +12,6 @@ models = [
     #                          'r4i':create_ndarray_f32((1,64,17,30)),'downsample_ratio':numpy.array((0.25,),dtype=numpy.float32)}
     # },
     # {
-    #     'name': 'data/public/bidaf-9.onnx',
-    #     'dynamic_input':
-    #         {
-    #             'context_word':create_ndarray_f32((16,1)),
-    #             'context_char':create_ndarray_f32((16,1,1,16)),
-    #             'query_word':create_ndarray_f32((16,1)),
-    #             'query_char':create_ndarray_f32((16,1,1,16)),
-    #
-    #         }
-    # },
-    # {
     #     'name': 'data/public/gpt2-10.onnx',
     #     'dynamic_input':
     #         {
@@ -86,13 +75,6 @@ models = [
     #          'r4i': create_ndarray_f32((1, 64, 17, 30)),
     #          'downsample_ratio': numpy.array((0.25,), dtype=numpy.float32)}
     # },
-    # {
-    #     'name':'yuvasr.onnx',
-    #     'dynamic_input':
-    #         {
-    #             'input':create_ndarray_f32((1,3,128,128))
-    #         }
-    # }
 
 ]
 

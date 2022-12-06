@@ -445,7 +445,7 @@ def model_profile_v2(m, dynamic_shapes: {str: tuple} = None, savenode: str = Non
     if isinstance(m, str):
         m = onnx.load_model(m)
     if isinstance(m, onnx.ModelProto):
-        G = Graph(m.graph)
+        G = Graph(m.graph, verbose=verbose)
         gtmr = timer()
         gtmr.start()
         G.shape_infer(dynamic_shapes)
@@ -457,10 +457,6 @@ def model_profile_v2(m, dynamic_shapes: {str: tuple} = None, savenode: str = Non
             print(f'profile all nodes, time cost {gtmr.stop():.3f} s')
         G.print_node_map(savenode, exclude_nodes=hidden_ops)
 
-        # if remove_unused_tensors:
-        #     graph_remove_unused_tensors(m.graph)
-        # graph_profile(m.graph, dynamic_shapes, verbose, hidden_ops=hidden_ops)
-        # print_node_map(savenode)
         if saveshapesmodel is not None:
             G.save_model(saveshapesmodel, shapesonly)
 

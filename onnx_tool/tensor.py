@@ -403,7 +403,7 @@ class Tensor():
             return 4  # default as float
         return numpy_dtype2bytes(self.numpy.dtype)
 
-    def sparsity_search(self, thres_size=128, thres_ratio=0.4):
+    def sparsity_search(self, thres_size=4096, thres_ratio=0.4):
         if self.type == DYNAMIC_TENSOR:
             self.sparsity = None
             return

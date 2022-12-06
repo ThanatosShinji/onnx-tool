@@ -50,8 +50,8 @@ def _contains_shape_tensor(n):
 
 
 class Graph():
-    def __init__(self, g: onnx.GraphProto, noderename: bool = False, tensorrename: bool = False,
-                 reorder_graph: bool = True):
+    def __init__(self, g: onnx.GraphProto, noderename: bool = False, verbose=False):
+        self.verbose = verbose
         self.nodemap = {}
         self.tensormap = {}
         self.producedby = {}
@@ -63,6 +63,10 @@ class Graph():
         self.output = []
         self.__init_graph_from_onnxproto__(g, noderename)
         self.__find_shape_tensors__()
+
+    def log(self, str):
+        if self.verbose:
+            print(str)
 
     def __init_graph_from_onnxproto__(self, g, noderename, remove_dummytensors=True):
         if g is None:
@@ -93,7 +97,7 @@ class Graph():
 
             self.nodemap[newnode.name] = newnode
 
-        print(f'Node Init Time Elapsed {tm.stop()}')
+        self.log(f'Node Init Time Elapsed {tm.stop()}')
 
         tm.start()
         for input in g.input:
@@ -117,7 +121,7 @@ class Graph():
                         self.nodemap[node.name].nextnodes.append(self.nodemap[consumer])
                 else:
                     if tensor not in self.output:
-                        print(f'Dummy tensors detected: {tensor}')
+                        self.log(f'Dummy tensors detected: {tensor}')
                         if remove_dummytensors:
                             dummy_lists.append(tensor)
             for tensor in dummy_lists:
@@ -127,7 +131,7 @@ class Graph():
             tensor = Tensor(valinfo)
             self.tensormap[valinfo.name] = tensor
 
-        print(f'IO Tensor Init Time Elapsed {tm.stop()}')
+        self.log(f'IO Tensor Init Time Elapsed {tm.stop()}')
 
         tm.start()
         for initial in g.initializer:
@@ -143,7 +147,7 @@ class Graph():
                 self.initials.append(node.output[0])
         self.initials = set(self.initials)
 
-        print(f'Static Tensor Init Time Elapsed {tm.stop()}')
+        self.log(f'Static Tensor Init Time Elapsed {tm.stop()}')
 
         rmlist = []
         for input in self.input:
@@ -173,11 +177,11 @@ class Graph():
         self.sparse_model = False
         for key in self.tensormap.keys():
             tensor = self.tensormap[key]
-            if tensor.sparsity is not None and tensor.sparsity['ratio'] > 0:
+            if tensor.sparsity is not None and tensor.sparsity['ratio'] > 0.4:
                 self.sparse_model = True
                 break
 
-        print(f'Misc Tensor Init Time Elapsed {tm.stop()}')
+        self.log(f'Misc Tensor Init Time Elapsed {tm.stop()}')
 
     def __find_shape_tensors__(self):
         self.shape_tensors = []
@@ -532,7 +536,7 @@ class Graph():
                 self.shapeinfer_optime_map[node.op_type] += tm.stop()
             else:
                 self.shapeinfer_optime_map[node.op_type] = tm.stop()
-        print(self.shapeinfer_optime_map)
+        self.log(self.shapeinfer_optime_map)
 
     def value_infer(self, inputs: {}):
         self.update_input_by_map(inputs)

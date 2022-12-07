@@ -8,8 +8,8 @@ Model | v0.4.0 Time(s) | v0.5.0 Time(s) | speedup
 ---|---|---|---
 VAE_Encoder|1.598|0.003|532
 VAE_Decoder|3.425|0.001|1712
-Text_Encoder|1.089|0.009|272
-Bert_Base|0.710|0.011|109
+Text_Encoder|1.089|0.004|272
+Bert_Base|0.710|0.006|109
 
 Also, memory space is decreased by a lot.
 

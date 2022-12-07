@@ -14,7 +14,7 @@ def InceptionV3():
         include_top=True,
         weights="imagenet",
         input_tensor=None,
-        input_shape=None,
+        input_shape=inputshape[1:],
         pooling=None,
         classes=1000,
         classifier_activation="softmax",
@@ -30,7 +30,7 @@ def InceptionV3():
     dynamics_input = {
         'input_1': create_ndarray_f32(inputshape)
     }
-    onnx_tool.model_profile(temp_model_file, dynamic_shapes=dynamics_input)
+    onnx_tool.model_profile_v2(temp_model_file, dynamic_shapes=dynamics_input)
 
 
 def MobileNetV3Large():
@@ -39,7 +39,7 @@ def MobileNetV3Large():
         include_top=True,
         weights="imagenet",
         input_tensor=None,
-        input_shape=None,
+        input_shape=inputshape[1:],
         pooling=None,
         classes=1000,
         classifier_activation="softmax",
@@ -53,9 +53,9 @@ def MobileNetV3Large():
         onnxproto = onnx_model[0]
     onnx.save_model(onnxproto, temp_model_file)
     dynamics_input = {
-        'input_1': create_ndarray_f32(inputshape)
+        'input_2': create_ndarray_f32(inputshape)
     }
-    onnx_tool.model_profile(temp_model_file, dynamic_shapes=dynamics_input)
+    onnx_tool.model_profile_v2(temp_model_file, saveshapesmodel='shapes.onnx', dynamic_shapes=dynamics_input)
 
 
 InceptionV3()

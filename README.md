@@ -4,16 +4,19 @@
 
 * *Shape inference.*
 * *MACs(FLOPs) counting for each layer.*
-* *Extract subgraph from ONNX model, or do inplace op fusion.*
+* *Extract subgraph from ONNX model, or do inplace op fusion.*  
   ...  
   **and any operation you can image with ONNX.**
 
 New:
+
+* The speedup of shape inference is 100x in v0.5.0
+  release. [Release detail](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/NewArch.md)
 * Better support of Tensorflow-converted models in v0.4.0 release.
 * Sparse Models are initially supported in v0.3.1 release. view [Sparse Model](#sparsity)
 * Quantized models are initially supported in v0.3.0 release.
-* 4 onnx models of Stable Diffusion are supported in v0.2.14 release. view  [results](#results)
-* Memory usage of each layer is valid in v0.2.10 release.
+* 4 onnx models of Stable Diffusion are supported in v0.2.14 release. view  [results](#results)  
+  ...
 
 ---
 

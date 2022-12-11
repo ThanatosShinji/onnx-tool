@@ -500,6 +500,12 @@ class Graph():
             if key in self.tensormap.keys():
                 self.tensormap[key].update_tensor(inputs[key])
 
+    def get_dynamic_tensors(self):
+        dtensors = {}
+        for key in self.dynamics:
+            dtensors[key] = self.tensormap[key]
+        return dtensors
+
     def shape_infer(self, inputs: {} = None):
         if inputs is not None:
             self.update_input_by_map(inputs)
@@ -552,6 +558,13 @@ class Graph():
         for output in self.output:
             outputs.append(self.tensormap[output].numpy)
         return outputs
+
+    def shape_regress(self, min_inputshape: {}, max_inputshape: {}):
+        self.shape_infer(min_inputshape)
+        mintensormap = self.get_dynamic_tensors()
+        self.shape_infer(max_inputshape)
+        maxtensormap = self.get_dynamic_tensors()
+        print(maxtensormap.keys())
 
     def profile(self):
         params_flag_map = {}

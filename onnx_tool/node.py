@@ -684,7 +684,11 @@ class UnsqueezeNode(Node):
 
     def shape_infer(self, intensors: []):
         inshape = _get_shape(intensors[0])
-        axes = _axes_neg2pos(len(inshape), self.axes)
+        if len(intensors) == 2:
+            axes = intensors[1]
+        else:
+            axes = self.axes
+        axes = _axes_neg2pos(len(inshape), axes)
         newshape = []
         idx = 0
         for i in range(len(inshape) + len(axes)):
@@ -697,7 +701,7 @@ class UnsqueezeNode(Node):
 
     def value_infer(self, intensors: []):
         outtensor = intensors[0]
-        if self.axes is None:
+        if len(intensors) == 2:
             axes = intensors[1]
         else:
             axes = self.axes
@@ -1107,13 +1111,17 @@ class ReduceMeanNode(Node):
     def shape_infer(self, intensors: []):
         xshape = _get_shape(intensors[0])
         yshape = []
-        if self.axes is None:
+        if len(intensors) == 2:
+            axes = intensors[1]
+        else:
+            axes = self.axes
+        if axes is None:
             return [[1]]
         else:
-            self.axes = _axes_neg2pos(len(xshape), self.axes)
+            axes = _axes_neg2pos(len(xshape), axes)
 
         for i in range(len(xshape)):
-            if i in self.axes:
+            if i in axes:
                 if self.keepdims:
                     yshape.append(1)
             else:
@@ -1121,7 +1129,11 @@ class ReduceMeanNode(Node):
         return [yshape]
 
     def value_infer(self, intensors: [numpy.ndarray]):
-        reduced = numpy.mean(intensors[0], axis=self.axes, keepdims=self.keepdims == 1)
+        if len(intensors) == 2:
+            axes = intensors[1]
+        else:
+            axes = self.axes
+        reduced = numpy.mean(intensors[0], axis=axes, keepdims=self.keepdims == 1)
         return [reduced]
 
     def profile(self, intensors: [numpy.ndarray], outtensors: [numpy.ndarray]):
@@ -1132,7 +1144,11 @@ class ReduceMeanNode(Node):
 @NODE_REGISTRY.register()
 class ReduceProdNode(ReduceMeanNode):
     def value_infer(self, intensors: [numpy.ndarray]):
-        reduced = numpy.prod(intensors[0], axis=self.axes, keepdims=self.keepdims == 1)
+        if len(intensors) == 2:
+            axes = intensors[1]
+        else:
+            axes = self.axes
+        reduced = numpy.prod(intensors[0], axis=axes, keepdims=self.keepdims == 1)
         return [reduced]
 
     def profile(self, intensors: [numpy.ndarray], outtensors: [numpy.ndarray]):
@@ -1144,7 +1160,11 @@ class ReduceProdNode(ReduceMeanNode):
 @NODE_REGISTRY.register()
 class ReduceSumNode(ReduceMeanNode):
     def value_infer(self, intensors: [numpy.ndarray]):
-        reduced = numpy.sum(intensors[0], axis=self.axes, keepdims=self.keepdims == 1)
+        if len(intensors) == 2:
+            axes = intensors[1]
+        else:
+            axes = self.axes
+        reduced = numpy.sum(intensors[0], axis=axes, keepdims=self.keepdims == 1)
         return [reduced]
 
 
@@ -1152,7 +1172,11 @@ class ReduceSumNode(ReduceMeanNode):
 class ReduceMinNode(ReduceMeanNode):
     def value_infer(self, intensors: [numpy.ndarray]):
         data = intensors[0]
-        reduced = numpy.minimum.reduce(data, axis=self.axes, keepdims=self.keepdims == 1)
+        if len(intensors) == 2:
+            axes = intensors[1]
+        else:
+            axes = self.axes
+        reduced = numpy.minimum.reduce(data, axis=axes, keepdims=self.keepdims == 1)
         return [reduced]
 
     def profile(self, intensors: [numpy.ndarray], outtensors: [numpy.ndarray]):
@@ -1165,7 +1189,11 @@ class ReduceMinNode(ReduceMeanNode):
 class ReduceMaxNode(ReduceMinNode):
     def value_infer(self, intensors: [numpy.ndarray]):
         data = intensors[0]
-        reduced = numpy.maximum.reduce(data, axis=self.axes, keepdims=self.keepdims == 1)
+        if len(intensors) == 2:
+            axes = intensors[1]
+        else:
+            axes = self.axes
+        reduced = numpy.maximum.reduce(data, axis=axes, keepdims=self.keepdims == 1)
         return [reduced]
 
 

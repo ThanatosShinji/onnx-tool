@@ -502,6 +502,15 @@ def model_api_test(m, dynamic_shapes: {str: tuple} = None):
                 'macsdiff': macsdiffacc}
 
 
+def model_shape_regress(m, min_shape: {}, max_shape: {}):
+    if isinstance(m, str):
+        m = onnx.load_model(m)
+    if isinstance(m, onnx.ModelProto):
+        G = Graph(m.graph)
+        G.graph_reorder()
+        G.shape_regress(min_shape, max_shape)
+
+
 def model_remove_Identity(m, f: str):
     if isinstance(m, str):
         m = onnx.load_model(m)

@@ -18,13 +18,7 @@ models = [
     #             'input1': create_ndarray_int64((1, 1, 8)),
     #         }
     # },
-    # {
-    #     'name': 'data/public/googlenet-12.onnx',
-    #     'dynamic_input':
-    #         {
-    #             'data_0': numpy.zeros((1, 3, 224, 224), numpy.float32)
-    #         }
-    # },
+
     # {
     #     'name': 'data/public/bidaf-9.onnx',
     #     'dynamic_input':
@@ -47,13 +41,13 @@ models = [
     #             'image': numpy.zeros((1, 3, 299, 299), numpy.float32)
     #         }
     # },
-    {
-        'name': 'data/public/gpt2-10.onnx',
-        'dynamic_input':
-            {
-                'input1': create_ndarray_int64((1, 1, 8)),
-            }
-    },
+    # {
+    #     'name': 'data/public/gpt2-10.onnx',
+    #     'dynamic_input':
+    #         {
+    #             'input1': create_ndarray_int64((1, 1, 8)),
+    #         }
+    # },
     # {
     #     'name': 'data/public/t5-decoder-with-lm-head-12.onnx',
     #     'dynamic_input':
@@ -75,7 +69,17 @@ models = [
     #          'r4i': create_ndarray_f32((1, 64, 17, 30)),
     #          'downsample_ratio': numpy.array((0.25,), dtype=numpy.float32)}
     # },
-
+    {
+        'name': 'data/public/resnet18-v1-7.onnx',
+        'min_input':
+            {
+                'data': numpy.zeros((1, 3, 224, 224), numpy.float32)
+            },
+        'max_input':
+            {
+                'data': numpy.zeros((1, 3, 299, 299), numpy.float32)
+            }
+    },
 ]
 
 
@@ -93,7 +97,8 @@ def add_outputs(modelname, savemodel, newoutputs):
 
 for modelinfo in models:
     # onnx_tool.model_simplify_names(modelinfo['name'],'mobilenetv1_quanpruned_sim.onnx',node_reorder=True)
-    onnx_tool.model_api_test(modelinfo['name'], modelinfo['dynamic_input'])
+    # onnx_tool.model_api_test(modelinfo['name'], modelinfo['dynamic_input'])
+    onnx_tool.model_shape_regress(modelinfo['name'], modelinfo['min_input'], modelinfo['max_input'])
     # onnx_tool.model_profile(modelinfo['name'], modelinfo['dynamic_input'], None, 'tmp.onnx', shapesonly=True)
     # onnx_tool.print_node_map()
     # onnx_tool.model_io_modify(modelinfo['name'], 'newio.onnx', {"input": "1x3x128x128"}, {"output": '1x3x512x512'})

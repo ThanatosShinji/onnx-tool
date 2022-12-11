@@ -1,3 +1,4 @@
+import onnx
 import torchvision
 import onnx_tool
 import torch
@@ -25,5 +26,25 @@ def convnext_large():
         onnx_tool.model_profile_v2(tmpfile, verbose=False)
 
 
+def Issue11():
+    from torch.nn import Module
+    import torch
+
+    class Dummy(Module):
+        def __init__(self):
+            super(Dummy, self).__init__()
+
+        def forward(self, x):
+            return torch.unsqueeze(torch.sum(x, dim=1), 1)
+
+    model = Dummy()
+    x = torch.zeros((32, 10))
+    torch.onnx.export(model, x, "model.onnx")
+    m = onnx.load_model('model.onnx')
+    graph = onnx_tool.Graph(m.graph)
+    graph.shape_infer()
+    graph.save_model('shapes.onnx')
+
 alexnet()
 convnext_large()
+Issue11()

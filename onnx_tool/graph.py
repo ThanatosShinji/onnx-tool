@@ -559,6 +559,11 @@ class Graph():
             outputs.append(self.tensormap[output].numpy)
         return outputs
 
+    def add_dump_tensors(self, dump_tensor_names: []):
+        for name in dump_tensor_names:
+            if name in self.tensormap.keys():
+                self.output.append(name)
+
     def shape_regress(self, min_inputshape: {}, max_inputshape: {}):
         self.shape_infer(min_inputshape)
         mintensormap = self.get_dynamic_tensors()

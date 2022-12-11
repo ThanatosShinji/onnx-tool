@@ -458,6 +458,8 @@ def model_profile_v2(m, dynamic_shapes: {str: tuple} = None, savenode: str = Non
         G.print_node_map(savenode, exclude_nodes=hidden_ops)
 
         if saveshapesmodel is not None:
+            if dump_outputs is not None:
+                G.add_dump_tensors(dump_outputs)
             G.save_model(saveshapesmodel, shapesonly)
 
 

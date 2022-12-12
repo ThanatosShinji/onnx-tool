@@ -218,17 +218,7 @@ def update_static_tensors(graph: onnx.GraphProto):
 
 
 def numpy_dtype2bytes(ndtype):
-    if ndtype == numpy.float32 or ndtype == numpy.int32:
-        return 4
-    if ndtype == numpy.float16:
-        return 2
-    if ndtype == numpy.int64 or ndtype == numpy.float64:
-        return 8
-    if ndtype == numpy.int8 or ndtype == numpy.uint8:
-        return 1
-    if ndtype.type == numpy.bytes_:
-        return 256
-    assert 0
+    return numpy.dtype(ndtype).itemsize
 
 
 def search_sparse_blocksize(arr, ratio, deltar_thres=0.1):
@@ -402,6 +392,9 @@ class Tensor():
         if self.numpy is None or not isinstance(self.numpy, numpy.ndarray):
             return 4  # default as float
         return numpy_dtype2bytes(self.numpy.dtype)
+
+    def get_memsize(self):
+        return volume(self.get_shape()) * self.get_elementsize()
 
     def sparsity_search(self, thres_size=4096, thres_ratio=0.4):
         if self.type == DYNAMIC_TENSOR:

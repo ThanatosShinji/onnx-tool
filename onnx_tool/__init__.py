@@ -447,6 +447,7 @@ def model_profile_v2(m, dynamic_shapes: {str: tuple} = None, savenode: str = Non
     if isinstance(m, onnx.ModelProto):
         G = Graph(m.graph, verbose=verbose)
         gtmr = timer()
+        G.graph_reorder()
         gtmr.start()
         G.shape_infer(dynamic_shapes)
         if verbose:
@@ -467,7 +468,7 @@ def model_api_test(m, dynamic_shapes: {str: tuple} = None):
     if isinstance(m, str):
         m = onnx.load_model(m)
     if isinstance(m, onnx.ModelProto):
-        G = Graph(m.graph)
+        G = Graph(m.graph, verbose=True)
         G.graph_reorder()
         gtmr = timer()
         gtmr.start()
@@ -483,18 +484,34 @@ def model_api_test(m, dynamic_shapes: {str: tuple} = None):
         node_map = GLOBAL_VARS['node_map']
         node_map_v2 = G.nodemap
         macsdiffacc = 0
+        import warnings
         for key in node_map.keys():
             if key in node_map_v2.keys():
                 diff = node_map[key]['macs'] - node_map_v2[key].macs
                 macsdiffacc += diff
                 if diff != 0:
-                    print(f"Error macs: {key} {node_map[key]['macs']} {node_map_v2[key].macs}")
+                    warnings.warn(f"Error macs: {key} {node_map[key]['macs']} {node_map_v2[key].macs}")
                 diff = node_map[key]['params'] - node_map_v2[key].params
                 if diff != 0:
-                    print(f"Error params: {key} {node_map[key]['params']} {node_map_v2[key].params}")
+                    warnings.warn(f"Error params: {key} {node_map[key]['params']} {node_map_v2[key].params}")
                 diff = node_map[key]['memory'] - node_map_v2[key].memory
                 if diff != 0:
                     print(f"Error memory: {key} {node_map[key]['memory']} {node_map_v2[key].memory}")
+                inshape = node_map[key]['inshape']
+                inshape2 = node_map_v2[key].inshape
+                inshape = numpy.array(inshape)
+                inshape2 = numpy.array(inshape2)
+                diff = abs((inshape - inshape2)).sum()
+                if diff != 0:
+                    warnings.warn(f"Error in shape: {key} {tuple2str(inshape, 'x')} {tuple2str(inshape2, 'x')}")
+
+                outshape = node_map[key]['outshape']
+                outshape2 = node_map_v2[key].outshape
+                outshape = numpy.array(outshape)
+                outshape2 = numpy.array(outshape2)
+                diff = abs((outshape - outshape2)).sum()
+                if diff != 0:
+                    warnings.warn(f"Error in shape: {key} {tuple2str(outshape, 'x')} {tuple2str(outshape2, 'x')}")
             else:
                 print(f"Error Key not match {key}")
         # G.print_node_map(exclude_nodes=NoMacsOps)

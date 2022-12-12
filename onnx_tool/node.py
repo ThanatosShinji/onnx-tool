@@ -455,6 +455,9 @@ class LessNode(Node):
 
 @NODE_REGISTRY.register()
 class LessOrEqualNode(LessNode):
+    def shape_infer(self, intensors: []):
+        return [_get_shape(intensors[0])]
+
     def value_infer(self, intensors: [numpy.ndarray]):
         result = numpy.less_equal(intensors[0], intensors[1])
         return [result]
@@ -476,6 +479,9 @@ class AndNode(Node):
 
 @NODE_REGISTRY.register()
 class WhereNode(Node):
+    def shape_infer(self, intensors: []):
+        return [_get_shape(intensors[0])]  # return condition shape
+
     def value_infer(self, intensors: []):
         result = numpy.where(intensors[0], intensors[1], intensors[2])
         return [result]
@@ -491,7 +497,7 @@ class TransposeNode(Node):
         xshape = _get_shape(intensors[0])
         yshape = []
         if self.perm is None:
-            return [xshape]
+            return [xshape[::-1]]
         for axis in self.perm:
             yshape.append(xshape[axis])
         return [yshape]
@@ -1648,6 +1654,9 @@ class ConstantOfShapeNode(Node):
         super().__init__(nodeproto)
         self.add_default_value('value', None)
 
+    def shape_infer(self, intensors: []):
+        return [list(intensors[0].astype(numpy.int64))]
+
     def value_infer(self, intensors: []):
         arr = numpy.zeros(intensors[0].astype(numpy.int64), dtype=self.value.dtype)
         if self.value is not None and len(self.value) == 1:
@@ -1671,22 +1680,51 @@ class SplitNode(Node):
         self.add_default_value('axis', None)
         self.add_default_value('split', None)
 
-    def value_infer(self, intensors: []):
-        split = []
+    def shape_infer(self, intensors: []):
         end = 0
+        inshape = _get_shape(intensors[0])
         if self.split is None:
             if len(intensors) == 2:
-                self.split = intensors[1]
+                split = intensors[1]
             else:
-                self.split = [intensors[0].shape[self.axis] // 2]
-
-        self.axis = _axes_neg2pos(len(intensors[0].shape), [self.axis])[0]
-        for v in self.split:
-            if end + v >= intensors[0].shape[self.axis]:
-                break
-            split.append(end + v)
+                split = [inshape[self.axis] // 2] * 2
+        else:
+            split = self.split
+        axis = _axes_neg2pos(len(inshape), [self.axis])[0]
+        shapes = []
+        for v in split:
+            shape = []
+            for i in range(len(inshape)):
+                if i == axis:
+                    if end + v < inshape[axis]:
+                        shape.append(v)
+                    else:
+                        shape.append(inshape[axis] - end)
+                else:
+                    shape.append(inshape[i])
             end += v
-        return numpy.split(intensors[0], split, self.axis)
+            shapes.append(shape)
+        return shapes
+
+    def value_infer(self, intensors: []):
+        splitpos = []
+        end = 0
+        inshape = _get_shape(intensors[0])
+        if self.split is None:
+            if len(intensors) == 2:
+                split = intensors[1]
+            else:
+                split = [inshape[self.axis] // 2]
+        else:
+            split = self.split
+
+        axis = _axes_neg2pos(len(inshape), [self.axis])[0]
+        for v in split:
+            if end + v >= inshape[axis]:
+                break
+            splitpos.append(end + v)
+            end += v
+        return numpy.split(intensors[0], splitpos, axis)
 
 def create_node(n: onnx.NodeProto):
     node_class = NODE_REGISTRY.get(n.op_type + 'Node')

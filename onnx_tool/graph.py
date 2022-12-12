@@ -502,8 +502,9 @@ class Graph():
 
     def get_dynamic_tensors(self):
         dtensors = {}
+        import copy
         for key in self.dynamics:
-            dtensors[key] = self.tensormap[key]
+            dtensors[key] = copy.deepcopy(self.tensormap[key])
         return dtensors
 
     def shape_infer(self, inputs: {} = None):
@@ -565,18 +566,32 @@ class Graph():
                 self.output.append(name)
 
     def shape_regress(self, min_inputshape: {}, max_inputshape: {}):
+
         self.shape_infer(min_inputshape)
         mintensormap = self.get_dynamic_tensors()
         self.shape_infer(max_inputshape)
         maxtensormap = self.get_dynamic_tensors()
-        print(maxtensormap.keys())
+        input_dynamic_axis = {}
+        variable_count = 0
+        for key in min_inputshape.keys():
+            min_shape = min_inputshape[key].shape
+            max_shape = max_inputshape[key].shape
+            flag = []
+            for mins, maxs in zip(min_shape, max_shape):
+                if mins == maxs:
+                    flag.append(False)
+                else:
+                    flag.append(True)
+                    variable_count += 1
+            input_dynamic_axis[key] = flag
+        print(input_dynamic_axis)
 
     def profile(self):
         params_flag_map = {}
         for key in self.initials:
             params_flag_map[key] = 0
 
-        self.macs = 0
+        self.macs = 0.0
         self.params = 0
         self.memory = 0
         for key in self.nodemap.keys():
@@ -607,7 +622,7 @@ class Graph():
                 if node.op_type == 'Constant':
                     # Constant's output tensors are already counted as weight tensors
                     continue
-                _memory += volume(self.tensormap[output].get_shape()) * self.tensormap[output].get_elementsize()
+                _memory += self.tensormap[output].get_memsize()
             macs = node.profile(itensors, otensors)
             outshape = (0,)
             if len(node.output) > 0:
@@ -624,7 +639,6 @@ class Graph():
             node.params = _params
             node.memory = _memory
             node.sparsity = block_sparsity
-
             self.macs += macs
             self.params += _params
             self.memory += _memory

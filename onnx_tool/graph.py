@@ -199,11 +199,12 @@ class Graph():
                     for nname in searchnodes:
                         node = self.nodemap[nname]
                         node.shape_calc = True
-                        if node.op_type == 'Shape':
-                            continue
+                        # if node.op_type == 'Shape':
+                        #     continue
                         for input in node.input:
                             if input not in self.initials and input in self.producedby.keys():
-                                nextnodes.extend(self.producedby[input])
+                                producers = self.producedby[input]
+                                nextnodes.extend([p for p in producers if self.nodemap[p].shape_calc == False])
                     searchnodes = nextnodes
 
     def __get_subnodes_byio__(self, inputs: [], outputs: []):

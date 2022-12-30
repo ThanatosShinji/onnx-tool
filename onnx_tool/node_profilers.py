@@ -626,7 +626,11 @@ class ReduceL2(NodeBase):
 @NODEPROFILER_REGISTRY.register()
 class ReduceSum(ReduceMean):
     def infer_shape(self, intensors: [numpy.ndarray]):
-        reduced = numpy.sum(intensors[0], axis=self.axes, keepdims=self.keepdims == 1)
+        if len(intensors) == 2:
+            axes = tuple(intensors[1].tolist())
+        else:
+            axes = self.axes
+        reduced = numpy.sum(intensors[0], axis=axes, keepdims=self.keepdims == 1)
         return [reduced]
 
 

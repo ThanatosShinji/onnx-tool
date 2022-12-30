@@ -1164,7 +1164,7 @@ class ReduceProdNode(ReduceMeanNode):
 class ReduceSumNode(ReduceMeanNode):
     def value_infer(self, intensors: [numpy.ndarray]):
         if len(intensors) == 2:
-            axes = intensors[1]
+            axes = tuple(intensors[1].tolist())
         else:
             axes = self.axes
         reduced = numpy.sum(intensors[0], axis=axes, keepdims=self.keepdims == 1)

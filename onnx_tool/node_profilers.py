@@ -1322,19 +1322,18 @@ class Slice(FusedNode):
             axes = intensors[3]
             index = 0
             x = data
-            for i in range(len(data.shape)):
-                if i in axes:
-                    if i == 0:
-                        x = x[starts[index]:ends[index], ...]
-                    if i == 1:
-                        x = x[:, starts[index]:ends[index], ...]
-                    if i == 2:
-                        x = x[:, :, starts[index]:ends[index], ...]
-                    if i == 3:
-                        x = x[:, :, :, starts[index]:ends[index], ...]
-                    if i == 4:
-                        x = x[:, :, :, :, starts[index]:ends[index], ...]
-                    index += 1
+            for i in axes:
+                if i == 0:
+                    x = x[starts[index]:ends[index], ...]
+                if i == 1:
+                    x = x[:, starts[index]:ends[index], ...]
+                if i == 2:
+                    x = x[:, :, starts[index]:ends[index], ...]
+                if i == 3:
+                    x = x[:, :, :, starts[index]:ends[index], ...]
+                if i == 4:
+                    x = x[:, :, :, :, starts[index]:ends[index], ...]
+                index += 1
             return [x]
         if len(intensors) == 5:
             data = intensors[0]
@@ -1344,37 +1343,35 @@ class Slice(FusedNode):
             steps = intensors[4]
             index = 0
             x = data
-            for i in range(len(data.shape)):
-                if i in axes:
-                    if i == 0:
-                        x = x[starts[index]:ends[index]:steps[index], ...]
-                    if i == 1:
-                        x = x[:, starts[index]:ends[index]:steps[index], ...]
-                    if i == 2:
-                        x = x[:, :, starts[index]:ends[index]:steps[index], ...]
-                    if i == 3:
-                        x = x[:, :, :, starts[index]:ends[index]:steps[index], ...]
-                    if i == 4:
-                        x = x[:, :, :, :, starts[index]:ends[index]:steps[index], ...]
-                    index += 1
+            for i in axes:
+                if i == 0:
+                    x = x[starts[index]:ends[index]:steps[index], ...]
+                if i == 1:
+                    x = x[:, starts[index]:ends[index]:steps[index], ...]
+                if i == 2:
+                    x = x[:, :, starts[index]:ends[index]:steps[index], ...]
+                if i == 3:
+                    x = x[:, :, :, starts[index]:ends[index]:steps[index], ...]
+                if i == 4:
+                    x = x[:, :, :, :, starts[index]:ends[index]:steps[index], ...]
+                index += 1
             return [x]
         if len(intensors) == 1:
             data = intensors[0]
             index = 0
             x = data
-            for i in range(len(data.shape)):
-                if i in self.axes:
-                    if i == 0:
-                        x = x[self.starts[index]:self.ends[index], ...]
-                    if i == 1:
-                        x = x[:, self.starts[index]:self.ends[index], ...]
-                    if i == 2:
-                        x = x[:, :, self.starts[index]:self.ends[index], ...]
-                    if i == 3:
-                        x = x[:, :, :, self.starts[index]:self.ends[index], ...]
-                    if i == 4:
-                        x = x[:, :, :, :, self.starts[index]:self.ends[index], ...]
-                    index += 1
+            for i in self.axes:
+                if i == 0:
+                    x = x[self.starts[index]:self.ends[index], ...]
+                if i == 1:
+                    x = x[:, self.starts[index]:self.ends[index], ...]
+                if i == 2:
+                    x = x[:, :, self.starts[index]:self.ends[index], ...]
+                if i == 3:
+                    x = x[:, :, :, self.starts[index]:self.ends[index], ...]
+                if i == 4:
+                    x = x[:, :, :, :, self.starts[index]:self.ends[index], ...]
+                index += 1
             return [x]
 
 

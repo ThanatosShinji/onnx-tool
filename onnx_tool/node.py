@@ -1209,6 +1209,9 @@ class TopKNode(Node):
     def shape_infer(self, intensors: []):
         xshape = _get_shape(intensors[0])
         k = intensors[1][0]
+        # when the input tensor only contain 1 dimension, the axis attribute (default: 0) may not appear in the node
+        if len(xshape) == 1 and self.axis is None:
+            self.axis = 0
         newshape = []
         for i in range(len(xshape)):
             if i == self.axis:

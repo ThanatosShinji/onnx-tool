@@ -935,6 +935,9 @@ class TopK(NodeBase):
     def infer_shape(self, intensors: [numpy.ndarray]):
         x = intensors[0]
         k = intensors[1][0]
+        # when the input tensor only contain 1 dimension, the axis attribute (default: 0) may not appear in the node
+        if len(x.shape) == 1 and self.axis is None:
+            self.axis = 0
         newshape = []
         for i in range(len(x.shape)):
             if i == self.axis:

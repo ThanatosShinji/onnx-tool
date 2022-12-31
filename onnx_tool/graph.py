@@ -199,8 +199,8 @@ class Graph():
                     for nname in searchnodes:
                         node = self.nodemap[nname]
                         node.shape_calc = True
-                        # if node.op_type == 'Shape':
-                        #     continue
+                        if node.op_type == 'Shape':
+                            continue
                         for input in node.input:
                             if input not in self.initials and input in self.producedby.keys():
                                 producers = self.producedby[input]

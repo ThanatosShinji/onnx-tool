@@ -203,7 +203,8 @@ class Graph():
                             continue
                         for input in node.input:
                             if input not in self.initials and input in self.producedby.keys():
-                                nextnodes.extend(self.producedby[input])
+                                producers = self.producedby[input]
+                                nextnodes.extend([p for p in producers if self.nodemap[p].shape_calc == False])
                     searchnodes = nextnodes
 
     def __get_subnodes_byio__(self, inputs: [], outputs: []):

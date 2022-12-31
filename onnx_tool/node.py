@@ -1055,19 +1055,18 @@ class SliceNode(Node):
             axes = intensors[3]
             index = 0
             x = data
-            for i in range(len(datashape)):
-                if i in axes:
-                    if i == 0:
-                        x = x[starts[index]:ends[index], ...]
-                    if i == 1:
-                        x = x[:, starts[index]:ends[index], ...]
-                    if i == 2:
-                        x = x[:, :, starts[index]:ends[index], ...]
-                    if i == 3:
-                        x = x[:, :, :, starts[index]:ends[index], ...]
-                    if i == 4:
-                        x = x[:, :, :, :, starts[index]:ends[index], ...]
-                    index += 1
+            for i in axes:
+                if i == 0:
+                    x = x[starts[index]:ends[index], ...]
+                if i == 1:
+                    x = x[:, starts[index]:ends[index], ...]
+                if i == 2:
+                    x = x[:, :, starts[index]:ends[index], ...]
+                if i == 3:
+                    x = x[:, :, :, starts[index]:ends[index], ...]
+                if i == 4:
+                    x = x[:, :, :, :, starts[index]:ends[index], ...]
+                index += 1
         if len(intensors) == 5:
             starts = intensors[1]
             ends = intensors[2]
@@ -1075,35 +1074,33 @@ class SliceNode(Node):
             steps = intensors[4]
             index = 0
             x = data
-            for i in range(len(data.shape)):
-                if i in axes:
-                    if i == 0:
-                        x = x[starts[index]:ends[index]:steps[index], ...]
-                    if i == 1:
-                        x = x[:, starts[index]:ends[index]:steps[index], ...]
-                    if i == 2:
-                        x = x[:, :, starts[index]:ends[index]:steps[index], ...]
-                    if i == 3:
-                        x = x[:, :, :, starts[index]:ends[index]:steps[index], ...]
-                    if i == 4:
-                        x = x[:, :, :, :, starts[index]:ends[index]:steps[index], ...]
-                    index += 1
+            for i in axes:
+                if i == 0:
+                    x = x[starts[index]:ends[index]:steps[index], ...]
+                if i == 1:
+                    x = x[:, starts[index]:ends[index]:steps[index], ...]
+                if i == 2:
+                    x = x[:, :, starts[index]:ends[index]:steps[index], ...]
+                if i == 3:
+                    x = x[:, :, :, starts[index]:ends[index]:steps[index], ...]
+                if i == 4:
+                    x = x[:, :, :, :, starts[index]:ends[index]:steps[index], ...]
+                index += 1
         if len(intensors) == 1:
             index = 0
             x = data
-            for i in range(len(data.shape)):
-                if i in self.axes:
-                    if i == 0:
-                        x = x[self.starts[index]:self.ends[index], ...]
-                    if i == 1:
-                        x = x[:, self.starts[index]:self.ends[index], ...]
-                    if i == 2:
-                        x = x[:, :, self.starts[index]:self.ends[index], ...]
-                    if i == 3:
-                        x = x[:, :, :, self.starts[index]:self.ends[index], ...]
-                    if i == 4:
-                        x = x[:, :, :, :, self.starts[index]:self.ends[index], ...]
-                    index += 1
+            for i in self.axes:
+                if i == 0:
+                    x = x[self.starts[index]:self.ends[index], ...]
+                if i == 1:
+                    x = x[:, self.starts[index]:self.ends[index], ...]
+                if i == 2:
+                    x = x[:, :, self.starts[index]:self.ends[index], ...]
+                if i == 3:
+                    x = x[:, :, :, self.starts[index]:self.ends[index], ...]
+                if i == 4:
+                    x = x[:, :, :, :, self.starts[index]:self.ends[index], ...]
+                index += 1
         return [x]
 
 
@@ -1167,7 +1164,7 @@ class ReduceProdNode(ReduceMeanNode):
 class ReduceSumNode(ReduceMeanNode):
     def value_infer(self, intensors: [numpy.ndarray]):
         if len(intensors) == 2:
-            axes = intensors[1]
+            axes = tuple(intensors[1].tolist())
         else:
             axes = self.axes
         reduced = numpy.sum(intensors[0], axis=axes, keepdims=self.keepdims == 1)
@@ -1212,6 +1209,9 @@ class TopKNode(Node):
     def shape_infer(self, intensors: []):
         xshape = _get_shape(intensors[0])
         k = intensors[1][0]
+        # when the input tensor only contain 1 dimension, the axis attribute (default: 0) may not appear in the node
+        if len(xshape) == 1 and self.axis is None:
+            self.axis = 0
         newshape = []
         for i in range(len(xshape)):
             if i == self.axis:

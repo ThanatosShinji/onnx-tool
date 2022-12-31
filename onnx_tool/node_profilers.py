@@ -626,7 +626,11 @@ class ReduceL2(NodeBase):
 @NODEPROFILER_REGISTRY.register()
 class ReduceSum(ReduceMean):
     def infer_shape(self, intensors: [numpy.ndarray]):
-        reduced = numpy.sum(intensors[0], axis=self.axes, keepdims=self.keepdims == 1)
+        if len(intensors) == 2:
+            axes = tuple(intensors[1].tolist())
+        else:
+            axes = self.axes
+        reduced = numpy.sum(intensors[0], axis=axes, keepdims=self.keepdims == 1)
         return [reduced]
 
 
@@ -931,6 +935,9 @@ class TopK(NodeBase):
     def infer_shape(self, intensors: [numpy.ndarray]):
         x = intensors[0]
         k = intensors[1][0]
+        # when the input tensor only contain 1 dimension, the axis attribute (default: 0) may not appear in the node
+        if len(x.shape) == 1 and self.axis is None:
+            self.axis = 0
         newshape = []
         for i in range(len(x.shape)):
             if i == self.axis:
@@ -1322,19 +1329,18 @@ class Slice(FusedNode):
             axes = intensors[3]
             index = 0
             x = data
-            for i in range(len(data.shape)):
-                if i in axes:
-                    if i == 0:
-                        x = x[starts[index]:ends[index], ...]
-                    if i == 1:
-                        x = x[:, starts[index]:ends[index], ...]
-                    if i == 2:
-                        x = x[:, :, starts[index]:ends[index], ...]
-                    if i == 3:
-                        x = x[:, :, :, starts[index]:ends[index], ...]
-                    if i == 4:
-                        x = x[:, :, :, :, starts[index]:ends[index], ...]
-                    index += 1
+            for i in axes:
+                if i == 0:
+                    x = x[starts[index]:ends[index], ...]
+                if i == 1:
+                    x = x[:, starts[index]:ends[index], ...]
+                if i == 2:
+                    x = x[:, :, starts[index]:ends[index], ...]
+                if i == 3:
+                    x = x[:, :, :, starts[index]:ends[index], ...]
+                if i == 4:
+                    x = x[:, :, :, :, starts[index]:ends[index], ...]
+                index += 1
             return [x]
         if len(intensors) == 5:
             data = intensors[0]
@@ -1344,37 +1350,35 @@ class Slice(FusedNode):
             steps = intensors[4]
             index = 0
             x = data
-            for i in range(len(data.shape)):
-                if i in axes:
-                    if i == 0:
-                        x = x[starts[index]:ends[index]:steps[index], ...]
-                    if i == 1:
-                        x = x[:, starts[index]:ends[index]:steps[index], ...]
-                    if i == 2:
-                        x = x[:, :, starts[index]:ends[index]:steps[index], ...]
-                    if i == 3:
-                        x = x[:, :, :, starts[index]:ends[index]:steps[index], ...]
-                    if i == 4:
-                        x = x[:, :, :, :, starts[index]:ends[index]:steps[index], ...]
-                    index += 1
+            for i in axes:
+                if i == 0:
+                    x = x[starts[index]:ends[index]:steps[index], ...]
+                if i == 1:
+                    x = x[:, starts[index]:ends[index]:steps[index], ...]
+                if i == 2:
+                    x = x[:, :, starts[index]:ends[index]:steps[index], ...]
+                if i == 3:
+                    x = x[:, :, :, starts[index]:ends[index]:steps[index], ...]
+                if i == 4:
+                    x = x[:, :, :, :, starts[index]:ends[index]:steps[index], ...]
+                index += 1
             return [x]
         if len(intensors) == 1:
             data = intensors[0]
             index = 0
             x = data
-            for i in range(len(data.shape)):
-                if i in self.axes:
-                    if i == 0:
-                        x = x[self.starts[index]:self.ends[index], ...]
-                    if i == 1:
-                        x = x[:, self.starts[index]:self.ends[index], ...]
-                    if i == 2:
-                        x = x[:, :, self.starts[index]:self.ends[index], ...]
-                    if i == 3:
-                        x = x[:, :, :, self.starts[index]:self.ends[index], ...]
-                    if i == 4:
-                        x = x[:, :, :, :, self.starts[index]:self.ends[index], ...]
-                    index += 1
+            for i in self.axes:
+                if i == 0:
+                    x = x[self.starts[index]:self.ends[index], ...]
+                if i == 1:
+                    x = x[:, self.starts[index]:self.ends[index], ...]
+                if i == 2:
+                    x = x[:, :, self.starts[index]:self.ends[index], ...]
+                if i == 3:
+                    x = x[:, :, :, self.starts[index]:self.ends[index], ...]
+                if i == 4:
+                    x = x[:, :, :, :, self.starts[index]:self.ends[index], ...]
+                index += 1
             return [x]
 
 

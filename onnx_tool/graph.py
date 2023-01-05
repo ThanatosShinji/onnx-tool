@@ -1,3 +1,4 @@
+import math
 import warnings
 
 import numpy
@@ -47,6 +48,99 @@ def _contains_shape_tensor(n):
                 for istr in indistr:
                     shape_tensors.append(n.input[int(istr)])
     return shape_tensors
+
+
+class ValueExpr():
+    def __init__(self, srcrange: [], dstrange: []):
+        self.alpha = 1
+        self.beta = 0
+        self.factor = 0
+        self.truncmode = 0
+        self.build_expr(srcrange, dstrange)
+
+    def build_expr(self, srcrange: [], dstrange: []):
+        lastidx = len(srcrange) - 1
+        srclen = srcrange[lastidx] - srcrange[0]
+        dstlen = dstrange[lastidx] - dstrange[0]
+        if srclen <= dstlen:
+            self.factor = 0
+            self.alpha = round(dstlen / srclen)
+            self.beta = round(dstrange[lastidx] - srcrange[lastidx] * self.alpha)
+        else:
+            self.factor = 1
+            self.alpha = round(srclen / dstlen)
+            self.beta = round(dstrange[lastidx] - srcrange[lastidx] / self.alpha)
+
+        test = [self.__call__(x) for x in srcrange]
+        diff = 0
+        for x0, x1 in zip(test, dstrange):
+            diff += x0 - x1
+        if diff != 0:
+            self.truncmode = 1
+
+    def __call__(self, x):
+        if self.factor == 0:
+            y = self.alpha * x + self.beta
+        else:
+            y = x / self.alpha + self.beta
+        return self.truncate(y)
+
+    def truncate(self, x):
+        if self.truncmode == 0:
+            return math.ceil(x)
+        else:
+            return math.floor(x)
+
+
+class ShapeEngine():
+    def __init__(self, input_desc):
+        self.input_desc = input_desc
+        self.variables = {}
+        self.tensor_desc = {}
+        self.tensor_epxr = {}
+        for key in input_desc.keys():
+            self.add_tensor_desc(key, input_desc[key])
+
+    def update_variable(self, key, val):
+        self.variables[key] = val
+
+    def __get_shape_from_desc__(self, desc):
+        shape = []
+        for val in desc:
+            if isinstance(val, int):
+                shape.append(val)
+            else:
+                shape.append(self.variables[val])
+        return shape
+
+    def add_tensor_desc(self, tensor, desc):
+        self.tensor_desc[tensor] = desc
+
+    def update_tensor_desc(self, tensor, axis, vkey):
+        desc = self.tensor_desc[tensor]
+        assert (not isinstance(desc[axis], int))
+        desc[axis] = vkey
+
+    def add_expr(self, var_name, src_name, expr):
+        self.tensor_epxr[var_name] = [src_name, expr]
+        self.variables[var_name] = 0
+
+    def update_variables(self):
+        for key in self.tensor_epxr.keys():
+            expr = self.tensor_epxr[key]
+            self.variables[key] = expr[1](self.variables[expr[0]])
+
+    def get_tensorshape(self, tname):
+        desc = self.tensor_desc[tname]
+        shape = self.__get_shape_from_desc__(desc)
+        return shape
+
+    def generate_input(self):
+        tmp_input = {}
+        for key in self.input_desc:
+            shape = self.get_tensorshape(key)
+            tmp_input[key] = numpy.zeros(shape)
+        return tmp_input
 
 
 class Graph():
@@ -173,7 +267,7 @@ class Graph():
                     self.dynamics.append(input)
                     self.tensormap[input] = Tensor(input)
 
-        self.dynamics = set(self.dynamics)
+        # self.dynamics = set(self.dynamics)
         self.sparse_model = False
         for key in self.tensormap.keys():
             tensor = self.tensormap[key]
@@ -566,26 +660,86 @@ class Graph():
             if name in self.tensormap.keys():
                 self.output.append(name)
 
-    def shape_regress(self, min_inputshape: {}, max_inputshape: {}):
+    def shape_regress(self, input_desc: {}, input_range: {}):
+        shapeengine = ShapeEngine(input_desc)
 
-        self.shape_infer(min_inputshape)
-        mintensormap = self.get_dynamic_tensors()
-        self.shape_infer(max_inputshape)
+        for key in input_range.keys():
+            shapeengine.update_variable(key, input_range[key][1])
+        tmp_input = shapeengine.generate_input()
+        self.shape_infer(tmp_input)
         maxtensormap = self.get_dynamic_tensors()
-        input_dynamic_axis = {}
-        variable_count = 0
-        for key in min_inputshape.keys():
-            min_shape = min_inputshape[key].shape
-            max_shape = max_inputshape[key].shape
-            flag = []
-            for mins, maxs in zip(min_shape, max_shape):
-                if mins == maxs:
-                    flag.append(False)
+
+        for key in input_range.keys():
+            shapeengine.update_variable(key, input_range[key][0])
+        tmp_input = shapeengine.generate_input()
+        self.shape_infer(tmp_input)
+        mintensormap = self.get_dynamic_tensors()
+
+        for key in mintensormap.keys():
+            if key in input_desc.keys():
+                continue
+            shape_desc = []
+            minshape = mintensormap[key].shape
+            maxshape = maxtensormap[key].shape
+            for i, a in zip(minshape, maxshape):
+                if i == a:
+                    shape_desc.append(i)
                 else:
-                    flag.append(True)
-                    variable_count += 1
-            input_dynamic_axis[key] = flag
-        print(input_dynamic_axis)
+                    shape_desc.append('')
+            shapeengine.add_tensor_desc(key, shape_desc)
+
+        vcount = 0
+        for key in input_range.keys():
+            minv = input_range[key][0]
+            maxv = input_range[key][1]
+            vranges = [(minv + maxv) // 2, maxv]
+            shapes_range = []
+
+            for val in vranges:
+                shapeengine.update_variable(key, val)
+                tmpinputs = shapeengine.generate_input()
+                self.shape_infer(tmpinputs)
+                shapes_range.append(self.get_dynamic_tensors())
+
+            shapeengine.update_variable(key, input_range[key][0])
+            srcrange = [minv, ] + vranges
+            dstranges = [srcrange]
+
+            def range_in_rangelist(range, rangelist):
+                for i, r in enumerate(rangelist):
+                    flag = True
+                    for sv, dv in zip(range, r):
+                        if sv != dv:
+                            flag = False
+                            break
+                    if flag:
+                        return i
+                return -1
+
+            for vkey in mintensormap.keys():
+                if vkey in input_desc.keys():
+                    continue
+                shapes = [mintensormap[vkey].shape, shapes_range[0][vkey].shape, shapes_range[1][vkey].shape]
+                for i in range(len(shapes[0])):
+                    if shapes[0][i] != shapes[1][i] or shapes[0][i] != shapes[2][i]:
+                        newrange = [val[i] for val in shapes]
+                        idx = range_in_rangelist(newrange, dstranges)
+                        if idx == -1:
+                            expr = ValueExpr(dstranges[0], newrange)
+                            dstranges.append(newrange)
+                            vidx = vcount + len(dstranges) - 1
+                            shapeengine.add_expr(str(vidx), key, expr)
+                            valkey = str(vidx)
+                        else:
+                            if idx == 0:
+                                valkey = key
+                            else:
+                                vidx = vcount + idx
+                                valkey = str(vidx)
+                        shapeengine.update_tensor_desc(vkey, i, valkey)
+            vcount += len(dstranges)
+
+        return shapeengine
 
     def profile(self):
         params_flag_map = {}

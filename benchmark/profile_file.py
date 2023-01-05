@@ -71,15 +71,44 @@ models = [
     # },
     # {
     #     'name': 'data/public/resnet18-v1-7.onnx',
-    #     'min_input':
+    #     'input_desc':
     #         {
-    #             'data': numpy.zeros((1, 3, 224, 224), numpy.float32)
+    #             'data': [1,3,'h','w']
     #         },
-    #     'max_input':
+    #     'input_range':
     #         {
-    #             'data': numpy.zeros((1, 3, 299, 299), numpy.float32)
+    #             'h': (224,299),
+    #             'w': (224,299),
     #         }
     # },
+    # {
+    #     'name': 'data/public/bertsquad-12.onnx',
+    #     'input_desc':
+    #         {
+    #             'unique_ids_raw_output___9:0': (1,),
+    #             'segment_ids:0': ('batch',256),
+    #             'input_mask:0': ('batch',256),
+    #             'input_ids:0': ('batch',256),
+    #         },
+    #     'input_range':
+    #         {
+    #             'batch': (1,4),
+    #         }
+    # },
+    {
+        'name': 'data/public/BERT_quan95.onnx',
+        'input_desc':
+            {
+                'input_ids': ('batch', 'seq'),
+                'attention_mask': ('batch', 'seq'),
+                'token_type_ids': ('batch', 'seq'),
+            },
+        'input_range':
+            {
+                'batch': (1, 4),
+                'seq': (16, 384)
+            }
+    },
 ]
 
 
@@ -98,8 +127,8 @@ def add_outputs(modelname, savemodel, newoutputs):
 for modelinfo in models:
     # onnx_tool.model_simplify_names(modelinfo['name'],'mobilenetv1_quanpruned_sim.onnx',node_reorder=True)
     # onnx_tool.model_api_test(modelinfo['name'], modelinfo['dynamic_input'])
-    # onnx_tool.model_shape_regress(modelinfo['name'], modelinfo['min_input'], modelinfo['max_input'])
-    onnx_tool.model_profile_v2(modelinfo['name'], modelinfo['dynamic_input'], None, 'tmp.onnx', shapesonly=False)
+    onnx_tool.model_shape_regress(modelinfo['name'], modelinfo['input_desc'], modelinfo['input_range'])
+    # onnx_tool.model_profile_v2(modelinfo['name'], modelinfo['dynamic_input'], None, 'tmp.onnx', shapesonly=False)
     # onnx_tool.print_node_map()
     # onnx_tool.model_io_modify(modelinfo['name'], 'newio.onnx', {"input": "1x3x128x128"}, {"output": '1x3x512x512'})
     # onnx_tool.model_subgraph('tmp.onnx', ['sequential/mobilenetv2_1.00_160/Conv1/Conv2D__7426:0'], ['dense'])

@@ -10,6 +10,8 @@
 
 New:
 
+* Preview of *Shape Engine* , update BERT-Base's shapes within
+  1ms. [ShapeEngine](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/shape_regress.py)
 * The speedup of shape inference is 100x in v0.5.0
   release. [Release detail](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/NewArch.md)
 * Better support of Tensorflow-converted models in v0.4.0 release.

@@ -528,6 +528,14 @@ def model_shape_regress(m, input_desc: {}, input_range: {}):
         G = Graph(m.graph)
         G.graph_reorder()
         G.shape_regress(input_desc, input_range)
+        g = G.get_compute_graph()
+        cg = Graph(g)
+        cg.save_model('compute_graph.onnx')
+        # model = onnx.helper.make_model(g, producer_name='onnx-tool', producer_version='v' + VERSION)
+        # onnx.save_model(model, 'computegraph.onnx')
+
+
+#
 
 
 def model_remove_Identity(m, f: str):

@@ -741,6 +741,32 @@ class Graph():
 
         return shapeengine
 
+    def get_compute_graph(self):
+        nodes = []
+        for key in self.nodemap.keys():
+            node = self.nodemap[key]
+            if node.shape_calc:
+                continue
+            dummy_node = True
+            for output in node.output:
+                dummy = True
+                if output in self.consumedby.keys():
+                    for consumer in self.consumedby[output]:
+                        if not self.nodemap[consumer].shape_calc:
+                            dummy = False
+                            break
+                else:
+                    dummy = False
+                dummy_node = dummy_node and dummy
+            if dummy_node:
+                continue
+            nodes.append(node.name)
+
+        _inputs0, _outputs0 = self.get_iotensors(nodes)
+        graph_level0 = self.reorder_nodes(nodes, _inputs0)
+        subgraph = self.make_graph(graph_level0, 'subgraph', self.input, _outputs0)
+        return subgraph
+
     def profile(self):
         params_flag_map = {}
         for key in self.initials:
@@ -917,15 +943,3 @@ class Graph():
                 fp.write(tabulate(ptable, headers=header))
             fp.close()
 
-if __name__ == '__main__':
-    f = 'data/public/bertsquad-12.onnx'
-    f = 'data/public/resnet18-v1-7_shapes.onnx'
-    # f='data/public/rvm_mobilenetv3_fp32.onnx'
-    m = onnx.load(f)
-    graph = Graph(m.graph)
-    graph.get_subgraph(['resnetv15_stage4_conv0_fwd'], ['resnetv15_stage4_batchnorm1_fwd'])
-    graph.fuse_subgraph_iotensors(['resnetv15_stage3_activation1'], ['resnetv15_stage4__plus0'], 'fused', 'fused_0')
-
-    # graph.get_subgraph(['393'],['601'])
-    # graph.get_subgraph(['bert/encoder/layer_2/attention/output/LayerNorm/batchnorm/add_1:0'],['bert/encoder/layer_2/output/add:0'])
-    print(graph)

@@ -9,7 +9,8 @@
   **and any operation you can image with ONNX.**
 
 New:
-
+* *Happy Chinese New Year!* Preview of *Compute Graph* in v0.5.4 release. [Compute Graph](#compute_graph).   
+  node_profilers.py will be totally <font color=Crimson>DEPRECATED</font> in the next release.
 * Preview of *Shape Engine* , update BERT-Base's shapes within
   1ms. [ShapeEngine](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/shape_regress.py)
 * The speedup of shape inference is 100x in v0.5.0
@@ -54,13 +55,25 @@ usage: [data/TensorflowUsage.md](https://github.com/ThanatosShinji/onnx-tool/blo
 
 ---
 
+## Compute Graph with Shape Engine
+
+<p id="compute_graph" align="center">
+  <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/compute_graph.png">
+</p>  
+
+Remove shape calculation layers(created by ONNX export) to get a *Compute Graph*. Use *Shape Engine* to update tensor
+shapes at runtime.  
+samples: TODO
+
+---
+
 ## Extract subgraph from ONNX model
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/resnet18_subgraph.png">
 </p>
 
-how to use: [data/Subgraph.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Subgraph.md).     
+how to use: [data/Subgraph.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Subgraph.md).
 
 ---
 

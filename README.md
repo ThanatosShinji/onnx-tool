@@ -10,7 +10,7 @@
 
 New:
 * *Happy Chinese New Year!* Preview of *Compute Graph* in v0.5.4 release. [Compute Graph](#compute_graph).   
-  node_profilers.py will be totally <font color=Crimson>DEPRECATED</font> in the next release.
+  node_profilers.py will be totally DEPRECATED in the next release.
 * Preview of *Shape Engine* , update BERT-Base's shapes within
   1ms. [ShapeEngine](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/shape_regress.py)
 * The speedup of shape inference is 100x in v0.5.0

@@ -16,9 +16,6 @@ def __shape_of_initializer__(initial):
     return shape
 
 
-
-
-
 _SHAPE_TENSORS = {
     'Reshape': ('1of2',),
     'Resize': ('2of3', '3of4', '1of2'),
@@ -33,6 +30,7 @@ _SHAPE_TENSORS = {
     'Pad': ('1of3',),
     'NonMaxSuppression': ('2of5',),
 }
+
 
 def _contains_shape_tensor(n):
     nodeset = _SHAPE_TENSORS.keys()
@@ -57,6 +55,12 @@ class ValueExpr():
         self.factor = 0
         self.truncmode = 0
         self.build_expr(srcrange, dstrange)
+
+    def error(self, srcrange, dstrange):
+        err = 0
+        for sval, dval in zip(srcrange, dstrange):
+            err += abs(self.__call__(sval) - dval)
+        return err
 
     def build_expr(self, srcrange: [], dstrange: []):
         lastidx = len(srcrange) - 1
@@ -120,6 +124,11 @@ class ShapeEngine():
         desc = self.tensor_desc[tensor]
         assert (not isinstance(desc[axis], int))
         desc[axis] = vkey
+
+    def get_tensor_desc(self, tensor):
+        if tensor not in self.tensor_desc.keys():
+            return None
+        return self.tensor_desc[tensor]
 
     def add_expr(self, var_name, src_name, expr):
         self.tensor_epxr[var_name] = [src_name, expr]
@@ -570,7 +579,6 @@ class Graph():
                     if inner:
                         continue
                 if input not in intensors:
-
                     intensors.append(input)
 
             for output in self.nodemap[name].output:
@@ -704,6 +712,7 @@ class Graph():
             shapeengine.update_variable(key, input_range[key][0])
             srcrange = [minv, ] + vranges
             dstranges = [srcrange]
+            tensor_range_map = {}
 
             def range_in_rangelist(range, rangelist):
                 for i, r in enumerate(rangelist):
@@ -725,10 +734,31 @@ class Graph():
                         newrange = [val[i] for val in shapes]
                         idx = range_in_rangelist(newrange, dstranges)
                         if idx == -1:
-                            expr = ValueExpr(dstranges[0], newrange)
+                            nodename = self.producedby[vkey][0]
+                            srcvalkey = []
+                            for iname in self.nodemap[nodename].input:
+                                desc = shapeengine.get_tensor_desc(iname)
+                                if desc is not None:
+                                    for ele in desc:
+                                        if not isinstance(ele, int) and ele.isnumeric():
+                                            if int(ele) >= vcount:
+                                                srcvalkey.append(ele)
                             dstranges.append(newrange)
                             vidx = vcount + len(dstranges) - 1
-                            shapeengine.add_expr(str(vidx), key, expr)
+                            if len(srcvalkey) == 0:
+                                expr = ValueExpr(dstranges[0], newrange)
+                                err = expr.error(dstranges[0], newrange)
+                                srckey = key
+                            else:
+                                # TODO multiple src variables comparison
+                                srckey = srcvalkey[0]
+                                expr = ValueExpr(tensor_range_map[srckey], newrange)
+                                err = expr.error(tensor_range_map[srckey], newrange)
+                            if err > 0:
+                                warnings.warn(f'src key {srckey} dst key {vidx} error:{err}')
+
+                            shapeengine.add_expr(str(vidx), srckey, expr)
+                            tensor_range_map[str(vidx)] = newrange
                             valkey = str(vidx)
                         else:
                             if idx == 0:
@@ -738,7 +768,6 @@ class Graph():
                                 valkey = str(vidx)
                         shapeengine.update_tensor_desc(vkey, i, valkey)
             vcount += len(dstranges)
-
         return shapeengine
 
     def get_compute_graph(self):
@@ -942,4 +971,3 @@ class Graph():
             else:
                 fp.write(tabulate(ptable, headers=header))
             fp.close()
-

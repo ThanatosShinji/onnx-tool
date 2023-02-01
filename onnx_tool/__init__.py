@@ -81,23 +81,23 @@ def model_profile(m, dynamic_shapes: {str: tuple} = None, savenode: str = None,
     if isinstance(m, str):
         m = onnx.load_model(m)
     if isinstance(m, onnx.ModelProto):
-        G = Graph(m.graph, verbose=verbose)
+        g = Graph(m.graph, verbose=verbose)
         gtmr = timer()
-        G.graph_reorder()
+        g.graph_reorder()
         gtmr.start()
-        G.shape_infer(dynamic_shapes)
+        g.shape_infer(dynamic_shapes)
         if verbose:
             print(f'infered all tensor shapes, time cost {gtmr.stop():.3f} s')
         gtmr.start()
-        G.profile()
+        g.profile()
         if verbose:
             print(f'profile all nodes, time cost {gtmr.stop():.3f} s')
-        G.print_node_map(savenode, exclude_nodes=hidden_ops)
+        g.print_node_map(savenode, exclude_nodes=hidden_ops)
 
         if saveshapesmodel is not None:
             if dump_outputs is not None:
-                G.add_dump_tensors(dump_outputs)
-            G.save_model(saveshapesmodel, shapesonly)
+                g.add_dump_tensors(dump_outputs)
+            g.save_model(saveshapesmodel, shapesonly)
 
 
 def model_shape_regress(m, input_desc: {}, input_range: {}):

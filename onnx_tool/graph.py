@@ -273,9 +273,10 @@ class Graph():
         for key in self.nodemap.keys():
             node = self.nodemap[key]
             for input in node.input:
-                if input not in self.initials and input not in self.tensormap.keys():
+                if input not in self.initials:
                     self.dynamics.append(input)
-                    self.tensormap[input] = Tensor(input)
+                    if input not in self.tensormap.keys():
+                        self.tensormap[input] = Tensor(input)
 
         # self.dynamics = set(self.dynamics)
         self.sparse_model = False

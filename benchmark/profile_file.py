@@ -88,16 +88,14 @@ models = [
                 'seq': (16, 384)
             }
     },
-    # {
-    #     'name':'yuvasr_128.onnx',
-    # }
+
 ]
 
 
 for modelinfo in models:
     # onnx_tool.model_simplify_names(modelinfo['name'],'mobilenetv1_quanpruned_sim.onnx',node_reorder=True)
     onnx_tool.model_shape_regress(modelinfo['name'], modelinfo['input_desc'], modelinfo['input_range'])
-    onnx_tool.model_profile(modelinfo['name'], modelinfo['dynamic_input'], None, 'tmp.onnx', shapesonly=False)
+    # onnx_tool.model_profile(modelinfo['name'], modelinfo['dynamic_input'], None, 'tmp.onnx', shapesonly=False)
     # onnx_tool.model_io_modify(modelinfo['name'], 'newio.onnx', {"input": "1x3x111x11","output": '1x3x444x44'})
     # onnx_tool.model_subgraph('tmp.onnx', ['sequential/mobilenetv2_1.00_160/Conv1/Conv2D__7426:0'], ['dense'])
     # onnx_tool.model_opfusion(modelinfo['name'],'fused','fused_0','fused.onnx', ['StatefulPartitionedCall/model/conv2d_101/BiasAdd:0'], ['Identity_1:0'])

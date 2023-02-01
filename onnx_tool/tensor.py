@@ -383,7 +383,13 @@ class Tensor():
         self.shape = shape
 
     def get_shape(self):
-        return self.shape
+        shape = []
+        for s in self.shape:
+            if isinstance(s, str):
+                shape.append(s)
+            else:
+                shape.append(int(s))
+        return shape
 
     def get_valueorshape(self):
         if self.numpy is not None:
@@ -414,7 +420,7 @@ class Tensor():
 
     def make_value_proto(self):
         if len(self.shape) == 0:
-            return None
+            return self.proto
         else:
             shape = self.get_shape()
         if self.numpy is None:

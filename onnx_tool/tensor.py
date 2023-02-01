@@ -15,8 +15,10 @@ def shape_of_tensor(tensor):
     shape = []
     # for nb in tensor.shape.dim
     for nb in tensor.type.tensor_type.shape.dim:
-        assert (nb.dim_value != None)
-        shape.append(nb.dim_value)
+        if nb.HasField('dim_value'):
+            shape.append(nb.dim_value)
+        if nb.HasField('dim_param'):
+            shape.append(nb.dim_param)
     return shape
 
 
@@ -412,13 +414,13 @@ class Tensor():
 
     def make_value_proto(self):
         if len(self.shape) == 0:
-            shape = (0,)
+            return None
         else:
             shape = self.get_shape()
         if self.numpy is None:
             dtype = onnx.TensorProto.FLOAT
         else:
             dtype = npdtype2onnxdtype(self.numpy.dtype)
-        shape = [int(i) for i in shape]
+        # shape = [int(i) for i in shape]
         vinf = onnx.helper.make_tensor_value_info(self.name, dtype, shape)
         return vinf

@@ -3,6 +3,7 @@ import warnings
 
 import numpy
 import onnx
+
 from .node import create_node
 from .tensor import get_attribute_data, Tensor, volume
 from .utils import VERSION, tuple2str
@@ -465,9 +466,11 @@ class Graph():
             else:
                 outputs.append(onnx.helper.make_tensor_value_info(name, 1, None))
         value_infos = []
-        for key in self.tensormap.keys():
+        for key in self.dynamics:
             tensor = self.tensormap[key]
             vinfo = tensor.make_value_proto()
+            if vinfo is None:
+                continue
             value_infos.append(vinfo)
         graph = onnx.helper.make_graph(nodes=nodes, name=gname, inputs=inputs, outputs=outputs, initializer=initializer,
                                        value_info=value_infos)

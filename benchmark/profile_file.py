@@ -62,14 +62,6 @@ models = [
     #     'dynamic_input': None
     # },
     # {
-    #     'name': 'data/public/rvm_mobilenetv3_fp32.onnx',
-    #     'dynamic_input':
-    #         {'src': create_ndarray_f32((1, 3, 1080, 1920)), 'r1i': create_ndarray_f32((1, 16, 135, 240)),
-    #          'r2i': create_ndarray_f32((1, 20, 68, 120)), 'r3i': create_ndarray_f32((1, 40, 34, 60)),
-    #          'r4i': create_ndarray_f32((1, 64, 17, 30)),
-    #          'downsample_ratio': numpy.array((0.25,), dtype=numpy.float32)}
-    # },
-    # {
     #     'name': 'data/public/resnet18-v1-7.onnx',
     #     'input_desc':
     #         {
@@ -81,22 +73,9 @@ models = [
     #             'w': (224,299),
     #         }
     # },
-    # {
-    #     'name': 'data/public/bertsquad-12.onnx',
-    #     'input_desc':
-    #         {
-    #             'unique_ids_raw_output___9:0': (1,),
-    #             'segment_ids:0': ('batch',256),
-    #             'input_mask:0': ('batch',256),
-    #             'input_ids:0': ('batch',256),
-    #         },
-    #     'input_range':
-    #         {
-    #             'batch': (1,4),
-    #         }
-    # },
     {
         'name': 'data/public/BERT_quan95.onnx',
+        'dynamic_input': None,
         'input_desc':
             {
                 'input_ids': ('batch', 'seq'),
@@ -109,38 +88,16 @@ models = [
                 'seq': (16, 384)
             }
     },
+    # {
+    #     'name':'yuvasr_128.onnx',
+    # }
 ]
-
-
-def set_inputs(modelname, savemodel, dynamicinps):
-    model = onnx.load_model(modelname)
-    onnx_tool.graph_set_inputs(model.graph, dynamicinps)
-    onnx.save_model(model, savemodel)
-
-
-def add_outputs(modelname, savemodel, newoutputs):
-    model = onnx.load_model(modelname)
-    onnx_tool.graph_addoutputs(model.graph, newoutputs)
-    onnx.save_model(model, savemodel)
 
 
 for modelinfo in models:
     # onnx_tool.model_simplify_names(modelinfo['name'],'mobilenetv1_quanpruned_sim.onnx',node_reorder=True)
-    # onnx_tool.model_api_test(modelinfo['name'], modelinfo['dynamic_input'])
     onnx_tool.model_shape_regress(modelinfo['name'], modelinfo['input_desc'], modelinfo['input_range'])
-    # onnx_tool.model_profile_v2(modelinfo['name'], modelinfo['dynamic_input'], None, 'tmp.onnx', shapesonly=False)
-    # onnx_tool.print_node_map()
-    # onnx_tool.model_io_modify(modelinfo['name'], 'newio.onnx', {"input": "1x3x128x128"}, {"output": '1x3x512x512'})
+    onnx_tool.model_profile(modelinfo['name'], modelinfo['dynamic_input'], None, 'tmp.onnx', shapesonly=False)
+    # onnx_tool.model_io_modify(modelinfo['name'], 'newio.onnx', {"input": "1x3x111x11","output": '1x3x444x44'})
     # onnx_tool.model_subgraph('tmp.onnx', ['sequential/mobilenetv2_1.00_160/Conv1/Conv2D__7426:0'], ['dense'])
     # onnx_tool.model_opfusion(modelinfo['name'],'fused','fused_0','fused.onnx', ['StatefulPartitionedCall/model/conv2d_101/BiasAdd:0'], ['Identity_1:0'])
-    # onnx_tool.model_subgraph(modelinfo['name'],['resnetv15_stage4_conv0_fwd'],['resnetv15_stage4_batchnorm1_fwd'])
-    # onnx_tool.model_opfusion(modelinfo['name'],'fused','fused_0','fused.onnx',nodenames=['resnetv15_stage1_conv0_fwd','resnetv15_stage1_batchnorm0_fwd',
-    #                                                                                      'resnetv15_stage1_relu0_fwd'])
-    # set_inputs(modelinfo['name'],'inputs_set.onnx',modelinfo['dynamic_input'])
-    # add_outputs(modelinfo['name'],'outputs_set.onnx',['443','586'])
-    # onnx_tool.model_profile(modelinfo['name'],modelinfo['dynamic_input'] \
-    #                         ,saveshapesmodel='tmp.onnx',shapesonly=True,dump_outputs=['443','586'])
-    # onnx_tool.model_export_tensors_numpy(modelinfo['name'], savefolder='quan', fp16=False)
-    # print(onnx_tool.GLOBAL_VARS['tensor_map'].keys())
-    # onnx_tool.model_simplify_names(modelinfo['name'],savemodel='sim.onnx',renametensor=True,renamelayer=True
-    #                                ,custom_inputs={'input':'BatchxChannelxHeightxWidth'},custom_outputs={'output':'BatchxNClass'})

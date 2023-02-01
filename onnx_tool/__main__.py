@@ -90,7 +90,7 @@ if args.mode == 'profile':
         dynamic = __args2dynamicshapes__(args.dynamic_shapes)
     else:
         dynamic = None
-    onnx_tool.model_profile_v2(args.in_, dynamic, args.file, args.out, dump_outputs=args.names)
+    onnx_tool.model_profile(args.in_, dynamic, args.file, args.out, dump_outputs=args.names)
 elif args.mode == 'export_tensors':
     onnx_tool.model_export_tensors_numpy(args.in_, tensornames=args.names, savefolder=args.out, fp16=args.fp16)
 elif args.mode == 'rm_iden':

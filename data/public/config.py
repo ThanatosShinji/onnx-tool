@@ -1,6 +1,6 @@
 import numpy
 
-from onnx_tool.node_profilers import create_ndarray_f32, create_ndarray_int64
+from onnx_tool import create_ndarray_f32, create_ndarray_int64
 
 public_models = {
     'folder': 'data/public',

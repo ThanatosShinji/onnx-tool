@@ -5,6 +5,7 @@ import numpy
 import onnx
 
 from .graph import Graph
+from .node import NODE_REGISTRY, Node
 from .tensor import create_ndarray_f32, create_ndarray_int64
 from .utils import timer, VERSION
 

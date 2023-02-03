@@ -35,6 +35,14 @@ def _convtranspose_output_shape(xin, output_padding, pad, ksize, stride, dilatio
     return stride * (xin - 1) + output_padding + ((ksize - 1) * dilation + 1) - pad
 
 
+def _auto_pad_valid_shape_calc(x, ksize, stride):
+    return math.ceil((x - ksize + 1) / stride)
+
+
+def _auto_pad_same_shape_calc(x, stride):
+    return math.ceil((x) / stride)
+
+
 def _pooling_shape_calc(inshape, pad, kshape, dilation, stride, ceilmode):
     outshape = (inshape + pad - ((kshape - 1) * dilation + 1)) / stride + 1
     if ceilmode:
@@ -628,7 +636,19 @@ class ConcatNode(Node):
         return [outtensor]
 
 
-from .node_profilers import one_hot
+# copy from https://github.com/onnx/onnx/blob/main/onnx/backend/test/case/node/onehot.py
+def one_hot(indices, depth, axis=-1, dtype=numpy.float32):  # type: ignore
+    ''' Compute one hot from indices at a specific axis '''
+    values = numpy.asarray(indices)
+    rank = len(values.shape)
+    depth_range = numpy.arange(depth)
+    if axis < 0:
+        axis += (rank + 1)
+    ls = values.shape[0:axis]
+    rs = values.shape[axis:rank]
+    targets = numpy.reshape(depth_range, (1,) * len(ls) + depth_range.shape + (1,) * len(rs))
+    values = numpy.reshape(numpy.mod(values, depth), ls + (1,) + rs)
+    return numpy.asarray(targets == values, dtype=dtype)
 
 
 @NODE_REGISTRY.register()
@@ -805,8 +825,6 @@ class UpsampleNode(ResizeNode):
     pass
 
 
-from .node_profilers import auto_pad_valid_shape_calc, auto_pad_same_shape_calc, pooling_shape_calc
-
 
 @NODE_REGISTRY.register()
 class PoolBase(Node):
@@ -825,26 +843,29 @@ class PoolBase(Node):
         if self.auto_pad is not None and self.auto_pad != b'NOTSET':
             outshape = inshape[:2]
             if self.auto_pad in [b'SAME_LOWER', b'SAME_UPPER']:
-                outshape += (auto_pad_same_shape_calc(inshape[2], self.strides[0]),)
+                outshape += (_auto_pad_same_shape_calc(inshape[2], self.strides[0]),)
                 if len(self.strides) == 2:
-                    outshape += [auto_pad_same_shape_calc(inshape[3], self.strides[1]), ]
+                    outshape += [_auto_pad_same_shape_calc(inshape[3], self.strides[1]), ]
             elif self.auto_pad == b'VALID':
-                outshape += [auto_pad_valid_shape_calc(inshape[2], self.kernel_shape[0], self.strides[0]), ]
+                outshape += [_auto_pad_valid_shape_calc(inshape[2], self.kernel_shape[0], self.strides[0]), ]
                 if len(self.strides) == 2:
-                    outshape += [auto_pad_valid_shape_calc(inshape[3], self.kernel_shape[1], self.strides[1]), ]
+                    outshape += [_auto_pad_valid_shape_calc(inshape[3], self.kernel_shape[1], self.strides[1]), ]
         else:
             if len(self.kernel_shape) == 1:
                 outshape = inshape[:2] + [
-                    pooling_shape_calc(inshape[2], self.pads[0] + self.pads[1], self.kernel_shape[0], self.dilations[0],
-                                       self.strides[0], self.ceil_mode), ]
+                    _pooling_shape_calc(inshape[2], self.pads[0] + self.pads[1], self.kernel_shape[0],
+                                        self.dilations[0],
+                                        self.strides[0], self.ceil_mode), ]
             if len(self.kernel_shape) == 2:
                 outshape = inshape[:2] + [
-                    pooling_shape_calc(inshape[2], self.pads[0] + self.pads[2], self.kernel_shape[0], self.dilations[0],
-                                       self.strides[0],
-                                       self.ceil_mode),
-                    pooling_shape_calc(inshape[3], self.pads[1] + self.pads[3], self.kernel_shape[1], self.dilations[1],
-                                       self.strides[1],
-                                       self.ceil_mode),
+                    _pooling_shape_calc(inshape[2], self.pads[0] + self.pads[2], self.kernel_shape[0],
+                                        self.dilations[0],
+                                        self.strides[0],
+                                        self.ceil_mode),
+                    _pooling_shape_calc(inshape[3], self.pads[1] + self.pads[3], self.kernel_shape[1],
+                                        self.dilations[1],
+                                        self.strides[1],
+                                        self.ceil_mode),
                 ]
         return [outshape, ]
 
@@ -966,7 +987,12 @@ class FlattenNode(Node):
             return [intensors[0].reshape((vol, -1))]
 
 
-from .node_profilers import argmax_use_numpy
+# copy from https://github.com/onnx/onnx/blob/main/onnx/backend/test/case/node/argmax.py
+def argmax_use_numpy(data: numpy.ndarray, axis: int = 0, keepdims: int = 1) -> (numpy.ndarray):
+    result = numpy.argmax(data, axis=axis)
+    if (keepdims == 1):
+        result = numpy.expand_dims(result, axis)
+    return result.astype(numpy.int64)
 
 
 @NODE_REGISTRY.register()
@@ -1427,10 +1453,33 @@ class ScatterElementsNode(Node):
         return [_get_shape(intensors[0])]
 
 
+# copy from https://github.com/onnx/onnx/blob/main/onnx/backend/test/case/node/scatternd.py
+def scatter_nd_impl(data, indices, updates, reduction='none'):  # type: ignore
+
+    # Check tensor shapes
+    assert indices.shape[-1] <= len(data.shape)
+    assert updates.shape == indices.shape[:-1] + data.shape[indices.shape[-1]:]
+
+    # Compute output
+    output = numpy.copy(data)
+    for i in numpy.ndindex(indices.shape[:-1]):
+        # NOTE: The order of iteration in this loop is not specified.
+        if reduction == "add":
+            output[indices[i]] += updates[i]
+        elif reduction == "mul":
+            output[indices[i]] *= updates[i]
+        elif reduction == "max":
+            output[indices[i]] = np.maximum(output[indices[i]], updates[i])
+        elif reduction == "min":
+            output[indices[i]] = np.minimum(output[indices[i]], updates[i])
+        else:
+            output[indices[i]] = updates[i]
+    return output
+
+
 @NODE_REGISTRY.register()
 class ScatterNDNode(Node):
     def value_infer(self, intensors: []):
-        from .node_profilers import scatter_nd_impl
         data = intensors[0]
         indices = intensors[1]
         updates = intensors[2]

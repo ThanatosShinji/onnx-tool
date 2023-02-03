@@ -1,5 +1,5 @@
-from onnx_tool.node_profilers import NODEPROFILER_REGISTRY
+import onnx_tool
 
-print(len(NODEPROFILER_REGISTRY.keys()))
-for key in NODEPROFILER_REGISTRY.keys():
+print(len(onnx_tool.NODE_REGISTRY.keys()))
+for key in onnx_tool.NODE_REGISTRY.keys():
     print(key)

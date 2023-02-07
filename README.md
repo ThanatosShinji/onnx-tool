@@ -2,24 +2,18 @@
 
 **A tool for ONNX model:**
 
-* *Shape inference.*
-* *MACs(FLOPs) counting for each layer.*
-* *Extract subgraph from ONNX model, or do inplace op fusion.*  
-  ...  
-  **and any operation you can image with ONNX.**
+* *Rapid shape inference.*
+* *Profile model.*
+* *Compute Graph and Shape Engine.*
+* *OPs fusion.*
+* *Quantized models and sparse models are supported.*
 
-New:
-* *Happy Chinese New Year!* Preview of *Compute Graph* in v0.5.4 release. [Compute Graph](#compute_graph).   
-  node_profilers.py will be totally DEPRECATED in the next release.
-* Preview of *Shape Engine* , update BERT-Base's shapes within
-  1ms. [ShapeEngine](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/shape_regress.py)
-* The speedup of shape inference is 100x in v0.5.0
-  release. [Release detail](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/NewArch.md)
-* Better support of Tensorflow-converted models in v0.4.0 release.
-* Sparse Models are initially supported in v0.3.1 release. view [Sparse Model](#sparsity)
-* Quantized models are initially supported in v0.3.0 release.
-* 4 onnx models of Stable Diffusion are supported in v0.2.14 release. view  [results](#results)  
-  ...
+Supported Models:
+
+* NLP: BERT, T5, GPT
+* Diffusion: Stable Diffusion(TextEncoder, VAE, UNET)
+* CV: Resnet, MobileNet, YOLO, ...
+* Audio: LPCNet
 
 ---
 
@@ -32,8 +26,8 @@ New:
 how to use: [data/Profile.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Profile.md).  
 pytorch usage: [data/PytorchUsage.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/PytorchUsage.md).  
 tensorflow
-usage: [data/TensorflowUsage.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/TensorflowUsage.md).
-
+usage: [data/TensorflowUsage.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/TensorflowUsage.md).  
+samples: [benchmark/samples.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/samples.py)
 ---
 
 ## MACs counting for each layer (FLOPs=2*MACs)
@@ -51,8 +45,8 @@ Sparse Pattern, Sparse Block Ratio, Sparse Element Ratio<br><br>
 how to use: [data/Profile.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Profile.md).  
 pytorch usage: [data/PytorchUsage.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/PytorchUsage.md).  
 tensorflow
-usage: [data/TensorflowUsage.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/TensorflowUsage.md).
-
+usage: [data/TensorflowUsage.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/TensorflowUsage.md).  
+samples: [benchmark/samples.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/samples.py)
 ---
 
 ## Compute Graph with Shape Engine
@@ -63,7 +57,26 @@ usage: [data/TensorflowUsage.md](https://github.com/ThanatosShinji/onnx-tool/blo
 
 Remove shape calculation layers(created by ONNX export) to get a *Compute Graph*. Use *Shape Engine* to update tensor
 shapes at runtime.  
-samples: TODO
+samples: [benchmark/samples.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/shape_regress.py)
+
+---
+
+## Inplace op fusion
+
+MHA and Layernorm Fusion for Transformers
+<p align="center">
+  <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/mha_fusion.png">
+</p>
+<p align="center">
+  <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/layernorm_fusion.png">
+</p>
+Resnet18 fusion
+<p align="center">
+  <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/resnet18_fused.png">
+</p>
+
+how to use: [data/Subgraph.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Subgraph.md).  
+BERT samples: [benchmark/samples.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/samples.py)
 
 ---
 
@@ -77,23 +90,6 @@ how to use: [data/Subgraph.md](https://github.com/ThanatosShinji/onnx-tool/blob/
 
 ---
 
-## Inplace op fusion
-<p align="center">
-  <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/resnet18_fused.png">
-</p>
-
-how to use: [data/Subgraph.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Subgraph.md).  
-
----
-
-## Add any hidden tensors to model's outputs
-<p align="center">
-  <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/add_otuput_tensors.png">
-</p>
-
-how to use: [data/Profile.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Profile.md).  
-
----
 ## Tensor operations
 * *Export weight tensors to files*  
 * *Simplify tensor and node names, convert name from a long string to a short string*  

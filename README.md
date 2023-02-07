@@ -28,6 +28,7 @@ pytorch usage: [data/PytorchUsage.md](https://github.com/ThanatosShinji/onnx-too
 tensorflow
 usage: [data/TensorflowUsage.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/TensorflowUsage.md).  
 samples: [benchmark/samples.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/samples.py).
+
 ---
 
 ## MACs counting for each layer (FLOPs=2*MACs)
@@ -40,13 +41,14 @@ Float MultipleAdd Count, Memory Usage(in bytes), Parameters(elements number)<br>
 <p id="sparsity" align="center">
   <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/sparse_model.png">
 </p>
-Sparse Pattern, Sparse Block Ratio, Sparse Element Ratio<br><br>
+Sparse Pattern, Sparse Block Ratio, Sparse Element Ratio<br><br>  
 
 how to use: [data/Profile.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Profile.md).  
 pytorch usage: [data/PytorchUsage.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/PytorchUsage.md).  
 tensorflow
 usage: [data/TensorflowUsage.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/TensorflowUsage.md).  
 samples: [benchmark/samples.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/samples.py).
+
 ---
 
 ## Compute Graph with Shape Engine
@@ -98,6 +100,7 @@ how to use: [data/Subgraph.md](https://github.com/ThanatosShinji/onnx-tool/blob/
 how to use: [data/Tensors.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Tensors.md).  
 
 ---
+
 ## How to install
     
 `pip install onnx-tool`
@@ -113,10 +116,12 @@ Then `pip install onnx-tool` again.
 
 
 ---
+
 ## Known Issues
 * Loop op is not supported
 
 ---
+
 ## Results of [ONNX Model Zoo](https://github.com/onnx/models) and SOTA models
 Some models have dynamic input shapes. The MACs varies from input shapes. The input shapes used in these results are writen to [data/public/config.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/public/config.py).
 These onnx models with all tensors' shape can be downloaded: [baidu drive](https://pan.baidu.com/s/1eebBP-n-wXvOhSmIH-NUZQ 

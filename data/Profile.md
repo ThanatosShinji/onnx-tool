@@ -81,7 +81,9 @@
         def shape_infer(self, intensors: []):
             # if you know how to calculate shapes of this op, you can implement shape_infer
             return [_get_shape(intensors[1])]
-
+        
+        #for upgrade of node_profilers.py, node_profilers.py's 'infer_shape' method should be placed
+        #as 'value_infer' method here, and do not create this class' 'shape_infer' method. 
         def value_infer(self, intensors: []):
             # if you don't know how to calculate the shapes of this op, you can implement value_infer.
             shape1=intensors[1].shape

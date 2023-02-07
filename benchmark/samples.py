@@ -63,6 +63,8 @@ def custom_layer_register():
             # if you know how to calculate shapes of this op, you can implement shape_infer
             return [_get_shape(intensors[1])]
 
+        # for upgrade of node_profilers.py, node_profilers.py's 'infer_shape' method should be placed
+        # as 'value_infer' method here, and do not create this class' 'shape_infer' method.
         def value_infer(self, intensors: []):
             # if you don't know how to calculate the shapes of this op, you can implement value_infer.
             shape1 = intensors[1].shape
@@ -77,3 +79,77 @@ def custom_layer_register():
 
     onnx_tool.model_profile('./rrdb_new.onnx', {'input': create_ndarray_f32((1, 3, 335, 619))},
                             savenode='rrdb_new_nodemap.txt', saveshapesmodel='rrdb_new_shapes.onnx')
+
+
+def bert_mha_fuse():
+    import onnx_tool
+    import onnx
+    modelpath = 'data/public/bertsquad-12.onnx'
+    mproto = onnx.load_model(modelpath)
+    g = onnx_tool.Graph(mproto.graph)
+    g.graph_reorder()
+
+    # do some graph search here
+    in_tensor_names = ['bert/encoder/Reshape_1:0']
+    out_tensor_names = ['bert/encoder/layer_0/attention/output/dense/BiasAdd:0']
+    fused_g = g.fuse_subgraph_iotensors(inputs=in_tensor_names, outputs=out_tensor_names, name='MHA_0',
+                                        nodeop='MHA', keep_attr=True)
+    fused_g.save_model('bertsquad_mha.onnx')
+
+
+def bert_mha_layernorm_fuse():
+    import onnx_tool
+    import onnx
+    modelpath = 'data/public/bertsquad-12.onnx'
+    mproto = onnx.load_model(modelpath)
+    g = onnx_tool.Graph(mproto.graph)
+    g.graph_reorder()
+
+    # do some graph search here
+    in_tensor_names = ['bert/encoder/Reshape_1:0']
+    out_tensor_names = ['bert/encoder/layer_0/attention/output/dense/BiasAdd:0']
+    fused_g = g.fuse_subgraph_iotensors(inputs=in_tensor_names, outputs=out_tensor_names, name='MHA_0',
+                                        nodeop='MHA',
+                                        keep_attr=True)  # ignore new op warning 'node MHA is not registed for profiling xxxx'
+
+    in_tensor_names = ['bert/encoder/layer_0/attention/output/add:0']
+    out_tensor_names = ['bert/encoder/layer_0/attention/output/LayerNorm/batchnorm/add_1:0']
+    fused_g = fused_g.fuse_subgraph_iotensors(inputs=in_tensor_names, outputs=out_tensor_names, name='layernrom_0',
+                                              nodeop='layernorm',
+                                              keep_attr=True)  # ignore new op warning 'node layernorm is not registed for profiling xxxx'
+    fused_g.save_model('bertsquad_mha_layernorm.onnx')
+
+
+def computegraph_with_shapeengine():
+    import onnx_tool
+    import onnx
+    model_config = {
+        'name': 'data/public/BERT_quan95.onnx',
+        'dynamic_input': None,
+        'input_desc':
+            {
+                'input_ids': ('batch', 'seq'),
+                'attention_mask': ('batch', 'seq'),
+                'token_type_ids': ('batch', 'seq'),
+            },
+        'input_range':
+            {
+                'batch': (1, 4),
+                'seq': (16, 384)
+            }
+    }
+
+    mproto = onnx.load_model(model_config['name'])
+    g = onnx_tool.Graph(mproto.graph)
+    g.graph_reorder()
+
+    shape_engine = g.shape_regress(model_config['input_desc'], model_config['input_range'])
+    cg = g.get_compute_graph()
+    cg = onnx_tool.Graph(cg)
+    cg.save_model('compute_graph.onnx')
+
+    shape_engine.update_variable('batch', 3)  # update batch size
+    shape_engine.update_variable('seq', 155)  # update batch size
+    shape_engine.update_variables()  # all shapes updated
+
+    print(shape_engine.get_tensorshape('1979'))  # query tensor shapes

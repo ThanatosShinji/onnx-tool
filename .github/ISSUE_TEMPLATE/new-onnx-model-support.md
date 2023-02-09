@@ -1,10 +1,11 @@
 ---
 name: New ONNX Model Support
-about: Add your custom ONNX model
+about: Support a new ONNX model
 title: ''
 labels: ''
 assignees: ''
 
 ---
 
-can you share the link to your ONNX model?
+You need to provide a way to get your model.
+You can share the model's link or some scripts to create your model.

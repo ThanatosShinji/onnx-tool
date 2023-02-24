@@ -129,9 +129,6 @@ class Node():
 
     def make_nodeproto(self):
         return onnx.helper.make_node(self.op_type, self.input, self.output, self.name, **self.attr)
-        self.proto.name = self.name
-        self.proto.op_type = self.op_type
-        return self.proto
 
     def shape_infer(self, intensors: []):
         faketensors = [_get_tensor(tensor) for tensor in intensors]
@@ -823,7 +820,6 @@ class ResizeNode(Node):
 @NODE_REGISTRY.register()
 class UpsampleNode(ResizeNode):
     pass
-
 
 
 @NODE_REGISTRY.register()
@@ -1774,6 +1770,7 @@ class SplitNode(Node):
             splitpos.append(end + v)
             end += v
         return numpy.split(intensors[0], splitpos, axis)
+
 
 def create_node(n: onnx.NodeProto):
     node_class = NODE_REGISTRY.get(n.op_type + 'Node')

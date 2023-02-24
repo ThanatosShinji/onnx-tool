@@ -59,8 +59,10 @@ samples: [benchmark/samples.py](https://github.com/ThanatosShinji/onnx-tool/blob
 
 Remove shape calculation layers(created by ONNX export) to get a *Compute Graph*. Use *Shape Engine* to update tensor
 shapes at runtime.  
-samples: [benchmark/samples.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/shape_regress.py).
-
+Samples: [benchmark/shape_regress.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/shape_regress.py).
+[benchmark/samples.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/samples.py#L123).  
+Integrate *Compute Graph* and *Shape Engine* into a cpp inference
+engine: [data/inference_engine.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/inference_engine.md)
 ---
 
 ## Inplace op fusion

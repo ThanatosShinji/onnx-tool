@@ -8,6 +8,7 @@ from .graph import Graph
 from .node import NODE_REGISTRY, Node
 from .tensor import create_ndarray_f32, create_ndarray_int64
 from .utils import timer, VERSION
+from .serialization import serialize_shape_engine, serialize_graph
 
 
 def __remove_initilisers(graph: onnx.GraphProto):

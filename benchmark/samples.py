@@ -174,5 +174,3 @@ def serialization():
     onnx_tool.serialize_graph(compute_graph, 'resnet18.cg')
     onnx_tool.serialize_shape_engine(shape_engie, 'resnet18.se')
 
-
-serialization()

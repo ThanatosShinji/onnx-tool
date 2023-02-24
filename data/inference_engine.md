@@ -28,7 +28,8 @@ onnx_tool.serialize_shape_engine(shape_engie, 'resnet18.se')
 
 The file 'resnet18.cg' contains compute graph information.  
 The file 'resnet18.se' contains shape engine structure. They will be used by the cpp graph loader and shape engine
-loader.
+loader.  
+Tested models: **ResNet18, GPT-2, Bert**
 
 ## Integration cpp Example
 

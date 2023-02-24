@@ -31,12 +31,12 @@ samples: [benchmark/samples.py](https://github.com/ThanatosShinji/onnx-tool/blob
 
 ---
 
-## MACs counting for each layer (FLOPs=2*MACs)
+## Profile Model
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/macs_counting.png">
 </p>
-Float MultipleAdd Count, Memory Usage(in bytes), Parameters(elements number)<br><br>
+Float MultipleAdd Count(1 MAC=2 FLOPs), Memory Usage(in bytes), Parameters(elements number)<br><br>
 
 <p id="sparsity" align="center">
   <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/sparse_model.png">

@@ -13,7 +13,7 @@ def alexnet():
     with torch.no_grad():
         torch_out = torch.onnx._export(model, x, tmpfile, opset_version=12)  # opset 12 and opset 7 tested
         # do not use dynamic axes will simplify the process
-        onnx_tool.model_profile_v2(tmpfile, verbose=False)
+        onnx_tool.model_profile(tmpfile, verbose=False)
 
 
 def convnext_large():
@@ -23,7 +23,7 @@ def convnext_large():
     with torch.no_grad():
         torch_out = torch.onnx._export(model, x, tmpfile, opset_version=12)  # opset 12 and opset 7 tested
         # do not use dynamic axes will simplify the process
-        onnx_tool.model_profile_v2(tmpfile, verbose=False)
+        onnx_tool.model_profile(tmpfile, verbose=False)
 
 
 def Issue11():
@@ -45,6 +45,3 @@ def Issue11():
     graph.shape_infer()
     graph.save_model('shapes.onnx')
 
-alexnet()
-convnext_large()
-# Issue11()

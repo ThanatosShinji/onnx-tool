@@ -260,6 +260,9 @@ class DivNode(NpMathBase):
         self.op_mac = DIV_MACS
 
     def value_infer(self, intensors: []):
+        if intensors[0].dtype == intensors[1].dtype:
+            if intensors[0].dtype in [numpy.int64]:
+                return [intensors[0] // intensors[1]]
         return [intensors[0] / intensors[1]]
 
 
@@ -431,8 +434,8 @@ class NonMaxSuppressionNode(Node):
     def value_infer(self, intensors: []):
         if len(intensors) >= 3:
             max_output_boxes_per_class = int(intensors[2][0])
-            return [numpy.zeros((max_output_boxes_per_class, 3), dtype=numpy.int)]
-        return [numpy.zeros((200, 3), dtype=numpy.int)]
+            return [numpy.zeros((max_output_boxes_per_class, 3), dtype=numpy.int64)]
+        return [numpy.zeros((200, 3), dtype=numpy.int64)]
 
 
 @NODE_REGISTRY.register()
@@ -589,7 +592,7 @@ class GatherNode(Node):
 
     def value_infer(self, intensors: []):
         outtensors = []
-        out = numpy.take(intensors[0], intensors[1].astype(dtype=numpy.int), axis=self.axis)
+        out = numpy.take(intensors[0], intensors[1].astype(dtype=numpy.int64), axis=self.axis)
         outtensors.append(out)
         return outtensors
 
@@ -770,7 +773,7 @@ class ShapeNode(Node):
         return [newshape]
 
     def value_infer(self, intensors: [numpy.ndarray]):
-        return [numpy.array(_get_shape(intensors[0]), dtype=numpy.int)]
+        return [numpy.array(_get_shape(intensors[0]), dtype=numpy.int64)]
 
 
 @NODE_REGISTRY.register()

@@ -148,4 +148,4 @@ def MHA_test():
     newcg.save_model('MHA_Layernorm.onnx')
 
 
-MHA_test()
+test()

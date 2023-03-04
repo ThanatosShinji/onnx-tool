@@ -391,8 +391,9 @@ class Graph():
         if keep_attr:
             for node in nodes:
                 for attribute in self.nodemap[node].proto.attribute:
-                    attr = onnx.helper.make_attribute(self.nodemap[node].proto.name + '_' + attribute.name,
-                                                      get_attribute_data(attribute))
+                    attr = onnx.helper.make_attribute(
+                        self.nodemap[node].proto.op_type + str(count) + '_' + attribute.name,
+                        get_attribute_data(attribute))
                     newnode.attribute.append(attr)
                 count += 1
 

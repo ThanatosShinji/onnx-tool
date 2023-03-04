@@ -815,7 +815,7 @@ class Graph():
 
         _inputs0, _outputs0 = self.get_iotensors(nodes)
         graph_level0 = self.reorder_nodes(nodes, _inputs0)
-        subgraph = self.make_graph(graph_level0, 'compute_graph', self.input, _outputs0)
+        subgraph = self.make_graph(graph_level0, 'compute_graph', self.input, self.output)
         return subgraph
 
     def profile(self):

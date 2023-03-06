@@ -4,6 +4,7 @@ import warnings
 import numpy
 import onnx
 
+import onnx_tool
 from .node import create_node
 from .tensor import get_attribute_data, Tensor, volume
 from .utils import VERSION, tuple2str
@@ -400,9 +401,20 @@ class Graph():
                     initializer.append(self.tensormap[input].proto)
         return initializer
 
-    def fuse_subgraph_node_names(self, nodes: [str], nodeop: str, name: str, keep_attr=True):
+    def remove_node(self, nodename):
+        node = self.nodemap[nodename]
+        # update producer
+        for o in node.output:
+            self.producedby[o].remove(nodename)
+        # update consumer
+        for i in node.input:
+            if i in self.consumedby.keys():
+                self.consumedby[i].remove(nodename)
+        self.nodemap.pop(nodename)
+
+    def fuse_subgraph_node_names(self, nodes: [str], nodeop: str, nodename: str, keep_attr=True):
         _inputs, _outputs = self.get_iotensors(nodes, remove_initials=False)
-        newnode = onnx.helper.make_node(nodeop, _inputs, _outputs, name=name)
+        newnode = onnx.helper.make_node(nodeop, _inputs, _outputs, name=nodename)
         count = 0
         if keep_attr:
             for node in nodes:
@@ -412,30 +424,70 @@ class Graph():
                         get_attribute_data(attribute))
                     newnode.attribute.append(attr)
                 count += 1
+        from .node import Node
+        for name in nodes:
+            self.remove_node(name)
+        newnode = Node(newnode)
+        newnode.input = _inputs
+        newnode.output = _outputs
+        for i in _inputs:
+            self.consumedby[i].append(nodename)
+            if i in self.producedby.keys():
+                newnode.prevnodes.append(self.producedby[i])
+        for o in _outputs:
+            self.producedby[o].append(nodename)
+            if o in self.consumedby.keys():
+                newnode.nextnodes.append(self.consumedby[o])
+        self.nodemap[nodename] = newnode
 
-        allnodes = set(self.nodemap.keys())
-        remainnodes = allnodes - set(nodes)
-        nodes = []
-        for name in remainnodes:
-            nodes.append(self.nodemap[name].proto)
-        initializer = self.get_initials_from_nodenames(remainnodes)
-        nodes.append(newnode)
-        inputs = []
-        outputs = []
-        for name in self.input:
-            if name in self.tensormap:
-                inputs.append(self.tensormap[name].proto)
+    def fuse_postop_node_names(self, nodes: [str], append_attr: bool, **extrakeys):
+        _inputs, _outputs = self.get_iotensors(nodes, remove_initials=False)
+        mainnode = self.nodemap[nodes[0]]
+        newnode = onnx.helper.make_node(mainnode.op_type, _inputs, _outputs, name=mainnode.name)
+        count = 0
+        for attr in mainnode.proto.attribute:
+            if attr.name == 'postop_count':
+                count = onnx.helper.get_attribute_value(attr)
             else:
-                inputs.append(onnx.helper.make_tensor_value_info(name, 1, None))
-        for name in self.output:
-            if name in self.tensormap:
-                outputs.append(self.tensormap[name].proto)
-            else:
-                outputs.append(onnx.helper.make_tensor_value_info(name, 1, None))
-        graph = onnx.helper.make_graph(nodes=nodes, name='fused_graph', inputs=inputs, outputs=outputs,
-                                       initializer=initializer)
-        newgraph = Graph(graph)
-        return newgraph
+                newnode.attribute.append(attr)
+
+        for key in extrakeys:
+            attr = onnx.helper.make_attribute(key, extrakeys[key])
+            newnode.attribute.append(attr)
+
+        if append_attr:
+            for nname in nodes:
+                if nname == mainnode.name:
+                    continue
+                pnode = self.nodemap[nname]
+                attr = onnx.helper.make_attribute(
+                    'postop_' + str(count), pnode.op_type)
+                newnode.attribute.append(attr)
+                for attribute in pnode.proto.attribute:
+                    attr = onnx.helper.make_attribute(
+                        'postop_' + str(count) + '_' + attribute.name,
+                        get_attribute_data(attribute))
+                    newnode.attribute.append(attr)
+                count += 1
+
+        attr = onnx.helper.make_attribute('postop_count', count)
+        newnode.attribute.append(attr)
+
+        for name in nodes:
+            self.remove_node(name)
+        newnode = create_node(newnode)
+        newnode.input = _inputs
+        newnode.output = _outputs
+        for i in _inputs:
+            if i in self.consumedby.keys():
+                self.consumedby[i].append(mainnode.name)
+            if i in self.producedby.keys():
+                newnode.prevnodes.append(self.producedby[i])
+        for o in _outputs:
+            self.producedby[o].append(mainnode.name)
+            if o in self.consumedby.keys():
+                newnode.nextnodes.append(self.consumedby[o])
+        self.nodemap[mainnode.name] = newnode
 
     def fuse_subgraph_iotensors(self, inputs: [], outputs: [], nodeop: str, name: str, keep_attr=True):
         _, nodes, _ = self.__get_subnodes_byio__(inputs, outputs)
@@ -447,17 +499,17 @@ class Graph():
         if len(nodenames):
             _inputs0, _outputs0 = self.get_iotensors(nodenames)
             graph_level0 = self.reorder_nodes(nodenames, _inputs0)
-            subgraph = self.make_graph(graph_level0, 'subgraph', _inputs0, _outputs0)
+            subgraph = self.make_graph_onnx(graph_level0, 'subgraph', _inputs0, _outputs0)
             return subgraph
         return None
 
     def save_model(self, f: str, shape_only: bool = False):
-        graph = self.make_graph(self.nodemap.keys(), 'graph', self.input, self.output, not shape_only)
+        graph = self.make_graph_onnx(self.nodemap.keys(), 'graph', self.input, self.output, not shape_only)
         if graph is not None and f is not None:
             model = onnx.helper.make_model(graph, producer_name='onnx-tool', producer_version='v' + VERSION)
             onnx.save_model(model, f)
 
-    def make_graph(self, nodenames, gname, inputnames, outputnames, with_initializer=True):
+    def make_graph_onnx(self, nodenames, gname, inputnames, outputnames, with_initializer=True):
         nodes = []
         for name in nodenames:
             nodes.append(self.nodemap[name].make_nodeproto())
@@ -502,7 +554,7 @@ class Graph():
         for nname in ordered_nodes:
             new_map[nname] = self.nodemap[nname]
         self.nodemap = new_map
-        self.rawgraph = self.make_graph(self.nodemap.keys(), 'reordered', self.input, self.output)
+        self.rawgraph = self.make_graph_onnx(self.nodemap.keys(), 'reordered', self.input, self.output)
 
     def reorder_nodes(self, nodenames, itnames):
         tensor_consumed = []
@@ -802,7 +854,7 @@ class Graph():
             vcount += len(dstranges)
         return shapeengine
 
-    def get_compute_graph(self):
+    def get_compute_graph_onnx(self):
         nodes = []
         for key in self.nodemap.keys():
             node = self.nodemap[key]
@@ -825,8 +877,34 @@ class Graph():
 
         _inputs0, _outputs0 = self.get_iotensors(nodes)
         graph_level0 = self.reorder_nodes(nodes, _inputs0)
-        subgraph = self.make_graph(graph_level0, 'compute_graph', self.input, self.output)
+        subgraph = self.make_graph_onnx(graph_level0, 'compute_graph', self.input, self.output)
         return subgraph
+
+    def get_compute_graph(self):
+        cg = self
+        nodes = []
+        for key in cg.nodemap.keys():
+            node = cg.nodemap[key]
+            if node.shape_calc:
+                continue
+            dummy_node = True
+            for output in node.output:
+                dummy = True
+                if output in cg.consumedby.keys():
+                    for consumer in cg.consumedby[output]:
+                        if not cg.nodemap[consumer].shape_calc:
+                            dummy = False
+                            break
+                else:
+                    dummy = False
+                dummy_node = dummy_node and dummy
+            if dummy_node:
+                continue
+            nodes.append(node.name)
+
+        _inputs0, _outputs0 = cg.get_iotensors(nodes)
+        graph_level0 = cg.reorder_nodes(nodes, _inputs0)
+        return cg
 
     def profile(self):
         self.valid_profile = False

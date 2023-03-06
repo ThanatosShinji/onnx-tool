@@ -109,8 +109,7 @@ def model_shape_regress(m, input_desc: {}, input_range: {}):
         G = Graph(m.graph)
         G.graph_reorder()
         shape_engine = G.shape_regress(input_desc, input_range)
-        g = G.get_compute_graph()
-        cg = Graph(g)
+        cg = G.get_compute_graph()
         return shape_engine, cg
 
 

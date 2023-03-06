@@ -44,7 +44,7 @@ DTYPE_INT64 = 9
 
 
 def __write_data_type(buf, data):
-    if isinstance(data, str):
+    if isinstance(data, str) or isinstance(data, bytes):
         buf = __write_int2buf(buf, DTYPE_STR)
     if isinstance(data, int):
         buf = __write_int2buf(buf, DTYPE_INT)
@@ -145,6 +145,8 @@ def serialize_graph(graph: onnx_tool.Graph, filepath):
             def write_value(buf, val):
                 if isinstance(val, str):
                     buf = __write_str2buf(buf, val)
+                if isinstance(val, bytes):
+                    buf += val + b'\0'
                 if isinstance(val, int):
                     buf = __write_int2buf(buf, val)
                 if isinstance(val, float):
@@ -154,10 +156,7 @@ def serialize_graph(graph: onnx_tool.Graph, filepath):
             if not isinstance(attrval, list):
                 attrval = [attrval]
             buf = __write_len2buf(buf, attrval)
-            if isinstance(attrval, list):
-                buf = __write_data_type(buf, attrval[0])
-            else:
-                buf = __write_data_type(buf, attrval)
+            buf = __write_data_type(buf, attrval[0])
             for val in attrval:
                 buf = write_value(buf, val)
             return buf

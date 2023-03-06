@@ -2,6 +2,65 @@ from onnx_tool import Graph
 from onnx_tool.fusion import *
 import onnx
 
+ResBlock = [
+    {
+        'name': 'conv_0',
+        'op': 'Conv',
+        'attrs': [
+        ],
+        'inport': [],
+        'outport': [[0, 'bn_0', 0]],
+    },
+    {
+        'name': 'bn_0',
+        'op': 'BatchNormalization',
+        'attrs': [
+        ],
+        'inport': [[0, 'conv_0', 0]],
+        'outport': [[0, 'relu_0', 0]],
+    },
+    {
+        'name': 'relu_0',
+        'op': 'Relu',
+        'attrs': [
+        ],
+        'inport': [[0, 'bn_0', 0]],
+        'outport': [[0, 'conv_1', 0]],
+    },
+    {
+        'name': 'conv_1',
+        'op': 'Conv',
+        'attrs': [
+        ],
+        'inport': [[0, 'relu_0', 0]],
+        'outport': [[0, 'bn_1', 0]],
+    },
+    {
+        'name': 'bn_1',
+        'op': 'BatchNormalization',
+        'attrs': [
+        ],
+        'inport': [[0, 'conv_1', 0]],
+        'outport': [[0, 'add_0', 1]],
+    },
+    {
+        'name': 'add_0',
+        'op': 'Add',
+        'attrs': [
+        ],
+        'inport': [[1, 'bn_1', 0]],
+        'outport': [[0, 'relu_1', 0]],
+    },
+    {
+        'name': 'relu_1',
+        'op': 'Relu',
+        'attrs': [
+        ],
+        'inport': [[0, 'add_0', 0]],
+        'outport': [],
+    },
+]
+
 
 def test():
     pattern = FusionPattern(ResBlock)
@@ -9,124 +68,11 @@ def test():
     m = onnx.load_model(file)
     g = Graph(m.graph)
     cg = g.get_compute_graph()
-    cg = Graph(cg)
     found_nodes = pattern.find_pattern(cg)
-    newcg = cg
     for nodes in found_nodes:
-        newcg = newcg.fuse_subgraph_node_names(nodes, 'Conv', nodes[0], True)
-    newcg.save_model('convbn.onnx')
+        cg.fuse_subgraph_node_names(nodes, 'Conv', nodes[0], True)
+    cg.save_model('convbn.onnx')
 
-
-MHAint8_Pattern = [
-    {
-        'name': 'MatMul_0',
-        'op': 'QLinearMatMul',
-        'attrs': [
-        ],
-        'inport': [],
-        'outport': [[0, 'DequantizeLinea_0', 0]],
-    },
-    {
-        'name': 'DequantizeLinea_0',
-        'op': 'DequantizeLinear',
-        'attrs': [
-        ],
-        'inport': [[0, 'MatMul_0', 0]],
-        'outport': [[0, 'div_0', 0]],
-    },
-    {
-        'name': 'div_0',
-        'op': 'Div',
-        'attrs': [
-        ],
-        'inport': [[0, 'DequantizeLinea_0', 0]],
-        'outport': [[0, 'Add_0', 0]],
-    },
-    {
-        'name': 'Add_0',
-        'op': 'Add',
-        'attrs': [
-        ],
-        'inport': [[0, 'div_0', 0]],
-        'outport': [[0, 'Softmax_0', 0]],
-    },
-    {
-        'name': 'Softmax_0',
-        'op': 'Softmax',
-        'attrs': [
-        ],
-        'inport': [[0, 'Add_0', 0]],
-        'outport': [[0, 'QuantizeLinear_1', 0]],
-    },
-    {
-        'name': 'QuantizeLinear_1',
-        'op': 'QuantizeLinear',
-        'attrs': [
-        ],
-        'inport': [[0, 'Add_0', 0]],
-        'outport': [[0, 'MatMul_1', 0]],
-    },
-    {
-        'name': 'MatMul_1',
-        'op': 'QLinearMatMul',
-        'attrs': [
-        ],
-        'inport': [[0, 'QuantizeLinear_1', 0]],
-        'outport': [],
-    },
-]
-
-layernorm_pattern = [
-    {
-        'name': 'ReduceMean_196',
-        'op': 'ReduceMean',
-        'attrs': [],
-        'inport': [],
-        'outport': [[0, 'Sub_197', 1]]
-    },
-    {
-        'name': 'Sub_197',
-        'op': 'Sub',
-        'attrs': [],
-        'inport': [[1, 'ReduceMean_196', 0]],
-        'outport': [[0, 'Pow_0', 0]]
-    },
-    {
-        'name': 'Pow_0',
-        'op': 'Pow',
-        'attrs': [],
-        'inport': [[0, 'Sub_197', 0]],
-        'outport': [[0, 'ReduceMean_0', 0]]
-    },
-    {
-        'name': 'ReduceMean_0',
-        'op': 'ReduceMean',
-        'attrs': [],
-        'inport': [[0, 'Pow_0', 0]],
-        'outport': [[0, 'Add_0', 0]]
-    },
-    {
-        'name': 'Add_0',
-        'op': 'Add',
-        'attrs': [],
-        'inport': [[0, 'ReduceMean_0', 0]],
-        'outport': [[0, 'Sqrt_0', 0]]
-    },
-    {
-        'name': 'Sqrt_0',
-        'op': 'Sqrt',
-        'attrs': [],
-        'inport': [[0, 'Add_0', 0]],
-        'outport': [[0, 'Div_0', 1]]
-    },
-    {
-        'name': 'Div_0',
-        'op': 'Div',
-        'attrs': [],
-        'inport': [[1, 'Sqrt_0', 0]],
-        'outport': []
-    },
-]
 
 
 def MHA_test():
@@ -136,26 +82,72 @@ def MHA_test():
     m = onnx.load_model(file)
     g = Graph(m.graph)
     cg = g.get_compute_graph()
-    cg = Graph(cg)
-    newcg = cg
 
     found_nodes = pattern.find_pattern(cg)
     for nodes in found_nodes:
-        newcg = newcg.fuse_subgraph_node_names(nodes, 'MHA', nodes[0], True)
-    found_nodes = pattern1.find_pattern(newcg)
+        cg.fuse_subgraph_node_names(nodes, 'MHA', nodes[0], True)
+    found_nodes = pattern1.find_pattern(cg)
     for nodes in found_nodes:
-        newcg = newcg.fuse_subgraph_node_names(nodes, 'Layernorm', nodes[0], True)
-    newcg.save_model('MHA_Layernorm.onnx')
+        cg.fuse_subgraph_node_names(nodes, 'Layernorm', nodes[0], True)
+    cg.graph_reorder()
+    cg.save_model('MHA_Layernorm.onnx')
 
 
-def convbn_fusion():
+remove_flattern = [
+    {
+        'name': 'any',
+        'op': 'Any',
+        'attrs': [],
+        'inport': [],
+        'outport': [[0, 'fla', 0]],
+    },
+    {
+        'name': 'fla',
+        'op': 'Flatten',
+        'attrs': [],
+        'inport': [[0, 'any', 0]],
+        'outport': [],
+    }
+]
+
+
+def resnet_fusion():
     file = 'data/public/resnet18-v1-7.onnx'
     m = onnx.load_model(file)
     g = Graph(m.graph)
     cg = g.get_compute_graph()
-    cg = Graph(cg)
     ConvBNFusion(cg)
+    pattern = FusionPattern(Conv_Act)
+    nodes = pattern.find_pattern(cg)
+    for names in nodes:
+        cg.fuse_postop_node_names(names, True)
+    pattern = FusionPattern(Conv_Res)
+    nodes = pattern.find_pattern(cg)
+    for names in nodes:
+        cg.fuse_postop_node_names(names, True)
+
+    cg.graph_reorder()
+    shapeengine = cg.shape_regress(
+        {
+            'data': [1, 3, 'h', 'w']
+        },
+        {
+            'h': (224, 299),
+            'w': (224, 299),
+        })
+    from onnx_tool.serialization import serialize_shape_engine, serialize_graph
+    serialize_shape_engine(shapeengine, 'resnet_fused.se')
+
+    # remove flattern
+    pattern = FusionPattern(remove_flattern)
+    nodes = pattern.find_pattern(cg)
+    for names in nodes:
+        cg.fuse_postop_node_names(names, False)
+    cg.graph_reorder()
+    serialize_graph(cg, 'resnet_fused.cg')
     cg.save_model('convbn_merged.onnx')
 
 
-convbn_fusion()
+# test()
+# MHA_test()
+resnet_fusion()

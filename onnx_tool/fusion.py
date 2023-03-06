@@ -1,6 +1,7 @@
 import numpy
 import onnx.helper
 
+import onnx_tool
 from .graph import Graph
 from .node import Node
 
@@ -27,62 +28,156 @@ ConvBN = [
     },
 ]
 
-ResBlock = [
+Conv_Act = [
     {
         'name': 'conv_0',
         'op': 'Conv',
-        'attrs': [
-        ],
+        'attrs': [],
         'inport': [],
-        'outport': [[0, 'bn_0', 0]],
+        'outport': [[0, 'act_0', 0]],
     },
     {
-        'name': 'bn_0',
-        'op': 'BatchNormalization',
+        'name': 'act_0',
+        'op': ['Relu', 'LeakyRelu'],
         'attrs': [
         ],
         'inport': [[0, 'conv_0', 0]],
-        'outport': [[0, 'relu_0', 0]],
+        'outport': [],
     },
+]
+
+Conv_Res = [
     {
-        'name': 'relu_0',
-        'op': 'Relu',
-        'attrs': [
-        ],
-        'inport': [[0, 'bn_0', 0]],
-        'outport': [[0, 'conv_1', 0]],
-    },
-    {
-        'name': 'conv_1',
+        'name': 'conv_0',
         'op': 'Conv',
-        'attrs': [
-        ],
-        'inport': [[0, 'relu_0', 0]],
-        'outport': [[0, 'bn_1', 0]],
-    },
-    {
-        'name': 'bn_1',
-        'op': 'BatchNormalization',
-        'attrs': [
-        ],
-        'inport': [[0, 'conv_1', 0]],
+        'attrs': [],
+        'inport': [],
         'outport': [[0, 'add_0', 1]],
     },
     {
         'name': 'add_0',
+        'op': ['Add', ],
+        'attrs': [],
+        'inport': [[1, 'conv_0', 0]],
+        'outport': [[0, 'act_0', 0]],
+    },
+    {
+        'name': 'act_0',
+        'op': ['Relu', 'LeakyRelu'],
+        'attrs': [],
+        'inport': [[0, 'add_0', 0]],
+        'outport': [],
+    },
+]
+
+MHAint8_Pattern = [
+    {
+        'name': 'MatMul_0',
+        'op': 'QLinearMatMul',
+        'attrs': [
+        ],
+        'inport': [],
+        'outport': [[0, 'DequantizeLinea_0', 0]],
+    },
+    {
+        'name': 'DequantizeLinea_0',
+        'op': 'DequantizeLinear',
+        'attrs': [
+        ],
+        'inport': [[0, 'MatMul_0', 0]],
+        'outport': [[0, 'div_0', 0]],
+    },
+    {
+        'name': 'div_0',
+        'op': 'Div',
+        'attrs': [
+        ],
+        'inport': [[0, 'DequantizeLinea_0', 0]],
+        'outport': [[0, 'Add_0', 0]],
+    },
+    {
+        'name': 'Add_0',
         'op': 'Add',
         'attrs': [
         ],
-        'inport': [[1, 'bn_1', 0]],
-        'outport': [[0, 'relu_1', 0]],
+        'inport': [[0, 'div_0', 0]],
+        'outport': [[0, 'Softmax_0', 0]],
     },
     {
-        'name': 'relu_1',
-        'op': 'Relu',
+        'name': 'Softmax_0',
+        'op': 'Softmax',
         'attrs': [
         ],
-        'inport': [[0, 'add_0', 0]],
+        'inport': [[0, 'Add_0', 0]],
+        'outport': [[0, 'QuantizeLinear_1', 0]],
+    },
+    {
+        'name': 'QuantizeLinear_1',
+        'op': 'QuantizeLinear',
+        'attrs': [
+        ],
+        'inport': [[0, 'Add_0', 0]],
+        'outport': [[0, 'MatMul_1', 0]],
+    },
+    {
+        'name': 'MatMul_1',
+        'op': 'QLinearMatMul',
+        'attrs': [
+        ],
+        'inport': [[0, 'QuantizeLinear_1', 0]],
         'outport': [],
+    },
+]
+
+layernorm_pattern = [
+    {
+        'name': 'ReduceMean_196',
+        'op': 'ReduceMean',
+        'attrs': [],
+        'inport': [],
+        'outport': [[0, 'Sub_197', 1]]
+    },
+    {
+        'name': 'Sub_197',
+        'op': 'Sub',
+        'attrs': [],
+        'inport': [[1, 'ReduceMean_196', 0]],
+        'outport': [[0, 'Pow_0', 0]]
+    },
+    {
+        'name': 'Pow_0',
+        'op': 'Pow',
+        'attrs': [],
+        'inport': [[0, 'Sub_197', 0]],
+        'outport': [[0, 'ReduceMean_0', 0]]
+    },
+    {
+        'name': 'ReduceMean_0',
+        'op': 'ReduceMean',
+        'attrs': [],
+        'inport': [[0, 'Pow_0', 0]],
+        'outport': [[0, 'Add_0', 0]]
+    },
+    {
+        'name': 'Add_0',
+        'op': 'Add',
+        'attrs': [],
+        'inport': [[0, 'ReduceMean_0', 0]],
+        'outport': [[0, 'Sqrt_0', 0]]
+    },
+    {
+        'name': 'Sqrt_0',
+        'op': 'Sqrt',
+        'attrs': [],
+        'inport': [[0, 'Add_0', 0]],
+        'outport': [[0, 'Div_0', 1]]
+    },
+    {
+        'name': 'Div_0',
+        'op': 'Div',
+        'attrs': [],
+        'inport': [[1, 'Sqrt_0', 0]],
+        'outport': []
     },
 ]
 
@@ -131,10 +226,12 @@ class NodeCondition():
 
     def is_node(self, node: Node):
         flag = True
+
         if isinstance(self.op, list):
             flag &= node.op_type in self.op
         else:
-            flag &= node.op_type == self.op
+            if self.op != 'Any':
+                flag &= node.op_type == self.op
         for attrexpr in self.attexprs:
             flag &= attrexpr(node)
         return flag
@@ -157,18 +254,19 @@ class FusionPattern():
             nextdesc = self.nodedesc[outdescky]
             if outidx < len(node.output):
                 tname = node.output[outidx]
-                consumed_nodes = graph.consumedby[tname]
-                for nodename in consumed_nodes:
-                    if nodename in self.found_node_names:
-                        continue
-                    if nodename in self.tmp_names:
-                        continue
-                    nodeobject = graph.nodemap[nodename]
-                    if nodeobject.input.index(tname) == next_inidx:
-                        if nextdesc.is_node(nodeobject):
-                            nodename_to_search.append(nodename)
-                            searched_desc.append(outdescky)
-                            break
+                if tname in graph.consumedby:
+                    consumed_nodes = graph.consumedby[tname]
+                    for nodename in consumed_nodes:
+                        if nodename in self.found_node_names:
+                            continue
+                        if nodename in self.tmp_names:
+                            continue
+                        nodeobject = graph.nodemap[nodename]
+                        if nodeobject.input.index(tname) == next_inidx:
+                            if nextdesc.is_node(nodeobject):
+                                nodename_to_search.append(nodename)
+                                searched_desc.append(outdescky)
+                                break
 
         # expand in nodes
         for inset in desc.inport:
@@ -260,9 +358,10 @@ def ConvBNFusion(graph: Graph):
         weight.update_proto(weight.numpy)
         newbiasname = conv_node.name + "_bias_"
         graph.add_initial(newbiasname, newbias)
-        graph.nodemap.pop(nodes[1])
+        graph.remove_node(nodes[1])
         if hasbias:
             conv_node.input[2] = newbiasname
         else:
             conv_node.input.append(newbiasname)
+        graph.producedby[bn_node.output[0]] = [conv_node.name]
         conv_node.output[0] = bn_node.output[0]

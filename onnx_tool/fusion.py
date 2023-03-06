@@ -1,3 +1,6 @@
+import numpy
+import onnx.helper
+
 from .graph import Graph
 from .node import Node
 
@@ -128,7 +131,10 @@ class NodeCondition():
 
     def is_node(self, node: Node):
         flag = True
-        flag &= node.op_type == self.op
+        if isinstance(self.op, list):
+            flag &= node.op_type in self.op
+        else:
+            flag &= node.op_type == self.op
         for attrexpr in self.attexprs:
             flag &= attrexpr(node)
         return flag
@@ -222,3 +228,41 @@ class FusionPattern():
                     ls_nodes.append(found_nodes)
                     self.found_node_names.extend(self.tmp_names)
         return ls_nodes
+
+
+def ConvBNFusion(graph: Graph):
+    import math
+    pattern = FusionPattern(ConvBN)
+    node_sets = pattern.find_pattern(graph)
+    for nodes in node_sets:
+        conv_node = graph.nodemap[nodes[0]]
+        bn_node = graph.nodemap[nodes[1]]
+        weight = graph.tensormap[conv_node.input[1]]
+        gamma = graph.tensormap[bn_node.input[1]]
+        beta = graph.tensormap[bn_node.input[2]]
+        mean = graph.tensormap[bn_node.input[3]]
+        var = graph.tensormap[bn_node.input[4]]
+        wshape = weight.shape
+        if len(conv_node.input) == 3:
+            hasbias = True
+            newbias = graph.nodemap[conv_node.input[2]].numpy
+        else:
+            hasbias = False
+            newbias = numpy.zeros((wshape[0],), dtype=numpy.float32)
+        for i in range(wshape[0]):
+            sm = gamma.numpy[i] / math.sqrt(var.numpy[i] + bn_node.epsilon)
+            sv = beta.numpy[i]
+            for j in range(wshape[1]):
+                for k in range(wshape[2]):
+                    for l in range(wshape[3]):
+                        weight.numpy[i, j, k, l] = sm * weight.numpy[i, j, k, l]
+            newbias[i] = sm * (newbias[i] - mean.numpy[i]) + sv
+        weight.update_proto(weight.numpy)
+        newbiasname = conv_node.name + "_bias_"
+        graph.add_initial(newbiasname, newbias)
+        graph.nodemap.pop(nodes[1])
+        if hasbias:
+            conv_node.input[2] = newbiasname
+        else:
+            conv_node.input.append(newbiasname)
+        conv_node.output[0] = bn_node.output[0]

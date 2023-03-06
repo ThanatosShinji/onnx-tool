@@ -350,6 +350,14 @@ class Graph():
 
         return graph_level0, graph_level1, graph_level2
 
+    def add_initial(self, name, data):
+        from .tensor import create_initial_Tensor
+        self.initials.add(name)
+        if isinstance(data, numpy.ndarray):
+            self.tensormap[name] = create_initial_Tensor(name, data)
+        else:
+            raise NotImplementedError('unsupported data type')
+
     def get_subgraph(self, inputs: [], outputs: []):
         graph_level0, graph_level1, graph_level2 = self.__get_subnodes_byio__(inputs, outputs)
 
@@ -384,6 +392,14 @@ class Graph():
 
         return graph_level0, graph_level1, graph_level2
 
+    def get_initials_from_nodenames(self, nodenames):
+        initializer = []
+        for name in nodenames:
+            for input in self.nodemap[name].input:
+                if input in self.initials:
+                    initializer.append(self.tensormap[input].proto)
+        return initializer
+
     def fuse_subgraph_node_names(self, nodes: [str], nodeop: str, name: str, keep_attr=True):
         _inputs, _outputs = self.get_iotensors(nodes, remove_initials=False)
         newnode = onnx.helper.make_node(nodeop, _inputs, _outputs, name=name)
@@ -402,6 +418,7 @@ class Graph():
         nodes = []
         for name in remainnodes:
             nodes.append(self.nodemap[name].proto)
+        initializer = self.get_initials_from_nodenames(remainnodes)
         nodes.append(newnode)
         inputs = []
         outputs = []
@@ -416,7 +433,7 @@ class Graph():
             else:
                 outputs.append(onnx.helper.make_tensor_value_info(name, 1, None))
         graph = onnx.helper.make_graph(nodes=nodes, name='fused_graph', inputs=inputs, outputs=outputs,
-                                       initializer=self.rawgraph.initializer)
+                                       initializer=initializer)
         newgraph = Graph(graph)
         return newgraph
 
@@ -447,15 +464,7 @@ class Graph():
 
         initializer = None
         if with_initializer:
-            names = []
-            for name in nodenames:
-                for input in self.nodemap[name].input:
-                    if input in self.initials:
-                        names.append(input)
-            initializer = []
-            for initial in self.rawgraph.initializer:
-                if initial.name in names:
-                    initializer.append(initial)
+            initializer = self.get_initials_from_nodenames(nodenames)
 
         inputs = []
         outputs = []

@@ -61,25 +61,25 @@ models = [
     #     'name': 'data/public/MobileNetV1_Pruned_Quantized.onnx',
     #     'dynamic_input': None
     # },
-    # {
-    #     'name': 'data/public/resnet18-v1-7.onnx',
-    #     'dynamic_input':
-    #         {
-    #             'data': create_ndarray_f32((1, 3, 224, 224)),
-    #         },
-    #     'input_desc':
-    #         {
-    #             'data': [1, 3, 'h', 'w']
-    #         },
-    #     'input_range':
-    #         {
-    #             'h': (224, 299),
-    #             'w': (224, 299),
-    #         }
-    # },
     {
-        'name': 'data/public/clipEncoder.onnx',
-    }
+        'name': 'convbn_merged.onnx',
+        'dynamic_input':
+            {
+                'data': create_ndarray_f32((1, 3, 224, 224)),
+            },
+        'input_desc':
+            {
+                'data': [1, 3, 'h', 'w']
+            },
+        'input_range':
+            {
+                'h': (224, 299),
+                'w': (224, 299),
+            }
+    },
+    # {
+    #     'name': 'data/public/clipEncoder.onnx',
+    # }
     # {
     #     'name': 'data/public/gpt2-10.onnx',
     #     'dynamic_input':
@@ -118,8 +118,11 @@ for modelinfo in models:
     # onnx_tool.model_simplify_names(modelinfo['name'],'mobilenetv1_quanpruned_sim.onnx',node_reorder=True)
     # onnx_tool.model_profile(modelinfo['name'], modelinfo['dynamic_input'], saveshapesmodel='debug.onnx',
     #                         dump_outputs=['resnetv15_conv0_fwd'])
-    onnx_tool.model_profile(modelinfo['name'])
-    # onnx_tool.model_shape_regress(modelinfo['name'], modelinfo['input_desc'], modelinfo['input_range'])
+    # onnx_tool.model_profile(modelinfo['name'])
+    shape_engie, compute_graph = onnx_tool.model_shape_regress(modelinfo['name'], modelinfo['input_desc'],
+                                                               modelinfo['input_range'])
+    onnx_tool.serialize_graph(compute_graph, 'resnet18.cg')
+    onnx_tool.serialize_shape_engine(shape_engie, 'resnet18.se')
     # onnx_tool.model_profile(modelinfo['name'], modelinfo['dynamic_input'], None, 'tmp.onnx', shapesonly=False)
     # onnx_tool.model_io_modify(modelinfo['name'], 'newio.onnx', {"input": "1x3x111x11","output": '1x3x444x44'})
     # onnx_tool.model_subgraph('tmp.onnx', ['sequential/mobilenetv2_1.00_160/Conv1/Conv2D__7426:0'], ['dense'])

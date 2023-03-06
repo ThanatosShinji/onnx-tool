@@ -33,6 +33,8 @@ def shape_of_initializer(initial):
 def onnxdtype2npdtype(data_type):
     if data_type == onnx.TensorProto.FLOAT:
         return numpy.float32
+    if data_type == onnx.TensorProto.DOUBLE:
+        return numpy.float64
     if data_type == onnx.TensorProto.FLOAT16:
         return numpy.float16
     if data_type == onnx.TensorProto.INT32:
@@ -377,6 +379,10 @@ class Tensor():
         self.numpy = data
         self.shape = data.shape
 
+    def update_proto(self, data: numpy.ndarray):
+        self.update_tensor(data)
+        self.proto = self.make_tensor_proto()
+
     def update_shape(self, shape: list):
         if isinstance(shape, numpy.ndarray):
             assert 0
@@ -441,3 +447,19 @@ class Tensor():
         # shape = [int(i) for i in shape]
         vinf = onnx.helper.make_tensor_value_info(self.name, dtype, shape)
         return vinf
+
+    def make_tensor_proto(self):
+        if self.numpy is None:
+            return None
+        tproto = onnx.helper.make_tensor(self.name, npdtype2onnxdtype(self.numpy.dtype)
+                                         , self.numpy.shape, self.numpy)
+        return tproto
+
+
+def create_initial_Tensor(name: str, ndarray: numpy.ndarray):
+    t = Tensor(name)
+    t.type = STATIC_TENSOR
+    t.numpy = ndarray
+    t.shape = t.numpy.shape
+    t.proto = t.make_tensor_proto()
+    return t

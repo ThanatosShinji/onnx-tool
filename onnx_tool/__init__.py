@@ -111,7 +111,6 @@ def model_shape_regress(m, input_desc: {}, input_range: {}):
         shape_engine = G.shape_regress(input_desc, input_range)
         g = G.get_compute_graph()
         cg = Graph(g)
-        cg.save_model('compute_graph.onnx')
         return shape_engine, cg
 
 

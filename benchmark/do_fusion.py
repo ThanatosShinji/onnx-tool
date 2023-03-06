@@ -148,4 +148,14 @@ def MHA_test():
     newcg.save_model('MHA_Layernorm.onnx')
 
 
-test()
+def convbn_fusion():
+    file = 'data/public/resnet18-v1-7.onnx'
+    m = onnx.load_model(file)
+    g = Graph(m.graph)
+    cg = g.get_compute_graph()
+    cg = Graph(cg)
+    ConvBNFusion(cg)
+    cg.save_model('convbn_merged.onnx')
+
+
+convbn_fusion()

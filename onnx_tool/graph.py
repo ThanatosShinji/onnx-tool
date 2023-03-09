@@ -175,6 +175,15 @@ class Graph():
         if self.verbose:
             print(str)
 
+    def remove_constant(self):
+        rmlist = []
+        for key in self.nodemap:
+            if self.nodemap[key].op_type == 'Constant':
+                rmlist.append(key)
+
+        for key in rmlist:
+            self.nodemap.pop(key)
+
     def __init_graph_from_onnxproto__(self, g, noderename, remove_dummytensors=True):
         if g is None:
             return
@@ -406,11 +415,30 @@ class Graph():
         # update producer
         for o in node.output:
             self.producedby[o].remove(nodename)
+            if len(self.producedby[o]) == 0:
+                self.producedby.pop(o)
         # update consumer
         for i in node.input:
             if i in self.consumedby.keys():
                 self.consumedby[i].remove(nodename)
         self.nodemap.pop(nodename)
+
+    def skip_node(self, nodename):
+        node = self.nodemap[nodename]
+        count = 0
+        for input in node.input:
+            if input in self.dynamics:
+                count += 1
+                indtensor = input
+        if count == 1 and len(node.output) == 1:
+            self.consumedby[indtensor].remove(nodename)
+            for con in self.consumedby[node.output[0]]:
+                con_node = self.nodemap[con]
+                for i in range(len(con_node.input)):
+                    if con_node.input[i] == node.output[0]:
+                        con_node.input[i] = indtensor
+                        self.consumedby[indtensor].append(con)
+                        break
 
     def fuse_subgraph_node_names(self, nodes: [str], nodeop: str, nodename: str, keep_attr=True):
         _inputs, _outputs = self.get_iotensors(nodes, remove_initials=False)
@@ -435,7 +463,7 @@ class Graph():
             if i in self.producedby.keys():
                 newnode.prevnodes.append(self.producedby[i])
         for o in _outputs:
-            self.producedby[o].append(nodename)
+            self.producedby[o] = [nodename]
             if o in self.consumedby.keys():
                 newnode.nextnodes.append(self.consumedby[o])
         self.nodemap[nodename] = newnode
@@ -484,7 +512,7 @@ class Graph():
             if i in self.producedby.keys():
                 newnode.prevnodes.append(self.producedby[i])
         for o in _outputs:
-            self.producedby[o].append(mainnode.name)
+            self.producedby[o] = [mainnode.name]
             if o in self.consumedby.keys():
                 newnode.nextnodes.append(self.consumedby[o])
         self.nodemap[mainnode.name] = newnode
@@ -503,10 +531,16 @@ class Graph():
             return subgraph
         return None
 
-    def save_model(self, f: str, shape_only: bool = False):
+    def save_model(self, f: str, shape_only: bool = False, rawmodel: onnx.ModelProto = None):
         graph = self.make_graph_onnx(self.nodemap.keys(), 'graph', self.input, self.output, not shape_only)
         if graph is not None and f is not None:
-            model = onnx.helper.make_model(graph, producer_name='onnx-tool', producer_version='v' + VERSION)
+            attr = {}
+            attr['producer_name'] = 'onnx_tool'
+            attr['producer_version'] = 'v' + VERSION
+            model = onnx.helper.make_model(graph, **attr)
+            if rawmodel is not None:
+                model.ir_version = rawmodel.ir_version
+                model.opset_import[0].version = rawmodel.opset_import[0].version
             onnx.save_model(model, f)
 
     def make_graph_onnx(self, nodenames, gname, inputnames, outputnames, with_initializer=True):
@@ -527,11 +561,12 @@ class Graph():
                 inputs.append(onnx.helper.make_tensor_value_info(name, 1, None))
         for name in outputnames:
             if name in self.tensormap:
-                outputs.append(self.tensormap[name].make_value_proto())
-            else:
-                outputs.append(onnx.helper.make_tensor_value_info(name, 1, None))
+                proto = self.tensormap[name].make_value_proto(make_dummy=True)
+                outputs.append(proto)
         value_infos = []
         for key in self.dynamics:
+            if key in self.input or key in self.output:
+                continue
             tensor = self.tensormap[key]
             vinfo = tensor.make_value_proto()
             if vinfo is None:
@@ -597,6 +632,8 @@ class Graph():
                     if len(input) == 0:
                         continue
                     if input in self.initials:
+                        continue
+                    if input not in self.producedby:
                         continue
                     if input not in tensor_produced:
                         produced = False
@@ -750,7 +787,8 @@ class Graph():
     def add_dump_tensors(self, dump_tensor_names: []):
         for name in dump_tensor_names:
             if name in self.tensormap.keys():
-                self.output.append(name)
+                if name not in self.output:
+                    self.output.append(name)
 
     def shape_regress(self, input_desc: {}, input_range: {}):
         shapeengine = ShapeEngine(input_desc)
@@ -883,9 +921,11 @@ class Graph():
     def get_compute_graph(self):
         cg = self
         nodes = []
+        rmnodes = []
         for key in cg.nodemap.keys():
             node = cg.nodemap[key]
             if node.shape_calc:
+                rmnodes.append(key)
                 continue
             dummy_node = True
             for output in node.output:
@@ -899,11 +939,13 @@ class Graph():
                     dummy = False
                 dummy_node = dummy_node and dummy
             if dummy_node:
+                rmnodes.append(key)
                 continue
             nodes.append(node.name)
 
-        _inputs0, _outputs0 = cg.get_iotensors(nodes)
-        graph_level0 = cg.reorder_nodes(nodes, _inputs0)
+        for key in rmnodes:
+            cg.remove_node(key)
+        cg.graph_reorder()
         return cg
 
     def profile(self):

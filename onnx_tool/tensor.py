@@ -1,7 +1,10 @@
+import warnings
+
 import numpy
 import onnx
 
 from .utils import GLOBAL_VARS
+
 
 def create_ndarray_f32(shape):
     return numpy.ones(shape, dtype=numpy.float32)
@@ -366,7 +369,7 @@ class Tensor():
         elif isinstance(t, Node):
             if t.op_type == 'Constant':
                 self.name = t.output[0]
-                self.numpy = t.value
+                self.update_proto(t.value)
                 self.shape = self.numpy.shape
                 self.type = STATIC_TENSOR
         else:
@@ -435,8 +438,11 @@ class Tensor():
                 blocksize, blockratio = search_sparse_blocksize(self.numpy, ratio, deltar_thres=0.1)
         self.sparsity = {'blocksize': blocksize, 'blockratio': blockratio, 'ratio': ratio}
 
-    def make_value_proto(self):
+    def make_value_proto(self, make_dummy=False):
         if len(self.shape) == 0:
+            if self.proto is None and make_dummy:
+                warnings.warn('Creating a dummpy tensor proto:' + self.name)
+                return onnx.helper.make_tensor_value_info(self.name, 1, None)
             return self.proto
         else:
             shape = self.get_shape()
@@ -451,8 +457,12 @@ class Tensor():
     def make_tensor_proto(self):
         if self.numpy is None:
             return None
-        tproto = onnx.helper.make_tensor(self.name, npdtype2onnxdtype(self.numpy.dtype)
-                                         , self.numpy.shape, self.numpy)
+        if len(self.numpy.shape) == 0:
+            tproto = onnx.helper.make_tensor(self.name, npdtype2onnxdtype(self.numpy.dtype)
+                                             , [], [self.numpy])
+        else:
+            tproto = onnx.helper.make_tensor(self.name, npdtype2onnxdtype(self.numpy.dtype)
+                                             , self.numpy.shape, self.numpy)
         return tproto
 
 

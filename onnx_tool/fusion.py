@@ -28,20 +28,20 @@ ConvBN = [
     },
 ]
 
-Conv_Act = [
+Fused_Element = [
     {
-        'name': 'conv_0',
-        'op': 'Conv',
+        'name': 'any',
+        'op': 'Any',
         'attrs': [],
         'inport': [],
         'outport': [[0, 'act_0', 0]],
     },
     {
         'name': 'act_0',
-        'op': ['Relu', 'LeakyRelu'],
+        'op': ['Relu', 'LeakyRelu', 'Add'],
         'attrs': [
         ],
-        'inport': [[0, 'conv_0', 0]],
+        'inport': [[0, 'any', 0]],
         'outport': [],
     },
 ]
@@ -238,9 +238,10 @@ class NodeCondition():
 
 
 class FusionPattern():
-    def __init__(self, nodedescs: {}):
+    def __init__(self, nodedescs: {}, inplace_fusion=False):
         self.nodedesc = {}
         self.first_key = nodedescs[0]['name']
+        self.inplace_fusion = inplace_fusion
         for desc in nodedescs:
             self.nodedesc[desc['name']] = NodeCondition(desc)
 
@@ -256,6 +257,10 @@ class FusionPattern():
                 tname = node.output[outidx]
                 if tname in graph.consumedby:
                     consumed_nodes = graph.consumedby[tname]
+                    if self.inplace_fusion and len(consumed_nodes) > 1:
+                        # inpalce_fusion the consumer op will be appended to this op as postop
+                        # it requires that the output of this op is consumed by next op only
+                        continue
                     for nodename in consumed_nodes:
                         if nodename in self.found_node_names:
                             continue

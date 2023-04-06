@@ -311,5 +311,9 @@ public_models = {
             'name': 'vgg19_quanpruned.onnx',
             'dynamic_input': None
         },
+        {
+            'name': 'C3D-12.onnx',
+            'dynamic_input': None
+        },
     ]
 }

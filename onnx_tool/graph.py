@@ -167,6 +167,8 @@ class Graph():
         self.output = []
         self.__init_graph_from_onnxproto__(g, noderename)
         self.__find_shape_tensors__()
+        self.valid_shape = False
+        self.valid_profile = False
 
     def log(self, str):
         if self.verbose:
@@ -614,9 +616,24 @@ class Graph():
             dtensors[key] = copy.deepcopy(self.tensormap[key])
         return dtensors
 
+    def check_inputs(self):
+        for name in self.input:
+            shape = self.tensormap[name].shape
+            for val in shape:
+                if isinstance(val, str):
+                    return False, name
+                if val < 0:
+                    return False, name
+        return True, None
+
     def shape_infer(self, inputs: {} = None):
+        self.valid_shape = False
         if inputs is not None:
             self.update_input_by_map(inputs)
+        in_valid, tname = self.check_inputs()
+        if not in_valid:
+            raise ValueError(
+                f"The input tensor {tname}'s shape {self.tensormap[tname].shape2str()} is not valid, Please set it to a valid shape.")
         self.shapeinfer_optime_map = {}
         from .utils import timer
         tm = timer()
@@ -651,6 +668,7 @@ class Graph():
             else:
                 self.shapeinfer_optime_map[node.op_type] = tm.stop()
         self.log(self.shapeinfer_optime_map)
+        self.valid_shape = True
 
     def value_infer(self, inputs: {}):
         self.update_input_by_map(inputs)
@@ -801,6 +819,10 @@ class Graph():
         return subgraph
 
     def profile(self):
+        self.valid_profile = False
+        if not self.valid_shape:
+            warnings.warn('Please perform a valid shape_infer() before profile().')
+            return
         params_flag_map = {}
         for key in self.initials:
             params_flag_map[key] = 0
@@ -856,8 +878,12 @@ class Graph():
             self.macs += macs
             self.params += _params
             self.memory += _memory
+        self.valid_profile = True
 
     def print_node_map(self, f: str = None, metric='MACs', exclude_nodes=None):
+        if not self.valid_profile:
+            warnings.warn('Please perform a valid profile() before print_node_map().')
+            return
         from tabulate import tabulate
         assert (metric in ['MACs', 'FLOPs'])
         print_sparse_table = self.sparse_model

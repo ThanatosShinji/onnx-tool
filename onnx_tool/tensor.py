@@ -382,6 +382,17 @@ class Tensor():
             assert 0
         self.shape = shape
 
+    def shape2str(self):
+        st = '['
+        for val in self.shape:
+            if isinstance(val, str):
+                st += val + ','
+            else:
+                st += str(val) + ','
+        st = st[:-1]
+        st += ']'
+        return st
+
     def get_shape(self):
         shape = []
         for s in self.shape:

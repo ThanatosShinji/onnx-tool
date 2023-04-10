@@ -81,7 +81,8 @@ Resnet18 fusion
 </p>
 
 how to use: [data/Subgraph.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Subgraph.md).  
-BERT samples: [benchmark/samples.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/samples.py#L100).
+BERT samples: [benchmark/samples.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/samples.py#L100).  
+Pattern fusion: [benchmark/do_fusion.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/do_fusion.py).
 
 ---
 

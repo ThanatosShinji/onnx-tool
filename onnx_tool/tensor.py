@@ -462,7 +462,7 @@ class Tensor():
                                              , [], [self.numpy])
         else:
             tproto = onnx.helper.make_tensor(self.name, npdtype2onnxdtype(self.numpy.dtype)
-                                             , self.numpy.shape, self.numpy)
+                                             , self.numpy.shape, self.numpy.flatten())
         return tproto
 
 

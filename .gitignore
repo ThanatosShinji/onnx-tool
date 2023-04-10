@@ -133,3 +133,7 @@ dmypy.json
 *.onnx
 *.csv
 
+*.cg
+*.se
+*.input
+*.output

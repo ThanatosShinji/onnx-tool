@@ -1,3 +1,4 @@
+import copy
 import math
 import warnings
 
@@ -892,6 +893,118 @@ class Graph():
             vcount += len(dstranges)
         return shapeengine
 
+    def compress_memory(self, size_padding=64):
+        tensor_in_mem = []
+        tensor_mem_per_node = []
+        tensor_consumed = {}
+        for node in self.nodemap.keys():
+            node_ = self.nodemap[node]
+            for name in node_.output:
+                tensor_in_mem.append(name)
+            new_list = copy.deepcopy(tensor_in_mem)
+            tensor_mem_per_node.append(new_list)
+            for name in node_.input:
+                if name in self.consumedby:
+                    if name in tensor_consumed:
+                        tensor_consumed[name].append(node)
+                    else:
+                        tensor_consumed[name] = [node]
+                    consumers = self.consumedby[name]
+                    if len(tensor_consumed[name]) == len(consumers):
+                        if name in tensor_in_mem:
+                            tensor_in_mem.remove(name)
+
+        # print(tensor_mem_per_node)
+        compress_mem = {}
+        mem_tags = []
+        mem_block = []
+        for nodetensors in tensor_mem_per_node:
+            # clear mem tags
+            for i, tag in enumerate(mem_tags):
+                if tag == "":
+                    continue
+                if tag not in nodetensors:
+                    premerge = False
+                    if i >= 1 and mem_tags[i - 1] == "":
+                        premerge = True
+                    nextmerge = False
+                    if i < len(mem_tags) - 1 and mem_tags[i + 1] == "":
+                        nextmerge = True
+                    if premerge and nextmerge:
+                        newblock = [mem_block[i - 1][0], mem_block[i + 1][0] + mem_block[i + 1][1]
+                                    - mem_block[i - 1][0]]
+                        mem_tags.pop(i)
+                        mem_tags.pop(i)
+                        mem_block.pop(i)
+                        mem_block.pop(i)
+                        mem_tags[i - 1] = ""
+                        mem_block[i - 1] = newblock
+                    elif premerge:
+                        newblock = [mem_block[i - 1][0], mem_block[i][0] + mem_block[i][1]
+                                    - mem_block[i - 1][0]]
+                        mem_tags.pop(i)
+                        mem_block.pop(i)
+                        mem_tags[i - 1] = ""
+                        mem_block[i - 1] = newblock
+                    elif nextmerge:
+                        newblock = [mem_block[i][0], mem_block[i + 1][0] + mem_block[i + 1][1]
+                                    - mem_block[i][0]]
+                        mem_tags.pop(i)
+                        mem_block.pop(i)
+                        mem_tags[i] = ""
+                        mem_block[i] = newblock
+                    else:
+                        mem_tags[i] = ""
+
+            # push tensor mem to block
+            for tname in nodetensors:
+                t_ = self.tensormap[tname]
+                size_ = t_.get_memsize()
+                size_ = int((size_ + size_padding - 1) // size_padding * size_padding)
+                if tname in mem_tags:
+                    continue
+                block_found = False
+                for i, tag in enumerate(mem_tags):
+                    if tag == "":
+                        if mem_block[i][1] >= size_:
+                            remain_size = mem_block[i][1] - size_
+                            if remain_size > 1024 * 1024:
+                                remain_block = [mem_block[i][0] + size_, remain_size]
+                                mem_tags[i] = tname
+                                mem_block[i][1] = size_
+                                mem_tags.insert(i + 1, "")
+                                mem_block.insert(i + 1, remain_block)
+                            else:
+                                mem_tags[i] = tname
+                            block_found = True
+                            break
+                if not block_found:
+                    lastidx = len(mem_tags) - 1
+                    if lastidx >= 0 and mem_tags[lastidx] == "":
+                        mem_block[lastidx][1] = size_
+                        mem_tags[lastidx] = tname
+                    else:
+                        mem_tags.append(tname)
+                        if lastidx >= 0:
+                            mem_block.append([mem_block[lastidx][0] + mem_block[lastidx][1], size_])
+                        else:
+                            mem_block.append([0, size_])
+
+                idx = mem_tags.index(tname)
+                compress_mem[tname] = mem_block[idx]
+        print(compress_mem)
+        raw_memsize = 0
+        for tname in self.dynamics:
+            if tname in self.input or tname in self.output:
+                continue
+            raw_memsize += self.tensormap[tname].get_memsize()
+        lastblock = mem_block[-1]
+        compress_size = lastblock[0] + lastblock[1]
+        print(f"Raw memory size: {raw_memsize:,} bytes")
+        print(f"Compressed memory size: {compress_size:,} bytes")
+        print(f'Comression ratio: {compress_size / raw_memsize * 100:.3f}%')
+        return compress_mem, compress_size
+
     def get_compute_graph_onnx(self):
         nodes = []
         for key in self.nodemap.keys():
@@ -946,6 +1059,13 @@ class Graph():
         for key in rmnodes:
             cg.remove_node(key)
         cg.graph_reorder()
+        cg.dynamics = []
+        cg.dynamics.extend(cg.input)
+        cg.dynamics.extend(cg.output)
+        for name in cg.nodemap.keys():
+            for output in cg.nodemap[name].output:
+                if name not in cg.dynamics:
+                    cg.dynamics.append(output)
         return cg
 
     def profile(self):

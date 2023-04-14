@@ -11,14 +11,14 @@ def __write_float2buf(buf, f):
     return buf
 
 
-def __write_int2buf(buf, i):
-    ba = i.to_bytes(4, 'little', signed=True)
+def __write_int2buf(buf, i, bytes=4):
+    ba = i.to_bytes(bytes, 'little', signed=True)
     buf += ba
     return buf
 
 
-def __write_len2buf(buf, src):
-    ba = len(src).to_bytes(4, 'little', signed=True)
+def __write_len2buf(buf, src, bytes=4):
+    ba = len(src).to_bytes(bytes, 'little', signed=True)
     buf += ba
     return buf
 
@@ -169,5 +169,20 @@ def serialize_graph(graph: onnx_tool.Graph, filepath):
         writebuf = __write_str2buf(writebuf, name)
         tensor = graph.tensormap[name]
         writebuf = __write_ndarray(writebuf, tensor.numpy)
+    binfile.write(writebuf)
+    binfile.close()
+
+
+def serialize_memory_compression(compressed_mem: {}, filepath):
+    binfile = open(filepath, 'wb')
+    writebuf = bytearray(0)
+    writebuf = __write_int2buf(writebuf, compressed_mem[1], 8)
+    compress_map = compressed_mem[0]
+    writebuf = __write_len2buf(writebuf, compress_map.keys(), 8)
+    for key in compress_map.keys():
+        block = compress_map[key]
+        writebuf = __write_str2buf(writebuf, key)
+        writebuf = __write_int2buf(writebuf, block[0], 8)
+        writebuf = __write_int2buf(writebuf, block[1], 8)
     binfile.write(writebuf)
     binfile.close()

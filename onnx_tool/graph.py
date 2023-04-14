@@ -894,7 +894,7 @@ class Graph():
         return shapeengine
 
     def compress_memory(self, size_padding=64):
-        tensor_in_mem = []
+        tensor_in_mem = copy.deepcopy(self.input)
         tensor_mem_per_node = []
         tensor_consumed = {}
         for node in self.nodemap.keys():
@@ -913,7 +913,9 @@ class Graph():
                     if len(tensor_consumed[name]) == len(consumers):
                         if name in tensor_in_mem:
                             tensor_in_mem.remove(name)
-
+        for output in self.output:
+            if output not in tensor_in_mem:
+                warnings.warn(f'tensor list is wrong, {output} is missing!')
         # print(tensor_mem_per_node)
         compress_mem = {}
         mem_tags = []
@@ -992,14 +994,43 @@ class Graph():
 
                 idx = mem_tags.index(tname)
                 compress_mem[tname] = mem_block[idx]
-        print(compress_mem)
+
+        lastblock = mem_block[-1]
+        compress_size = lastblock[0] + lastblock[1]
+        # print(compress_mem)
+        # validate memory
+        for nodetensors in tensor_mem_per_node:
+            maxmem = 0
+            overlap = False
+            for tname in nodetensors:
+                block = compress_mem[tname]
+                if block[0] + block[1] > maxmem:
+                    maxmem = block[0] + block[1]
+            for tname in nodetensors:
+                block0 = compress_mem[tname]
+                for tname1 in nodetensors:
+                    if tname1 == tname:
+                        continue
+                    block1 = compress_mem[tname1]
+                    if block0[0] >= block1[0] and block0[0] < block1[0] + block1[1]:
+                        overlap = True
+                        laptensor = [tname, tname1]
+                        break
+                    if block1[0] >= block0[0] and block1[0] < block0[0] + block0[1]:
+                        overlap = True
+                        laptensor = [tname, tname1]
+                        break
+            if maxmem > compress_size:
+                warnings.warn(f'Wrong compress total memory size:{compress_size}. larger size detected:{maxmem}')
+            if overlap:
+                warnings.warn(f'Memory overlap detected!{laptensor[0]} v.s. {laptensor[1]}')
+
         raw_memsize = 0
         for tname in self.dynamics:
             if tname in self.input or tname in self.output:
                 continue
             raw_memsize += self.tensormap[tname].get_memsize()
-        lastblock = mem_block[-1]
-        compress_size = lastblock[0] + lastblock[1]
+
         print(f"Raw memory size: {raw_memsize:,} bytes")
         print(f"Compressed memory size: {compress_size:,} bytes")
         print(f'Comression ratio: {compress_size / raw_memsize * 100:.3f}%')

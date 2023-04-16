@@ -894,6 +894,7 @@ class Graph():
         return shapeengine
 
     def compress_memory(self, size_padding=64):
+        self.remove_constant()
         tensor_in_mem = copy.deepcopy(self.input)
         tensor_mem_per_node = []
         tensor_consumed = {}

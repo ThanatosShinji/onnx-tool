@@ -14,6 +14,10 @@ public_models = {
             'dynamic_input': None
         },
         {
+            'name': 'unet',
+            'dynamic_input': None
+        },
+        {
             'name': 'text_encoder.onnx',
             'dynamic_input': None
         },

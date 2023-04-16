@@ -6,6 +6,7 @@
 * *Profile model.*
 * *Compute Graph and Shape Engine.*
 * *OPs fusion.*
+* *Activation memory compression.*
 * *Quantized models and sparse models are supported.*
 
 Supported Models:
@@ -96,12 +97,32 @@ how to use: [data/Subgraph.md](https://github.com/ThanatosShinji/onnx-tool/blob/
 
 ---
 
+## Memory Compression
+
+For large language models and high-resolution CV models, the activation memory compression is a key to save memory.  
+The compression method achieves 5% memory compression on most models.   
+For example:
+
+ model                         | Native Memory Size(MB) | Compressed Memory Size(MB) | Compression Ratio(%) 
+-------------------------------|------------------------|----------------------------|----------------------
+ StableDiffusion(VAE_encoder)  | 14,245                 | 540                        | 3.7                  
+ StableDiffusion(VAE_decoder)  | 25,417                 | 1,140                      | 4.48                 
+ StableDiffusion(Text_encoder) | 215                    | 5                          | 2.5                  
+ StableDiffusion(UNet)         | 36,135                 | 2,232                      | 6.2                  
+ GPT2                          | 40                     | 2                          | 6.9                  
+ BERT                          | 2,170                  | 27                         | 1.25                 
+
+code sample: [benchmark/compression.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/compression.py)
+
+---
+
 ## Tensor operations
-* *Export weight tensors to files*  
-* *Simplify tensor and node names, convert name from a long string to a short string*  
-* *Remove unused tensors, models like vgg19-7.onnx set its static weight tensors as its input tensors*  
+
+* *Export weight tensors to files*
+* *Simplify tensor and node names, convert name from a long string to a short string*
+* *Remove unused tensors, models like vgg19-7.onnx set its static weight tensors as its input tensors*
 * *Set custom input and output tensors' name and dimension, change model from fixed input to dynamic input*  
-how to use: [data/Tensors.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Tensors.md).  
+  how to use: [data/Tensors.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Tensors.md).
 
 ---
 

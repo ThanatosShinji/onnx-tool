@@ -69,6 +69,5 @@ def resnet_fusion_compression():
     serialize_graph(cg, 'resnet50_fused.cg')
     cg.save_model('resnet50_fused.onnx')
 
-
 resnet_compress()
 # resnet_fusion_compression()

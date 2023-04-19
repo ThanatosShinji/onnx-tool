@@ -474,14 +474,14 @@ class LessOrEqualNode(LessNode):
 @NODE_REGISTRY.register()
 class NotNode(Node):
     def value_infer(self, intensors: []):
-        result = numpy.logical_not(intensors[0].astype(numpy.bool))
+        result = numpy.logical_not(intensors[0].astype(numpy.bool_))
         return [result]
 
 
 @NODE_REGISTRY.register()
 class AndNode(Node):
     def value_infer(self, intensors: []):
-        result = numpy.logical_and(intensors[0].astype(numpy.bool), intensors[1].astype(numpy.bool))
+        result = numpy.logical_and(intensors[0].astype(numpy.bool_), intensors[1].astype(numpy.bool_))
         return [result]
 
 

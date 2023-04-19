@@ -51,7 +51,7 @@ def onnxdtype2npdtype(data_type):
     if data_type == onnx.TensorProto.UINT8:
         return numpy.uint8
     if data_type == onnx.TensorProto.BOOL:
-        return numpy.bool
+        return numpy.bool_
     if data_type == onnx.TensorProto.STRING:
         return numpy.string_
 
@@ -73,9 +73,9 @@ def npdtype2onnxdtype(npdtype):
         return onnx.TensorProto.INT8
     if npdtype == numpy.uint8:
         return onnx.TensorProto.UINT8
-    if npdtype == numpy.bool:
+    if npdtype == numpy.bool_:
         return onnx.TensorProto.BOOL
-    if npdtype.type == numpy.bytes_:
+    if npdtype.type == numpy.string_:
         return onnx.TensorProto.STRING
 
 
@@ -461,7 +461,7 @@ class Tensor():
             return None
         if len(self.numpy.shape) == 0:
             tproto = onnx.helper.make_tensor(self.name, npdtype2onnxdtype(self.numpy.dtype)
-                                             , [], [self.numpy])
+                                             , [], [self.numpy.item()])
         else:
             tproto = onnx.helper.make_tensor(self.name, npdtype2onnxdtype(self.numpy.dtype)
                                              , self.numpy.shape, self.numpy.flatten())

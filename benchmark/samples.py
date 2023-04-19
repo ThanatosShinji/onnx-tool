@@ -68,7 +68,7 @@ def custom_layer_register():
         def value_infer(self, intensors: []):
             # if you don't know how to calculate the shapes of this op, you can implement value_infer.
             shape1 = intensors[1].shape
-            outtensor = intensors[:, :, :shape1[2], :shape1[3]]
+            outtensor = intensors[0][:, :, :shape1[2], :shape1[3]]
             return [outtensor]
 
         def profile(self, intensors: [], outtensors: []):

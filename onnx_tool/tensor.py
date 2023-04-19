@@ -53,7 +53,7 @@ def onnxdtype2npdtype(data_type):
     if data_type == onnx.TensorProto.BOOL:
         return numpy.bool
     if data_type == onnx.TensorProto.STRING:
-        return numpy.str
+        return numpy.string_
 
 
 def npdtype2onnxdtype(npdtype):
@@ -87,23 +87,23 @@ def tensorproto2ndarray(initial):
         if ndtype == numpy.float32:
             arr = numpy.fromiter(initial.float_data, dtype=ndtype)
 
-        if ndtype == numpy.int32:
+        elif ndtype == numpy.int32:
             arr = numpy.fromiter(initial.int32_data, dtype=ndtype)
 
-        if ndtype == numpy.float16:
+        elif ndtype == numpy.float16:
             raw = list(initial.int32_data)
             raw = numpy.fromiter(raw, dtype=numpy.uint16)
             mem = raw.tobytes()
             arr = numpy.frombuffer(mem, dtype=numpy.float16).reshape(shape)
 
-        if ndtype == numpy.int64:
+        elif ndtype == numpy.int64:
             arr = numpy.fromiter(initial.int64_data, dtype=ndtype)
 
-        if ndtype == numpy.float64:
+        elif ndtype == numpy.float64:
             arr = numpy.fromiter(initial.double_data, dtype=ndtype)
 
-        if ndtype == numpy.str:
-            arr = numpy.array(initial.string_data, dtype="S")
+        elif ndtype == numpy.string_:
+            arr = numpy.array(initial.string_data, dtype=ndtype)
     else:
         arr = numpy.frombuffer(initial.raw_data, dtype=ndtype)
     # if len(shape):

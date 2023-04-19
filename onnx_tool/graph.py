@@ -1221,7 +1221,7 @@ class Graph():
             node = self.nodemap[key]
             if exclude_nodes is not None and node.op_type in exclude_nodes:
                 continue
-            row = [key]
+            row = [key, self.nodemap[key].op_type]
             if print_sparse_table:
                 sparsity = node.sparsity
                 row.append(tuple2str(sparsity['blocksize'], splitch))
@@ -1237,7 +1237,7 @@ class Graph():
             row.append(tuple2str(node.outshape, splitch))
 
             ptable.append(row)
-        row = ['Total']
+        row = ['Total', '_']
         if print_sparse_table:
             row.append('_')
             row.append('_')
@@ -1252,7 +1252,7 @@ class Graph():
         row.append('_')
 
         ptable.append(row)
-        header = ['Name']
+        header = ['Name', 'Type']
         if print_sparse_table:
             header.append('Sparse Pattern')
             header.append('Sparse Block Ratio')

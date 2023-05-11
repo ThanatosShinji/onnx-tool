@@ -27,6 +27,6 @@ def resnet50():
     output = debug_with_onnxrt(onnxfile, ['resnetv24_pool0_fwd'], {'data': input})
     print(output)
 
-
-resnet50()
-resnet18()
+if __name__ == '__main__':
+    resnet50()
+    resnet18()

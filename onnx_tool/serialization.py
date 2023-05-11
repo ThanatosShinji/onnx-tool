@@ -173,7 +173,7 @@ def serialize_graph(graph: onnx_tool.Graph, filepath):
     binfile.close()
 
 
-def serialize_memory_compression(compressed_mem: {}, filepath):
+def serialize_memory_compression(compressed_mem: {}, max_shape: {}, filepath):
     binfile = open(filepath, 'wb')
     writebuf = bytearray(0)
     writebuf = __write_int2buf(writebuf, compressed_mem[1], 8)
@@ -184,5 +184,9 @@ def serialize_memory_compression(compressed_mem: {}, filepath):
         writebuf = __write_str2buf(writebuf, key)
         writebuf = __write_int2buf(writebuf, block[0], 8)
         writebuf = __write_int2buf(writebuf, block[1], 8)
+    writebuf = __write_len2buf(writebuf, max_shape.keys(), 8)
+    for key in max_shape.keys():
+        writebuf = __write_str2buf(writebuf, key)
+        writebuf = __write_int2buf(writebuf, max_shape[key], 8)
     binfile.write(writebuf)
     binfile.close()

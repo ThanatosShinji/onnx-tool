@@ -137,3 +137,4 @@ dmypy.json
 *.se
 *.input
 *.output
+/data/public/unet/

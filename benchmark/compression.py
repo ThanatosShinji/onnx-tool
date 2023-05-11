@@ -46,7 +46,8 @@ def resnet_fusion_compression():
             'w': (224, 299),
         })
     serialize_shape_engine(shapeengine, 'resnet50_fused.se')  # create shape engine before any fusion
-    max_shape = {'data': numpy.zeros((1, 3, 224, 224))}
+    max_shape_key = {'h': 224, 'w': 224}
+    max_shape = {'data': numpy.zeros((1, 3, max_shape_key['h'], max_shape_key['w']))}
     g.shape_infer(max_shape)
 
     cg = g.get_compute_graph()
@@ -65,9 +66,11 @@ def resnet_fusion_compression():
     for names in nodes:
         cg.fuse_postop_node_names(names, False)
     cg.graph_reorder()
-    cg.compress_memory()
+    compress_mem = cg.compress_memory()
+    serialize_memory_compression(compress_mem, max_shape_key, 'resnet50_fused.cm')
     serialize_graph(cg, 'resnet50_fused.cg')
     cg.save_model('resnet50_fused.onnx')
 
-resnet_compress()
-# resnet_fusion_compression()
+
+# resnet_compress()
+resnet_fusion_compression()

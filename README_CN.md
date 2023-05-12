@@ -116,10 +116,10 @@ code sample: [benchmark/compression.py](https://github.com/ThanatosShinji/onnx-t
 
 ## Tensor operations
 
-* *Export weight tensors to files*
-* *Simplify tensor and node names, convert name from a long string to a short string*
-* *Remove unused tensors, models like vgg19-7.onnx set its static weight tensors as its input tensors*
-* *Set custom input and output tensors' name and dimension, change model from fixed input to dynamic input*  
+* *支持模型权重的编辑和导出*
+* *简化模型的op名称和Tensor名称*
+* *移除模型的无用Tensor*
+* *设置模型的输入输出Tensor以及形状描述*  
   how to use: [data/Tensors.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Tensors.md).
 
 ---
@@ -146,8 +146,8 @@ Then `pip install onnx-tool` again.
 ---
 
 ## Results of [ONNX Model Zoo](https://github.com/onnx/models) and SOTA models
-Some models have dynamic input shapes. The MACs varies from input shapes. The input shapes used in these results are writen to [data/public/config.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/public/config.py).
-These onnx models with all tensors' shape can be downloaded: [baidu drive](https://pan.baidu.com/s/1eebBP-n-wXvOhSmIH-NUZQ 
+注意对于支持动态输入形状的模型，模型的MACs随输入形状的改变而改变。下表中的MACs数据是基于[data/public/config.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/public/config.py)中的配置输入形状得到。
+带有所有Tensor形状的模型和分析报告可以从下面的网盘中下载: [baidu drive](https://pan.baidu.com/s/1eebBP-n-wXvOhSmIH-NUZQ 
 )(code: p91k) [google drive](https://drive.google.com/drive/folders/1H-ya1wTvjIMg2pMcMITWDIfWNSnjYxTn?usp=sharing)
 <p id="results" align="center">
 <table>

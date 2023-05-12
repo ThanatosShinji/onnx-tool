@@ -1,16 +1,15 @@
-<a href="README_CN.md">简体中文</a>
 # onnx-tool
 
 **A tool for ONNX model:**
 
-* *Rapid shape inference.*
-* *Profile model.*
-* *Compute Graph and Shape Engine.*
-* *OPs fusion.*
-* *Activation memory compression.*
-* *Quantized models and sparse models are supported.*
+* *快速的Tensor形状推理.*
+* *分析模型每一层.*
+* *Compute Graph 和 Shape Engine.*
+* *ONNX op融合.*
+* *模型激活Tensor的内存压缩.*
+* *支持量化模型和稀疏模型.*
 
-Supported Models:
+支持的模型有:
 
 * NLP: BERT, T5, GPT
 * Diffusion: Stable Diffusion(TextEncoder, VAE, UNET)
@@ -19,7 +18,7 @@ Supported Models:
 
 ---
 
-## Shape inference
+## 形状推理
 
 <p align="center">  
   <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/shape_inference.jpg">
@@ -33,17 +32,17 @@ samples: [benchmark/samples.py](https://github.com/ThanatosShinji/onnx-tool/blob
 
 ---
 
-## Profile Model
+## 模型分析
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/macs_counting.png">
 </p>
-Float MultipleAdd Count(1 MAC=2 FLOPs), Memory Usage(in bytes), Parameters(elements number)<br><br>
+浮点乘加数（等于2倍的浮点操作数）, 内存占用(字节数), 参数量(参数个数)<br><br>
 
 <p id="sparsity" align="center">
   <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/sparse_model.png">
 </p>
-Sparse Pattern, Sparse Block Ratio, Sparse Element Ratio<br><br>  
+稀疏的块的形状, 稀疏块的稀疏率（全为0的稀疏块的稀疏率）, 参数的稀疏率（数值为0的稀疏率）<br><br>  
 
 how to use: [data/Profile.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Profile.md).  
 pytorch usage: [data/PytorchUsage.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/PytorchUsage.md).  
@@ -59,16 +58,14 @@ samples: [benchmark/samples.py](https://github.com/ThanatosShinji/onnx-tool/blob
   <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/compute_graph.png">
 </p>  
 
-Remove shape calculation layers(created by ONNX export) to get a *Compute Graph*. Use *Shape Engine* to update tensor
-shapes at runtime.  
+移除了所有的Tensor形状计算op， 更新动态Tensor的形状可以用Shape Engine来替代。推理引擎只需要负责计算图的计算，不需要考虑Tensor的形状更新。   
 Samples: [benchmark/shape_regress.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/shape_regress.py).
 [benchmark/samples.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/samples.py#L123).  
-Integrate *Compute Graph* and *Shape Engine* into a cpp inference
-engine: [data/inference_engine.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/inference_engine.md)
+如何集成 *Compute Graph* 和 *Shape Engine* 到cpp推理引擎中: [data/inference_engine.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/inference_engine.md)
 
 ---
 
-## Inplace op fusion
+## 多OP融合为新OP
 
 MHA and Layernorm Fusion for Transformers
 <p align="center">
@@ -88,8 +85,8 @@ Pattern fusion: [benchmark/do_fusion.py](https://github.com/ThanatosShinji/onnx-
 
 ---
 
-## Extract subgraph from ONNX model
-
+## 从模型中提取一个子模型
+可以帮助实现model parallel。
 <p align="center">
   <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/resnet18_subgraph.png">
 </p>
@@ -100,9 +97,9 @@ how to use: [data/Subgraph.md](https://github.com/ThanatosShinji/onnx-tool/blob/
 
 ## Memory Compression
 
-For large language models and high-resolution CV models, the activation memory compression is a key to save memory.  
-The compression method achieves 5% memory compression on most models.   
-For example:
+对于LLM和高分辨CV模型, 激活内存的压缩可以帮助节省整个模型的内存使用.  
+压缩方法可以在大多数模型上实现 5% 内存压缩率.   
+例如:
 
  model                         | Native Memory Size(MB) | Compressed Memory Size(MB) | Compression Ratio(%) 
 -------------------------------|------------------------|----------------------------|----------------------

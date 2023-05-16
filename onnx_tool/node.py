@@ -488,7 +488,9 @@ class AndNode(Node):
 @NODE_REGISTRY.register()
 class WhereNode(Node):
     def shape_infer(self, intensors: []):
-        return [_get_shape(intensors[0])]  # return condition shape
+        cond_shape=_get_shape(intensors[0])
+        x_shape=_get_shape(intensors[1])
+        return [_max_shape((cond_shape,x_shape))]  # TODO robust broadcast process
 
     def value_infer(self, intensors: []):
         result = numpy.where(intensors[0], intensors[1], intensors[2])
@@ -1709,6 +1711,22 @@ class ReshapeNode(Node):
     def value_infer(self, intensors: []):
         return [intensors[0].reshape(intensors[1])]
 
+@NODE_REGISTRY.register()
+class GatherElementsNode(Node):
+    def shape_infer(self, intensors: []):
+        return [_get_shape(intensors[1])]
+
+    def value_infer(self, intensors: []):
+        if self.axis==1:
+            if len(intensors[1].shape)==4:
+                outtensor=numpy.zeros_like(intensors[1])
+                for i in range(intensors[1].shape[0]):
+                    for j in range(intensors[1].shape[1]):
+                        for k in range(intensors[1].shape[2]):
+                            for l in range(intensors[1].shape[3]):
+                                outtensor[i,j,k,l]= intensors[0][i,intensors[1][i,j,k,l],k,l]
+                return [outtensor]
+        raise NotImplementedError()
 
 @NODE_REGISTRY.register()
 class GRUNode(Node):

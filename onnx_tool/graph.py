@@ -738,6 +738,7 @@ class Graph():
         from .utils import timer
         tm = timer()
         for key in self.nodemap.keys():
+
             tm.start()
             node = self.nodemap[key]
             if node.shape_calc:

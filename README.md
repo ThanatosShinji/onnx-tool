@@ -12,7 +12,7 @@
 
 Supported Models:
 
-* NLP: BERT, T5, GPT
+* NLP: BERT, T5, GPT, Llama(<a href="benchmark/transfomer_models.py">TransformerModel</a>)
 * Diffusion: Stable Diffusion(TextEncoder, VAE, UNET)
 * CV: Resnet, MobileNet, YOLO, ...
 * Audio: LPCNet
@@ -159,6 +159,7 @@ These onnx models with all tensors' shape can be downloaded: [baidu drive](https
 
 Model | Params(M) | MACs(M)
 ---|---|---
+GPT-J 1 layer | 464 | 173,398  
 [text_encoder](https://huggingface.co/bes-dev/stable-diffusion-v1-4-onnx/tree/main)| 123.13 | 6,782
 [UNet2DCondition](https://huggingface.co/bes-dev/stable-diffusion-v1-4-onnx/tree/main)| 859.52 | 888,870
 [VAE_encoder](https://huggingface.co/bes-dev/stable-diffusion-v1-4-onnx/tree/main) | 34.16 | 566,371
@@ -180,6 +181,7 @@ Model | Params(M) | MACs(M)
 
 Model | Params(M) | MACs(M)
 ---|---|---
+LLaMa 1 layer | 618 | 211,801  
 [rvm_mobilenetv3_fp32.onnx](https://github.com/PeterL1n/RobustVideoMatting) | 3.73 | 4,289
 [yolov4](https://github.com/onnx/models/tree/main/vision/object_detection_segmentation/yolov4) | 64.33 | 3,319
 [ConvNeXt-L](https://github.com/facebookresearch/ConvNeXt) | 229.79 | 34,872

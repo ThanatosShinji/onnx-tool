@@ -2,9 +2,8 @@
 
 from setuptools import setup, find_packages
 
-readme = open("README.md").read()
-VERSION = "0.6.4"
-
+readme = open("README.md", encoding="utf-8").read()
+VERSION = "0.6.5"
 
 requirements = [
     "onnx",

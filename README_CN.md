@@ -11,7 +11,7 @@
 
 支持的模型有:
 
-* NLP: BERT, T5, GPT
+* NLP: BERT, T5, GPT, LLaMa, MPT(<a href="benchmark/transfomer_models.py">TransformerModel</a>)
 * Diffusion: Stable Diffusion(TextEncoder, VAE, UNET)
 * CV: Resnet, MobileNet, YOLO, ...
 * Audio: LPCNet
@@ -156,42 +156,44 @@ Then `pip install onnx-tool` again.
 
 Model | Params(M) | MACs(M)
 ---|---|---
+GPT-J 1 layer | 464 | 173,398  
+MPT 1 layer | 261 | 79,894
 [text_encoder](https://huggingface.co/bes-dev/stable-diffusion-v1-4-onnx/tree/main)| 123.13 | 6,782
 [UNet2DCondition](https://huggingface.co/bes-dev/stable-diffusion-v1-4-onnx/tree/main)| 859.52 | 888,870
 [VAE_encoder](https://huggingface.co/bes-dev/stable-diffusion-v1-4-onnx/tree/main) | 34.16 | 566,371
 [VAE_decoder](https://huggingface.co/bes-dev/stable-diffusion-v1-4-onnx/tree/main) | 49.49 | 1,271,959
 [SqueezeNet 1.0](https://github.com/onnx/models/tree/main/vision/classification/squeezenet) | 1.23 | 351
-[VGG 19](https://github.com/onnx/models/tree/main/vision/classification/vgg) | 143.66 | 19,643
 [AlexNet](https://github.com/onnx/models/tree/main/vision/classification/alexnet) | 60.96 | 665
 [GoogleNet](https://github.com/onnx/models/tree/main/vision/classification/inception_and_googlenet/googlenet) | 6.99 | 1,606
-[googlenet_age_adience](https://github.com/onnx/models/tree/main/vision/body_analysis/age_gender) | 5.98 | 1,605
+[googlenet_age](https://github.com/onnx/models/tree/main/vision/body_analysis/age_gender) | 5.98 | 1,605
 [LResNet100E-IR](https://github.com/onnx/models/tree/main/vision/body_analysis/arcface) | 65.22 | 12,102
 [BERT-Squad](https://github.com/onnx/models/tree/main/text/machine_comprehension/bert-squad) | 113.61 | 22,767
 [BiDAF](https://github.com/onnx/models/tree/main/text/machine_comprehension/bidirectional_attention_flow) | 18.08 | 9.87
 [EfficientNet-Lite4](https://github.com/onnx/models/tree/main/vision/classification/efficientnet-lite4) | 12.96 | 1,361
-[Emotion FERPlus](https://github.com/onnx/models/tree/main/vision/body_analysis/emotion_ferplus) | 12.95 | 877
-[Mask R-CNN R-50-FPN-fp32](https://github.com/onnx/models/tree/main/vision/object_detection_segmentation/mask-rcnn) | 46.77 | 92,077
+[Emotion](https://github.com/onnx/models/tree/main/vision/body_analysis/emotion_ferplus) | 12.95 | 877
+[Mask R-CNN](https://github.com/onnx/models/tree/main/vision/object_detection_segmentation/mask-rcnn) | 46.77 | 92,077
 </td>
 
 <td>
 
 Model | Params(M) | MACs(M)
 ---|---|---
-[rvm_mobilenetv3_fp32.onnx](https://github.com/PeterL1n/RobustVideoMatting) | 3.73 | 4,289
+LLaMa 1 layer | 618 | 211,801  
+[rvm_mobilenetv3](https://github.com/PeterL1n/RobustVideoMatting) | 3.73 | 4,289
 [yolov4](https://github.com/onnx/models/tree/main/vision/object_detection_segmentation/yolov4) | 64.33 | 3,319
 [ConvNeXt-L](https://github.com/facebookresearch/ConvNeXt) | 229.79 | 34,872
 [edgenext_small](https://github.com/mmaaz60/EdgeNeXt) | 5.58 | 1,357
 [SSD](https://github.com/onnx/models/tree/main/vision/object_detection_segmentation/ssd) | 19.98 | 216,598
-[RealESRGAN_x4plus.pth](https://github.com/xinntao/Real-ESRGAN) | 16.69 | 73,551
-[ShuffleNet-v2-fp32](https://github.com/onnx/models/tree/main/vision/classification/shufflenet) | 2.29 | 146
+[RealESRGAN](https://github.com/xinntao/Real-ESRGAN) | 16.69 | 73,551
+[ShuffleNet](https://github.com/onnx/models/tree/main/vision/classification/shufflenet) | 2.29 | 146
 [GPT-2](https://github.com/onnx/models/tree/main/text/machine_comprehension/gpt-2) | 137.02 | 1,103
 [T5-encoder](https://github.com/onnx/models/tree/main/text/machine_comprehension/t5) | 109.62 | 686
-[T5-decoder-with-lm-head](https://github.com/onnx/models/tree/main/text/machine_comprehension/t5) | 162.62 | 1,113
+[T5-decoder](https://github.com/onnx/models/tree/main/text/machine_comprehension/t5) | 162.62 | 1,113
 [RoBERTa-BASE](https://github.com/onnx/models/tree/main/text/machine_comprehension/roberta) | 124.64 | 688
-[Faster R-CNN R-50-FPN-fp32](https://github.com/onnx/models/blob/main/vision/object_detection_segmentation/faster-rcnn) | 44.10 | 46,018
+[Faster R-CNN](https://github.com/onnx/models/blob/main/vision/object_detection_segmentation/faster-rcnn) | 44.10 | 46,018
 [FCN ResNet-50](https://github.com/onnx/models/tree/main/vision/object_detection_segmentation/fcn) | 35.29 | 37,056
-[MobileNet v2-1.0-fp32](https://github.com/onnx/models/blob/main/vision/classification/mobilenet) | 3.3 | 300
-[ResNet50_fp32](https://github.com/onnx/models/tree/main/vision/classification/resnet) | 25 | 3,868
+[MobileNet](https://github.com/onnx/models/blob/main/vision/classification/mobilenet) | 3.3 | 300
+[ResNet50](https://github.com/onnx/models/tree/main/vision/classification/resnet) | 25 | 3,868
 
 </td>
 </tr>

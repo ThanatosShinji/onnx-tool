@@ -490,7 +490,8 @@ class WhereNode(Node):
     def shape_infer(self, intensors: []):
         cond_shape=_get_shape(intensors[0])
         x_shape=_get_shape(intensors[1])
-        return [_max_shape((cond_shape,x_shape))]  # TODO robust broadcast process
+        y_shape=_get_shape(intensors[2])
+        return [_max_shape((cond_shape,x_shape,y_shape))]
 
     def value_infer(self, intensors: []):
         result = numpy.where(intensors[0], intensors[1], intensors[2])
@@ -666,6 +667,13 @@ class OneHotNode(Node):
         y = one_hot(indices, depth, self.axis)
         return [y]
 
+@NODE_REGISTRY.register()
+class TriluNode(Node):
+    def __init__(self,n):
+        super().__init__(n)
+
+    def shape_infer(self, intensors: []):
+        return [_get_shape(intensors[0])]
 
 @NODE_REGISTRY.register()
 class EinsumNode(Node):

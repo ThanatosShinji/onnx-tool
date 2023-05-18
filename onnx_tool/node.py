@@ -5,16 +5,33 @@ import warnings
 from .tensor import get_attribute_data, volume, is_valid_ndarray, create_ndarray_f32, onnxdtype2npdtype
 from .utils import NODE_REGISTRY, tuple2str
 
-ADD_MACS = 1
-EXP_MACS = 16
-LOG_MACS = 16
-SQRT_MACS = 4
-POW_MACS = 32
+'''
+Real MACs: the number of x86 instructions to finish numeric compute.
+From a low-level view, float-point multiple and add is much expensive than
+bit movement. But current hardware has added more and more float-point
+units to accelerate this. So, we should treat every instruction equally to
+measure the complexity of the model.
+
+
+'''
+
 MUL_MACS = 1
-DIV_MACS = 2
+ADD_MACS = 1
 CMP_MACS = 1
-SIN_MACS = 14
-COS_MACS = 14
+DIV_MACS = 4 # refers to vrcp14ps
+#following refers to https://github.com/reyoung/avx_mathfun
+EXP_MACS = 32
+POW_MACS = EXP_MACS #similar with exp
+LOG_MACS = 43
+SIN_MACS = 39
+COS_MACS = 39
+
+TANH_MACS = EXP_MACS + 2 * ADD_MACS + DIV_MACS # (e^2x-1)/(e^2x+1)
+ATANH_MACS = LOG_MACS + 2 * ADD_MACS + DIV_MACS + MUL_MACS #1/2*ln((1+x)/(1-x))
+
+SQRT_MACS = 24 # refers to vsqrtps
+ATAN_MACS = SQRT_MACS + 3 * MUL_MACS + MUL_MACS + DIV_MACS #refers to "Approximations to inverse tangent function"
+
 
 RESIZE_LINEAR_MACS = 4
 RESIZE_CUBIC_MACS = 8
@@ -384,6 +401,56 @@ class TanhNode(PWNode):
         self.op_mac = EXP_MACS
         self.ratio = 2
 
+    def value_infer(self, intensors: []):
+        return [numpy.tanh(intensors[0])]
+
+@NODE_REGISTRY.register()
+class AtanNode(TanhNode):
+    def __init__(self,n):
+        super().__init__(n)
+        self.op_mac = ATAN_MACS
+
+    def value_infer(self, intensors: []):
+        return [numpy.arctanh(intensors[0])]
+
+@NODE_REGISTRY.register()
+class SignNode(PWNode):
+    def __init__(self,n):
+        super().__init__(n)
+        self.op_mac=CMP_MACS
+
+    def value_infer(self, intensors: []):
+        return [numpy.sign(intensors[0])]
+
+@NODE_REGISTRY.register()
+class RotateTRTNode(PWNode):
+    def __init__(self, n):
+        super().__init__(n)
+        self.op_mac = 4*4 # assuming 4x4 transformation matrix
+
+
+@NODE_REGISTRY.register()
+class MultiScaleDeformableAttnTRTNode(Node):
+    def __init__(self, n):
+        super().__init__(n)
+        # TODO MACs
+
+    def shape_infer(self, intensors: []):
+        s0=_get_shape(intensors[0])
+        s3=_get_shape(intensors[3])
+        s0[1]=s3[1]
+        return [s0]
+
+    def profile(self, intensors: [], outtensors: []):
+        macs = 8
+        batch = _get_shape(intensors[0])[0]
+        num_heads = _get_shape(intensors[0])[2]
+        channels = _get_shape(intensors[0])[3]
+        num_levels = _get_shape(intensors[1])[0]
+        num_query = _get_shape(intensors[3])[1]
+        num_points  = _get_shape(intensors[4])[3]
+        base_num = batch * num_query * num_heads * channels * num_levels * num_points
+        return base_num*macs
 
 @NODE_REGISTRY.register()
 class HardSigmoidNode(PWNode):
@@ -1501,9 +1568,9 @@ def scatter_nd_impl(data, indices, updates, reduction='none'):  # type: ignore
         elif reduction == "mul":
             output[indices[i]] *= updates[i]
         elif reduction == "max":
-            output[indices[i]] = np.maximum(output[indices[i]], updates[i])
+            output[indices[i]] = numpy.maximum(output[indices[i]], updates[i])
         elif reduction == "min":
-            output[indices[i]] = np.minimum(output[indices[i]], updates[i])
+            output[indices[i]] = numpy.minimum(output[indices[i]], updates[i])
         else:
             output[indices[i]] = updates[i]
     return output
@@ -1511,11 +1578,14 @@ def scatter_nd_impl(data, indices, updates, reduction='none'):  # type: ignore
 
 @NODE_REGISTRY.register()
 class ScatterNDNode(Node):
+    def shape_infer(self, intensors: []):
+        return [_get_shape(intensors[0])] #output=copy(data)
+
     def value_infer(self, intensors: []):
         data = intensors[0]
-        indices = intensors[1]
+        indices = intensors[1].astype(numpy.int64)
         updates = intensors[2]
-        return [scatter_nd_impl(data, indices, updates)]
+        return [scatter_nd_impl(data, indices, updates)] #TODO this impl may fail some cases
 
 
 @NODE_REGISTRY.register()

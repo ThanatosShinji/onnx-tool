@@ -71,6 +71,49 @@ def resnet_fusion_compression():
     serialize_graph(cg, 'resnet50_fused.cg')
     cg.save_model('resnet50_fused.onnx')
 
+def bevformer():
+    from onnx_tool import NODE_REGISTRY
+    from onnx_tool.node import PWNode,Node,_get_shape
+    # this is the TensorRT version of BEVFormer
+    # It fused some ops as two TRT plugins
+    @NODE_REGISTRY.register()
+    class RotateTRTNode(PWNode):
+        def __init__(self, n):
+            super().__init__(n)
+            self.op_mac = 4 * 4  # assuming 4x4 transformation matrix
+
+    @NODE_REGISTRY.register()
+    class MultiScaleDeformableAttnTRTNode(Node):
+        def __init__(self, n):
+            super().__init__(n)
+
+        def shape_infer(self, intensors: []):
+            s0 = _get_shape(intensors[0])
+            s3 = _get_shape(intensors[3])
+            s0[1] = s3[1]
+            return [s0]
+
+        def profile(self, intensors: [], outtensors: []):
+            macs = 8
+            batch = _get_shape(intensors[0])[0]
+            num_heads = _get_shape(intensors[0])[2]
+            channels = _get_shape(intensors[0])[3]
+            num_levels = _get_shape(intensors[1])[0]
+            num_query = _get_shape(intensors[3])[1]
+            num_points = _get_shape(intensors[4])[3]
+            base_num = batch * num_query * num_heads * channels * num_levels * num_points
+            return base_num * macs
+
+    file = 'data/public/bevformer_tiny.onnx'
+    m = onnx.load_model(file)
+    g = Graph(m.graph)
+    g.remove_constant()
+    g.shape_infer()
+    g.profile()
+    g.print_node_map()
+    compress_mem = g.compress_memory()
+    print('compressed memory allocation: ',compress_mem[1])
 
 # resnet_compress()
-resnet_fusion_compression()
+# resnet_fusion_compression()
+bevformer()

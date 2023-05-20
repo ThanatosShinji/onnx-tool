@@ -738,8 +738,6 @@ class Graph():
         from .utils import timer
         tm = timer()
         for key in self.nodemap.keys():
-            if key =='/Expand_1':
-                print(1)
             tm.start()
             node = self.nodemap[key]
             if node.shape_calc:
@@ -1066,7 +1064,7 @@ class Graph():
         return subgraph
 
     def get_compute_graph(self):
-        cg = self
+        cg = copy.copy(self)
         nodes = []
         rmnodes = []
         for key in cg.nodemap.keys():
@@ -1089,7 +1087,6 @@ class Graph():
                 rmnodes.append(key)
                 continue
             nodes.append(node.name)
-
         for key in rmnodes:
             cg.remove_node(key)
         cg.graph_reorder()

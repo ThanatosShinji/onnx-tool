@@ -142,6 +142,8 @@ Then `pip install onnx-tool` again.
 
 ## Known Issues
 * Loop op is not supported
+* Compute Graph has some issues with BEVFomer
+* Weight Compression needs depth-first search strategy
 
 ---
 
@@ -156,8 +158,8 @@ Then `pip install onnx-tool` again.
 
 Model | Params(M) | MACs(M)
 ---|---|---
-GPT-J 1 layer | 464 | 173,398  
-MPT 1 layer | 261 | 79,894
+<a href="benchmark/transfomer_models.py">GPT-J 1 layer</a> | 464 | 173,398  
+<a href="benchmark/transfomer_models.py">MPT 1 layer</a> | 261 | 79,894
 [text_encoder](https://huggingface.co/bes-dev/stable-diffusion-v1-4-onnx/tree/main)| 123.13 | 6,782
 [UNet2DCondition](https://huggingface.co/bes-dev/stable-diffusion-v1-4-onnx/tree/main)| 859.52 | 888,870
 [VAE_encoder](https://huggingface.co/bes-dev/stable-diffusion-v1-4-onnx/tree/main) | 34.16 | 566,371
@@ -177,23 +179,23 @@ MPT 1 layer | 261 | 79,894
 <td>
 
 Model | Params(M) | MACs(M)
----|---|---
-LLaMa 1 layer | 618 | 211,801  
-[rvm_mobilenetv3](https://github.com/PeterL1n/RobustVideoMatting) | 3.73 | 4,289
-[yolov4](https://github.com/onnx/models/tree/main/vision/object_detection_segmentation/yolov4) | 64.33 | 3,319
-[ConvNeXt-L](https://github.com/facebookresearch/ConvNeXt) | 229.79 | 34,872
-[edgenext_small](https://github.com/mmaaz60/EdgeNeXt) | 5.58 | 1,357
-[SSD](https://github.com/onnx/models/tree/main/vision/object_detection_segmentation/ssd) | 19.98 | 216,598
-[RealESRGAN](https://github.com/xinntao/Real-ESRGAN) | 16.69 | 73,551
-[ShuffleNet](https://github.com/onnx/models/tree/main/vision/classification/shufflenet) | 2.29 | 146
-[GPT-2](https://github.com/onnx/models/tree/main/text/machine_comprehension/gpt-2) | 137.02 | 1,103
-[T5-encoder](https://github.com/onnx/models/tree/main/text/machine_comprehension/t5) | 109.62 | 686
-[T5-decoder](https://github.com/onnx/models/tree/main/text/machine_comprehension/t5) | 162.62 | 1,113
-[RoBERTa-BASE](https://github.com/onnx/models/tree/main/text/machine_comprehension/roberta) | 124.64 | 688
-[Faster R-CNN](https://github.com/onnx/models/blob/main/vision/object_detection_segmentation/faster-rcnn) | 44.10 | 46,018
-[FCN ResNet-50](https://github.com/onnx/models/tree/main/vision/object_detection_segmentation/fcn) | 35.29 | 37,056
-[MobileNet](https://github.com/onnx/models/blob/main/vision/classification/mobilenet) | 3.3 | 300
-[ResNet50](https://github.com/onnx/models/tree/main/vision/classification/resnet) | 25 | 3,868
+---|-----------|---
+<a href="benchmark/transfomer_models.py">LLaMa 1 layer</a> | 618       | 211,801  
+[BEVFormer Tiny](https://github.com/DerryHub/BEVFormer_tensorrt) | 33.7      | 210,838
+[rvm_mobilenetv3](https://github.com/PeterL1n/RobustVideoMatting) | 3.73      | 4,289
+[yolov4](https://github.com/onnx/models/tree/main/vision/object_detection_segmentation/yolov4) | 64.33     | 3,319
+[ConvNeXt-L](https://github.com/facebookresearch/ConvNeXt) | 229.79    | 34,872
+[edgenext_small](https://github.com/mmaaz60/EdgeNeXt) | 5.58      | 1,357
+[SSD](https://github.com/onnx/models/tree/main/vision/object_detection_segmentation/ssd) | 19.98     | 216,598
+[RealESRGAN](https://github.com/xinntao/Real-ESRGAN) | 16.69     | 73,551
+[ShuffleNet](https://github.com/onnx/models/tree/main/vision/classification/shufflenet) | 2.29      | 146
+[GPT-2](https://github.com/onnx/models/tree/main/text/machine_comprehension/gpt-2) | 137.02    | 1,103
+[T5-encoder](https://github.com/onnx/models/tree/main/text/machine_comprehension/t5) | 109.62    | 686
+[T5-decoder](https://github.com/onnx/models/tree/main/text/machine_comprehension/t5) | 162.62    | 1,113
+[RoBERTa-BASE](https://github.com/onnx/models/tree/main/text/machine_comprehension/roberta) | 124.64    | 688
+[Faster R-CNN](https://github.com/onnx/models/blob/main/vision/object_detection_segmentation/faster-rcnn) | 44.10     | 46,018
+[FCN ResNet-50](https://github.com/onnx/models/tree/main/vision/object_detection_segmentation/fcn) | 35.29     | 37,056
+[ResNet50](https://github.com/onnx/models/tree/main/vision/classification/resnet) | 25        | 3,868
 
 </td>
 </tr>

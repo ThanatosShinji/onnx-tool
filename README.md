@@ -89,7 +89,7 @@ Pattern fusion: [benchmark/do_fusion.py](https://github.com/ThanatosShinji/onnx-
 ---
 
 ## Extract subgraph from ONNX model
-
+Help implement model parallelism.
 <p align="center">
   <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/resnet18_subgraph.png">
 </p>
@@ -145,7 +145,10 @@ Then `pip install onnx-tool` again.
 
 ## Known Issues
 * Loop op is not supported
-* Compute Graph has some issues with BEVFomer
+* Compute Graph has some issues with BEVFomer. Torch2ONNX creates the below pattern to get a static shape instead of make this static shape a constant tensor. It's confusing.
+<p align="left">
+  <img src="data/ComputeGraphIssue.png">
+</p>
 * Weight Compression is not optimum
   
 ---

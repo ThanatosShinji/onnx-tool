@@ -13,7 +13,7 @@
 
 * NLP: BERT, T5, GPT, LLaMa, MPT(<a href="benchmark/transfomer_models.py">TransformerModel</a>)
 * Diffusion: Stable Diffusion(TextEncoder, VAE, UNET)
-* CV: Resnet, MobileNet, YOLO, ...
+* CV: <a href="benchmark/compression.py">BEVFormer</a>, MobileNet, YOLO, ...
 * Audio: LPCNet
 
 ---

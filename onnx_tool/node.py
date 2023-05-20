@@ -467,13 +467,11 @@ class SumNode(PWNode):
 
 @NODE_REGISTRY.register()
 class NonMaxSuppressionNode(Node):
-    # TODO
-    def value_infer(self, intensors: []):
+    def shape_infer(self, intensors: []):
         if len(intensors) >= 3:
             max_output_boxes_per_class = int(intensors[2][0])
-            return [numpy.zeros((max_output_boxes_per_class, 3), dtype=numpy.int64)]
-        return [numpy.zeros((200, 3), dtype=numpy.int64)]
-
+            return [(max_output_boxes_per_class, 3)]
+        raise NotImplementedError()
 
 @NODE_REGISTRY.register()
 class LRNNode(PWNode):

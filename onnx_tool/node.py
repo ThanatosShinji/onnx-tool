@@ -762,10 +762,11 @@ class UnsqueezeNode(Node):
             axes = intensors[1]
         else:
             axes = self.axes
-        axes = _axes_neg2pos(len(inshape), axes)
+        newaxis_len=len(inshape) + len(axes)
+        axes = _axes_neg2pos(newaxis_len, axes)
         newshape = []
         idx = 0
-        for i in range(len(inshape) + len(axes)):
+        for i in range(newaxis_len):
             if i in axes:
                 newshape.append(1)
             else:
@@ -987,6 +988,9 @@ class ExpandNode(Node):
         xshape = _get_shape(intensors[0])
         expandshape = intensors[1]
         yshape = []
+        if len(xshape) < len(expandshape):
+            for i in range(len(xshape),len(expandshape)):
+                xshape=[1,]+xshape
         for x, e in zip(xshape, expandshape):
             yshape.append(max(x, e))
         return [yshape]

@@ -287,11 +287,11 @@ class Graph():
             node = self.nodemap[key]
             for input in node.input:
                 if input not in self.initials:
-                    self.dynamics.append(input)
+                    if input not in self.dynamics:
+                        self.dynamics.append(input)
                     if input not in self.tensormap.keys():
                         self.tensormap[input] = Tensor(input)
 
-        # self.dynamics = set(self.dynamics)
         self.sparse_model = False
         for key in self.tensormap.keys():
             tensor = self.tensormap[key]
@@ -1032,7 +1032,7 @@ class Graph():
                 continue
             raw_memsize += self.tensormap[tname].get_memsize()
 
-        print(f"Raw memory size: {raw_memsize:,} bytes")
+        print(f"Raw memory size (without parameter memory): {raw_memsize:,} bytes")
         print(f"Compressed memory size: {compress_size:,} bytes")
         print(f'Comression ratio: {compress_size / raw_memsize * 100:.3f}%')
         return compress_mem, compress_size
@@ -1111,6 +1111,7 @@ class Graph():
         self.macs = 0.0
         self.params = 0
         self.memory = 0
+        tensors=[]
         for key in self.nodemap.keys():
             node = self.nodemap[key]
             itensors = []
@@ -1140,6 +1141,7 @@ class Graph():
                     # Constant's output tensors are already counted as weight tensors
                     continue
                 _memory += self.tensormap[output].get_memsize()
+                tensors.append(output)
             macs = node.profile(itensors, otensors)
             outshape = (0,)
             if len(node.output) > 0:
@@ -1159,6 +1161,7 @@ class Graph():
             self.macs += macs
             self.params += _params
             self.memory += _memory
+
         self.valid_profile = True
 
     def print_node_map(self, f: str = None, metric='MACs', exclude_nodes=None):

@@ -19,21 +19,21 @@ models = [
     #             'seq': (16, 384)
     #         }
     # },
-    # {
-    #     'name': 'data/public/bevformer_tiny.onnx',
-    #     'dynamic_input': None
-    # },
     {
-        'name': 'data/public/so-vits-svc.onnx',
-        'dynamic_input': {
-            'c': create_ndarray_f32((1, 10, 768)),
-            'f0': create_ndarray_f32((1, 10)),
-            'mel2ph': create_ndarray_int64((1, 10)),
-            'uv': create_ndarray_f32((1, 10)),
-            'noise': create_ndarray_f32((1, 192, 10)),
-            'sid': create_ndarray_int64(1),
-        }
+        'name': 'data/public/bevformer_tiny.onnx',
+        'dynamic_input': None
     },
+    # {
+    #     'name': 'data/public/so-vits-svc.onnx',
+    #     'dynamic_input': {
+    #         'c': create_ndarray_f32((1, 10, 768)),
+    #         'f0': create_ndarray_f32((1, 10)),
+    #         'mel2ph': create_ndarray_int64((1, 10)),
+    #         'uv': create_ndarray_f32((1, 10)),
+    #         'noise': create_ndarray_f32((1, 192, 10)),
+    #         'sid': create_ndarray_int64(1),
+    #     }
+    # },
 ]
 
 

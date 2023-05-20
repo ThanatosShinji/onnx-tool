@@ -5,81 +5,6 @@ from onnx_tool import create_ndarray_f32, create_ndarray_int64
 
 models = [
     # {
-    #     'name': 'data/public/rvm_mobilenetv3_fp32.onnx',
-    #     'dynamic_input':
-    #         {'src': create_ndarray_f32((1, 3, 1080, 1920)), 'r1i': create_ndarray_f32((1, 16, 135, 240)),
-    #                          'r2i':create_ndarray_f32((1,20,68,120)),'r3i':create_ndarray_f32((1,40,34,60)),
-    #                          'r4i':create_ndarray_f32((1,64,17,30)),'downsample_ratio':numpy.array((0.25,),dtype=numpy.float32)}
-    # },
-    # {
-    #     'name': 'data/public/gpt2-10.onnx',
-    #     'dynamic_input':
-    #         {
-    #             'input1': create_ndarray_int64((1, 1, 8)),
-    #         }
-    # },
-
-    # {
-    #     'name': 'data/public/bidaf-9.onnx',
-    #     'dynamic_input':
-    #         {
-    #             'context_word': create_ndarray_f32((16, 1)),
-    #             'context_char': create_ndarray_f32((16, 1, 1, 16)),
-    #             'query_word': create_ndarray_f32((16, 1)),
-    #             'query_char': create_ndarray_f32((16, 1, 1, 16)),
-    #
-    #         }
-    # },
-    # {
-    #     'name': 'data/public/vae_encoder.onnx',
-    #     'dynamic_input': None
-    # },
-    # {
-    #     'name': 'data/public/Inceptionv3.onnx',
-    #     'dynamic_input':
-    #         {
-    #             'image': numpy.zeros((1, 3, 299, 299), numpy.float32)
-    #         }
-    # },
-    # {
-    #     'name': 'data/public/gpt2-10.onnx',
-    #     'dynamic_input':
-    #         {
-    #             'input1': create_ndarray_int64((1, 1, 8)),
-    #         }
-    # },
-    # {
-    #     'name': 'data/public/t5-decoder-with-lm-head-12.onnx',
-    #     'dynamic_input':
-    #         {
-    #             'input_ids': create_ndarray_f32((1, 8)),
-    #             'encoder_hidden_states': create_ndarray_f32((1, 8, 768)),
-    #
-    #         }
-    # },
-    # {
-    #     'name': 'data/public/MobileNetV1_Pruned_Quantized.onnx',
-    #     'dynamic_input': None
-    # },
-    # {
-    #     'name': 'data/public/clipEncoder.onnx',
-    # }
-    # {
-    #     'name': 'data/public/gpt2-10.onnx',
-    #     'dynamic_input':
-    #         {
-    #             'input1': create_ndarray_int64((1, 1, 8)),
-    #         },
-    #     'input_desc':
-    #         {
-    #             'input1': [1,1,'seq']
-    #         },
-    #     'input_range':
-    #         {
-    #             'seq': (8,64),
-    #         }
-    # },
-    # {
     #     'name': 'data/public/BERT_quan95.onnx',
     #     'dynamic_input': None,
     #     'input_desc':
@@ -94,9 +19,20 @@ models = [
     #             'seq': (16, 384)
     #         }
     # },
+    # {
+    #     'name': 'data/public/bevformer_tiny.onnx',
+    #     'dynamic_input': None
+    # },
     {
-        'name': 'data/public/bevformer_tiny.onnx',
-        'dynamic_input': None
+        'name': 'data/public/so-vits-svc.onnx',
+        'dynamic_input': {
+            'c': create_ndarray_f32((1, 10, 768)),
+            'f0': create_ndarray_f32((1, 10)),
+            'mel2ph': create_ndarray_int64((1, 10)),
+            'uv': create_ndarray_f32((1, 10)),
+            'noise': create_ndarray_f32((1, 192, 10)),
+            'sid': create_ndarray_int64(1),
+        }
     },
 ]
 

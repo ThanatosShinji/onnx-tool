@@ -361,6 +361,9 @@ class PowNode(PWNode):
         super().__init__(node_proto)
         self.op_mac = POW_MACS
 
+    def value_infer(self, intensors: []):
+        return [numpy.power(intensors[0], intensors[1])]
+
 
 @NODE_REGISTRY.register()
 class SinNode(PWNode):
@@ -1544,16 +1547,117 @@ def scatter_nd_impl(data, indices, updates, reduction='none'):  # type: ignore
     return output
 
 
+# copy from https://github.com/onnx/onnx/blob/main/onnx/backend/test/case/node/gathernd.py
+def gather_nd_impl(
+        data: numpy.ndarray, indices: numpy.ndarray, batch_dims: int
+) -> numpy.ndarray:
+    # Note the data rank - will be reused multiple times later
+    data_rank = len(data.shape)
+
+    # Check input tensors' shape/rank condition
+    assert indices.shape[-1] <= data_rank
+
+    # The list of data/indice shape of batch_dims
+    batch_dims_shape = []
+
+    # The number of elements in the batch_dims for data/indice array
+    batch_dims_size = 1
+
+    # Check the shape of indice and data are identicial for batch dims.
+    for i in range(batch_dims):
+        batch_dims_shape.append(indices.shape[i])
+        batch_dims_size *= indices.shape[i]
+
+    # Compute output of the op as below
+
+    # Compute shape of output array
+    output_shape = (
+        batch_dims_shape + list(indices.shape)[batch_dims:-1]
+        if (indices.shape[-1] == data_rank - batch_dims)
+        else batch_dims_shape
+             + list(indices.shape)[batch_dims:-1]
+             + list(data.shape)[batch_dims + indices.shape[-1]:]
+    )
+
+    # Placeholder for output data
+    output_data_buffer = []
+
+    # Flatten 'indices' to 2D array
+    reshaped_indices = indices.reshape(batch_dims_size, -1, indices.shape[-1])
+
+    # Flatten 'data' to array of shape (batch_dim_size, data.shape[batch_dimes:])
+    reshaped_data = data.reshape((batch_dims_size,) + data.shape[batch_dims:])
+
+    # gather each scalar value from 'data'
+    for batch_dim in range(reshaped_indices.shape[0]):
+        for outer_dim in range(reshaped_indices.shape[1]):
+            gather_index = tuple(reshaped_indices[batch_dim][outer_dim])
+            output_data_buffer.append(reshaped_data[(batch_dim, *gather_index)])
+    return numpy.asarray(output_data_buffer, dtype=data.dtype).reshape(output_shape)
+
+
 @NODE_REGISTRY.register()
 class ScatterNDNode(Node):
     def shape_infer(self, intensors: []):
-        return [_get_shape(intensors[0])] #output=copy(data)
+        return [_get_shape(intensors[0])]  # output=copy(data)
 
     def value_infer(self, intensors: []):
         data = intensors[0]
         indices = intensors[1].astype(numpy.int64)
         updates = intensors[2]
-        return [scatter_nd_impl(data, indices, updates)] #TODO this impl may fail some cases
+        return [scatter_nd_impl(data, indices, updates)]  # TODO this impl may fail some cases
+
+
+@NODE_REGISTRY.register()
+class GatherNDNode(Node):
+    def shape_infer(self, intensors: []):
+        data_shape = _get_shape(intensors[0])
+        indice_shape = _get_shape(intensors[1])
+        batch_dims = 0
+        # Note the data rank - will be reused multiple times later
+        data_rank = len(data_shape)
+
+        # Check input tensors' shape/rank condition
+        assert indice_shape[-1] <= data_rank
+
+        # The list of data/indice shape of batch_dims
+        batch_dims_shape = []
+
+        # The number of elements in the batch_dims for data/indice array
+        batch_dims_size = 1
+
+        # Check the shape of indice and data are identicial for batch dims.
+        for i in range(batch_dims):
+            batch_dims_shape.append(indice_shape[i])
+            batch_dims_size *= indice_shape[i]
+
+        # Compute output of the op as below
+
+        # Compute shape of output array
+        output_shape = (
+            batch_dims_shape + list(indice_shape)[batch_dims:-1]
+            if (indice_shape[-1] == data_rank - batch_dims)
+            else batch_dims_shape
+                 + list(indice_shape)[batch_dims:-1]
+                 + list(data_shape)[batch_dims + indice_shape[-1]:]
+        )
+        return [output_shape]
+
+    def value_infer(self, intensors: []):
+        data = intensors[0]
+        indices = intensors[1].astype(numpy.int64)
+        return [gather_nd_impl(data, indices, 0)]
+
+
+@NODE_REGISTRY.register()
+class RandomUniformLikeNode(Node):
+    def shape_infer(self, intensors: []):
+        return [_get_shape(intensors[0])]
+
+
+@NODE_REGISTRY.register()
+class RandomNormalLikeNode(RandomUniformLikeNode):
+    pass
 
 
 @NODE_REGISTRY.register()
@@ -1718,7 +1822,7 @@ class ConvTransposeNode(Node):
         macs = 0
         if len(outtensors) == 1:
             if len(intensors) == 3 or len(intensors) == 2:
-                kernel_shape = intensors[1].shape
+                kernel_shape = _get_shape(intensors[1])
                 if len(kernel_shape) > 3:
                     outvol = volume(_get_shape(outtensors[0]))
                     macs += outvol * kernel_shape[1] * kernel_shape[2] * kernel_shape[3]

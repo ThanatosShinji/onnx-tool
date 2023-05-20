@@ -15,7 +15,7 @@ Supported Models:
 * NLP: BERT, T5, GPT, LLaMa, MPT(<a href="benchmark/transfomer_models.py">TransformerModel</a>)
 * Diffusion: Stable Diffusion(TextEncoder, VAE, UNET)
 * CV: <a href="benchmark/compression.py">BEVFormer</a>, MobileNet, YOLO, ...
-* Audio: LPCNet
+* Audio: sovits, LPCNet
 
 ---
 
@@ -146,7 +146,7 @@ Then `pip install onnx-tool` again.
 ## Known Issues
 * Loop op is not supported
 * Compute Graph has some issues with BEVFomer
-* Weight Compression needs depth-first search strategy  
+* Weight Compression is not optimum
   
 ---
 

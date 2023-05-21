@@ -434,7 +434,7 @@ class Graph():
 
     def add_initial(self, name, data):
         from .tensor import create_initial_Tensor
-        self.initials.add(name)
+        self.initials.append(name)
         if isinstance(data, numpy.ndarray):
             self.tensormap[name] = create_initial_Tensor(name, data)
         else:

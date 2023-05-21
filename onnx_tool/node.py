@@ -154,7 +154,7 @@ class Node():
         return outshapes
 
     def value_infer(self, intensors: []):
-        return []
+        raise NotImplementedError(f'this Node {self.op_type} has no value_infer')
 
     def profile(self, intensors: [], outtensors: []):
         return 0
@@ -324,6 +324,10 @@ class SoftmaxNode(ExpNode):
         self.op_mac = EXP_MACS + DIV_MACS
         self.ratio = 1
 
+    def value_infer(self, intensors: []):
+        xexp = numpy.exp(intensors[0])
+        return [xexp/numpy.sum(xexp)]
+
 
 @NODE_REGISTRY.register()
 class LogNode(PWNode):
@@ -331,6 +335,9 @@ class LogNode(PWNode):
         super().__init__(node_proto)
         self.op_mac = LOG_MACS
         self.ratio = 1
+
+    def value_infer(self, intensors: []):
+        return [numpy.log(intensors[0])]
 
 
 @NODE_REGISTRY.register()
@@ -354,6 +361,8 @@ class SqrtNode(PWNode):
         super().__init__(node_proto)
         self.op_mac = SQRT_MACS
 
+    def value_infer(self, intensors: []):
+        return [numpy.sqrt(intensors[0])]
 
 @NODE_REGISTRY.register()
 class PowNode(PWNode):
@@ -394,7 +403,9 @@ class RangeNode(Node):
 
 @NODE_REGISTRY.register()
 class SigmoidNode(ExpNode):
-    pass
+    def value_infer(self, intensors: []):
+        y=1 / (1 + numpy.exp(-intensors[0]))
+        return [y]
 
 
 @NODE_REGISTRY.register()
@@ -580,7 +591,23 @@ class GemmNode(Node):
         return [yshape]
 
     def value_infer(self, intensors: []):
-        return [intensors[0] * intensors[1]]
+        if self.__class__ == MatMulNode:
+            ashape=_get_shape(intensors[0])
+            bshape=_get_shape(intensors[1])
+            assert(ashape[-1]==bshape[-2])
+            return [numpy.matmul(intensors[0],intensors[1])]
+        if self.transA is not None and self.transA > 0:
+            A = numpy.transpose(intensors[0])
+        else:
+            A=intensors[0]
+        if self.transB is not None and self.transB > 0:
+            B = numpy.transpose(intensors[1])
+        else:
+            B = intensors[1]
+        C = numpy.matmul(A,B)
+        if len(intensors)>2:
+            C = numpy.add(C,intensors[2])
+        return [C]
 
     def profile(self, intensors: [numpy.ndarray], outtensors: [numpy.ndarray]):
         xshape = _get_shape(intensors[0])
@@ -645,6 +672,10 @@ class ClipNode(PWNode):
         self.op_mac = CMP_MACS * 2
         self.ratio = 1
 
+    def value_infer(self, intensors: []):
+        y = numpy.clip(intensors[0],intensors[1],intensors[2])
+        return [y]
+
 
 @NODE_REGISTRY.register()
 class ReciprocalNode(PWNode):
@@ -660,7 +691,14 @@ class Relu6Node(PWNode):
 
 @NODE_REGISTRY.register()
 class ConstantNode(Node):
-    pass
+    def __init__(self,n):
+        super().__init__(n)
+
+    def shape_infer(self, intensors: []):
+        return [self.value.shape]
+
+    def value_infer(self, intensors: []):
+        return [self.value]
 
 
 @NODE_REGISTRY.register()
@@ -1537,17 +1575,19 @@ def scatter_nd_impl(data, indices, updates, reduction='none'):  # type: ignore
     # Compute output
     output = numpy.copy(data)
     for i in numpy.ndindex(indices.shape[:-1]):
+        rawoutput=output[tuple(indices[i])]
         # NOTE: The order of iteration in this loop is not specified.
         if reduction == "add":
-            output[indices[i]] += updates[i]
+            rawoutput += updates[i]
         elif reduction == "mul":
-            output[indices[i]] *= updates[i]
+            rawoutput *= updates[i]
         elif reduction == "max":
-            output[indices[i]] = numpy.maximum(output[indices[i]], updates[i])
+            rawoutput = numpy.maximum(rawoutput, updates[i])
         elif reduction == "min":
-            output[indices[i]] = numpy.minimum(output[indices[i]], updates[i])
+            rawoutput = numpy.minimum(rawoutput, updates[i])
         else:
-            output[indices[i]] = updates[i]
+            rawoutput = updates[i]
+        output[tuple(indices[i])]=rawoutput
     return output
 
 

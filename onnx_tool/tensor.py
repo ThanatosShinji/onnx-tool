@@ -366,12 +366,6 @@ class Tensor():
             self.numpy = tensorproto2ndarray(t)
             self.shape = self.numpy.shape
             self.type = STATIC_TENSOR
-        elif isinstance(t, Node):
-            if t.op_type == 'Constant':
-                self.name = t.output[0]
-                self.update_proto(t.value)
-                self.shape = self.numpy.shape
-                self.type = STATIC_TENSOR
         else:
             assert 0
         self.sparsity_search()

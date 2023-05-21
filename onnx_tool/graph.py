@@ -8,6 +8,7 @@ import onnx
 import onnx_tool
 from .node import create_node
 from .tensor import get_attribute_data, Tensor, volume
+from .tensor import STATIC_TENSOR, DYNAMIC_TENSOR
 from .utils import VERSION, tuple2str
 
 
@@ -168,6 +169,8 @@ class Graph():
         self.input = []
         self.output = []
         self.__init_graph_from_onnxproto__(g, noderename)
+        self.__constant_search__()
+        self.__remove_constant__()
         self.__find_shape_tensors__()
         self.valid_shape = False
         self.valid_profile = False
@@ -184,6 +187,98 @@ class Graph():
 
         for key in rmlist:
             self.nodemap.pop(key)
+
+    def __remove_constant__(self):
+        rmlist = []
+        for key in self.nodemap:
+            if self.nodemap[key].constant:
+                rmlist.append(key)
+
+        for key in rmlist:
+            self.nodemap.pop(key)
+
+        self.initials=[]
+        self.dynamics=[]
+        for name in self.nodemap.keys():
+            for tname in self.nodemap[name].input:
+                if self.tensormap[tname].type == STATIC_TENSOR:
+                    if tname not in self.initials:
+                        self.initials.append(tname)
+                if self.tensormap[tname].type == DYNAMIC_TENSOR:
+                    if tname not in self.dynamics:
+                        self.dynamics.append(tname)
+            for tname in self.nodemap[name].output:
+                if tname not in self.dynamics:
+                    self.dynamics.append(tname)
+
+        valid_tensors=[]
+        valid_tensors.extend(self.initials)
+        valid_tensors.extend(self.dynamics)
+        rm_list=[]
+        for tname in self.tensormap.keys():
+            if tname not in valid_tensors:
+                rm_list.append(tname)
+        for tname in rm_list:
+            self.tensormap.pop(tname)
+
+        self.input=[]
+        self.output=[]
+        for name in self.nodemap.keys():
+            node = self.nodemap[name]
+            for tensor in node.input:
+                if tensor not in self.producedby and tensor in self.dynamics:
+                    if tensor not in self.input:
+                        self.input.append(tensor)
+            for tensor in node.output:
+                if tensor not in self.consumedby or len(self.consumedby[tensor])==0:
+                    if tensor not in self.output:
+                        self.output.append(tensor)
+        print(self.input)
+        print(self.output)
+
+    def __is_node_constant__(self, node):
+        constant_node = True
+        for tname in node.input:
+            if self.tensormap[tname].type == DYNAMIC_TENSOR:
+                constant_node = False
+                break
+        return constant_node
+    def __constant_search__(self):
+        for name in self.nodemap.keys():
+            node = self.nodemap[name]
+            if hasattr(node,'constant'):
+                continue
+            constant_node=self.__is_node_constant__(node)
+            node.constant=constant_node
+            if constant_node:
+                search_nodes=[name]
+                while len(search_nodes) > 0:
+                    this_node=self.nodemap[search_nodes[0]]
+                    search_nodes.pop(0)
+                    itensors = []
+                    for input in this_node.input:
+                        if self.tensormap[input].numpy is None:
+                            warnings.warn(f'Tensor {input} has shape only, {name} may has wrong value infer result')
+                            itensors.append(self.tensormap[input].get_shape())
+                        else:
+                            itensors.append(self.tensormap[input].numpy)
+                    otensors = this_node.value_infer(itensors)
+                    if len(otensors) > 0:
+                        for i, output in enumerate(this_node.output):
+                            self.tensormap[output].update_tensor(otensors[i])
+                            self.tensormap[output].type = STATIC_TENSOR
+                    for output in this_node.output:
+                        for consumer in self.consumedby[output]:
+                            cnode = self.nodemap[consumer]
+                            if self.__is_node_constant__(cnode):
+                                cnode.constant=True
+                                search_nodes.append(consumer)
+
+        self.initials=[]
+        for tname in self.tensormap.keys():
+            if self.tensormap[tname].type == STATIC_TENSOR:
+                self.initials.append(tname)
+
 
     def __init_graph_from_onnxproto__(self, g, noderename, remove_dummytensors=True):
         if g is None:
@@ -217,81 +312,45 @@ class Graph():
         self.log(f'Node Init Time Elapsed {tm.stop()}')
 
         tm.start()
-        for input in g.input:
-            tensor = Tensor(input)
-            self.tensormap[input.name] = tensor
-            self.input.append(input.name)
-            self.dynamics.append(input.name)
-
-        for output in g.output:
-            tensor = Tensor(output)
-            self.tensormap[output.name] = tensor
-            self.output.append(output.name)
-            self.dynamics.append(output.name)
-
-        for key in self.nodemap.keys():
-            node = self.nodemap[key]
-            dummy_lists = []
-            for tensor in node.output:
-                if tensor in self.consumedby:
-                    for consumer in self.consumedby[tensor]:
-                        self.nodemap[node.name].nextnodes.append(self.nodemap[consumer])
-                else:
-                    if tensor not in self.output:
-                        self.log(f'Dummy tensors detected: {tensor}')
-                        if remove_dummytensors:
-                            dummy_lists.append(tensor)
-            for tensor in dummy_lists:
-                node.output.remove(tensor)
-
-        for valinfo in g.value_info:
-            tensor = Tensor(valinfo)
-            self.tensormap[valinfo.name] = tensor
-
-        self.log(f'IO Tensor Init Time Elapsed {tm.stop()}')
-
-        tm.start()
+        #init initials first
         for initial in g.initializer:
-            self.initials.append(initial.name)
             tensor = Tensor(initial)
             self.tensormap[initial.name] = tensor
 
-        for key in self.nodemap.keys():
-            node = self.nodemap[key]
-            if node.op_type == 'Constant':
-                tensor = Tensor(node)
-                self.tensormap[node.output[0]] = tensor
-                self.initials.append(node.output[0])
-        self.initials = set(self.initials)
+        for input in g.input:
+            if input.name not in self.tensormap.keys():
+                self.tensormap[input.name]=Tensor(input)
 
-        self.log(f'Static Tensor Init Time Elapsed {tm.stop()}')
+        for output in g.output:
+            if output.name not in self.tensormap.keys():
+                self.tensormap[output.name]=Tensor(output)
 
-        rmlist = []
-        for input in self.input:
-            if input in self.initials:
-                rmlist.append(input)
-        for key in rmlist:
-            self.dynamics.remove(key)
-            self.input.remove(key)
+        #init dynamic tensor info
+        for valinfo in g.value_info:
+            if valinfo.name not in self.tensormap.keys():
+                tensor = Tensor(valinfo)
+                self.tensormap[valinfo.name] = tensor
+        self.log(f'Tensor Init Time Elapsed {tm.stop()}')
 
-        rmlist = []
-        for output in self.output:
-            if output in self.consumedby.keys():
-                rmlist.append(output)
-        for key in rmlist:
-            self.dynamics.remove(key)
-            self.output.remove(key)
 
         tm.start()
+        #dynamic tensor info
         for key in self.nodemap.keys():
             node = self.nodemap[key]
-            for input in node.input:
-                if input not in self.initials:
-                    if input not in self.dynamics:
-                        self.dynamics.append(input)
-                    if input not in self.tensormap.keys():
-                        self.tensormap[input] = Tensor(input)
+            for tensor in node.input:
+                if tensor not in self.tensormap.keys():
+                    self.tensormap[tensor]=Tensor(tensor)
+            for tensor in node.output:
+                if tensor not in self.tensormap.keys():
+                    self.tensormap[tensor]=Tensor(tensor)
+                if tensor in self.consumedby:
+                    for consumer in self.consumedby[tensor]:
+                        self.nodemap[node.name].nextnodes.append(self.nodemap[consumer])
+        self.log(f'IO Tensor Init Time Elapsed {tm.stop()}')
 
+
+
+        tm.start()
         self.sparse_model = False
         for key in self.tensormap.keys():
             tensor = self.tensormap[key]
@@ -408,7 +467,7 @@ class Graph():
         for name in nodenames:
             for input in self.nodemap[name].input:
                 if input in self.initials:
-                    initializer.append(self.tensormap[input].proto)
+                    initializer.append(self.tensormap[input].make_tensor_proto())
         return initializer
 
     def remove_node(self, nodename):
@@ -557,13 +616,16 @@ class Graph():
         outputs = []
         for name in inputnames:
             if name in self.tensormap:
-                inputs.append(self.tensormap[name].make_value_proto())
+                proto = self.tensormap[name].make_value_proto()
+                if proto is not None:
+                    inputs.append(proto)
             else:
                 inputs.append(onnx.helper.make_tensor_value_info(name, 1, None))
         for name in outputnames:
             if name in self.tensormap:
                 proto = self.tensormap[name].make_value_proto(make_dummy=True)
-                outputs.append(proto)
+                if proto is not None:
+                    outputs.append(proto)
         value_infos = []
         for key in self.dynamics:
             if key in self.input or key in self.output:
@@ -1024,7 +1086,8 @@ class Graph():
             if maxmem > compress_size:
                 warnings.warn(f'Wrong compress total memory size:{compress_size}. larger size detected:{maxmem}')
             if overlap:
-                warnings.warn(f'Memory overlap detected!{laptensor[0]} v.s. {laptensor[1]}')
+                if laptensor[0]!='' and laptensor[1]!='': #some chaos models use this empty name as an empty tensor name
+                    warnings.warn(f'Memory overlap detected!{laptensor[0]} v.s. {laptensor[1]}')
 
         raw_memsize = 0
         for tname in self.dynamics:

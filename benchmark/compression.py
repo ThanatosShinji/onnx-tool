@@ -107,12 +107,14 @@ def bevformer():
     file = 'data/public/bevformer_tiny.onnx'
     m = onnx.load_model(file)
     g = Graph(m.graph)
-    g.remove_constant()
     g.shape_infer()
     g.profile()
     g.print_node_map()
+    g.save_model('bevformer_tiny_shapes.onnx',rawmodel=m)
     compress_mem = g.compress_memory()
     print('compressed memory allocation: ',compress_mem[1])
+    cg=g.get_compute_graph()
+    cg.save_model('bevformer_tiny_cg.onnx',rawmodel=m)
 
 # resnet_compress()
 # resnet_fusion_compression()

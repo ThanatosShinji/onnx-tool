@@ -233,8 +233,7 @@ class Graph():
                 if tensor not in self.consumedby or len(self.consumedby[tensor])==0:
                     if tensor not in self.output:
                         self.output.append(tensor)
-        print(self.input)
-        print(self.output)
+        self.__update_consumer_producer__()
 
     def __is_node_constant__(self, node):
         constant_node = True
@@ -279,6 +278,19 @@ class Graph():
             if self.tensormap[tname].type == STATIC_TENSOR:
                 self.initials.append(tname)
 
+    def __update_consumer_producer__(self):
+        self.producedby={}
+        self.consumedby={}
+        for name in self.nodemap:
+            node = self.nodemap[name]
+            for tensor in node.input:
+                if tensor not in self.consumedby:
+                    self.consumedby[tensor] = []
+                self.consumedby[tensor].append(node.name)
+            for tensor in node.output:
+                if tensor not in self.producedby:
+                    self.producedby[tensor] = []
+                self.producedby[tensor].append(node.name)
 
     def __init_graph_from_onnxproto__(self, g, noderename, remove_dummytensors=True):
         if g is None:
@@ -1148,11 +1160,20 @@ class Graph():
                 dummy_node = dummy_node and dummy
             if dummy_node:
                 rmnodes.append(key)
+                searchnodes=[key]
+                while len(searchnodes)>0:
+                    this_node=self.nodemap[searchnodes[0]]
+                    searchnodes.pop(0)
+                    for input in this_node.input:
+                        if input in self.producedby:
+                            if len(self.consumedby[input])==1:
+                                pnodename=self.producedby[input][0]
+                                rmnodes.append(pnodename)
+                                searchnodes.append(pnodename)
                 continue
             nodes.append(node.name)
         for key in rmnodes:
             cg.remove_node(key)
-        cg.graph_reorder()
         cg.dynamics = []
         cg.dynamics.extend(cg.input)
         cg.dynamics.extend(cg.output)

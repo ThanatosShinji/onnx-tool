@@ -193,7 +193,8 @@ class Graph():
         for key in self.nodemap:
             if self.nodemap[key].constant:
                 rmlist.append(key)
-
+        self.log(f'GraphProto Nodes Count:{len(self.rawgraph.node)}')
+        self.log(f'Contant folding {rmlist[:3]}... {len(rmlist)} Nodes')
         for key in rmlist:
             self.nodemap.pop(key)
 
@@ -1107,9 +1108,9 @@ class Graph():
                 continue
             raw_memsize += self.tensormap[tname].get_memsize()
 
-        print(f"Raw memory size (without parameter memory): {raw_memsize:,} bytes")
-        print(f"Compressed memory size: {compress_size:,} bytes")
-        print(f'Comression ratio: {compress_size / raw_memsize * 100:.3f}%')
+        self.log(f"Raw memory size (without parameter memory): {raw_memsize:,} bytes")
+        self.log(f"Compressed memory size: {compress_size:,} bytes")
+        self.log(f'Comression ratio: {compress_size / raw_memsize * 100:.3f}%')
         return compress_mem, compress_size
 
     def get_compute_graph_onnx(self):
@@ -1132,7 +1133,6 @@ class Graph():
             if dummy_node:
                 continue
             nodes.append(node.name)
-
         _inputs0, _outputs0 = self.get_iotensors(nodes)
         graph_level0 = self.reorder_nodes(nodes, _inputs0)
         subgraph = self.make_graph_onnx(graph_level0, 'compute_graph', self.input, self.output)
@@ -1172,8 +1172,11 @@ class Graph():
                                 searchnodes.append(pnodename)
                 continue
             nodes.append(node.name)
+        self.log(f'Total Nodes:{len(cg.nodemap)} Removed Shape Nodes:{len(rmnodes)}')
         for key in rmnodes:
             cg.remove_node(key)
+        self.log(f'Compute Graph Nodes:{len(cg.nodemap)}')
+
         cg.dynamics = []
         cg.dynamics.extend(cg.input)
         cg.dynamics.extend(cg.output)
@@ -1181,6 +1184,7 @@ class Graph():
             for output in cg.nodemap[name].output:
                 if name not in cg.dynamics:
                     cg.dynamics.append(output)
+
         return cg
 
     def profile(self):

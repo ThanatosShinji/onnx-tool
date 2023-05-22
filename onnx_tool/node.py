@@ -18,20 +18,19 @@ measure the complexity of the model.
 MUL_MACS = 1
 ADD_MACS = 1
 CMP_MACS = 1
-DIV_MACS = 4 # refers to vrcp14ps
-#following refers to https://github.com/reyoung/avx_mathfun
+DIV_MACS = 4  # refers to vrcp14ps
+# following refers to https://github.com/reyoung/avx_mathfun
 EXP_MACS = 32
-POW_MACS = EXP_MACS #similar with exp
+POW_MACS = EXP_MACS  # similar with exp
 LOG_MACS = 43
 SIN_MACS = 39
 COS_MACS = 39
 
-TANH_MACS = EXP_MACS + 2 * ADD_MACS + DIV_MACS # (e^2x-1)/(e^2x+1)
-ATANH_MACS = LOG_MACS + 2 * ADD_MACS + DIV_MACS + MUL_MACS #1/2*ln((1+x)/(1-x))
+TANH_MACS = EXP_MACS + 2 * ADD_MACS + DIV_MACS  # (e^2x-1)/(e^2x+1)
+ATANH_MACS = LOG_MACS + 2 * ADD_MACS + DIV_MACS + MUL_MACS  # 1/2*ln((1+x)/(1-x))
 
-SQRT_MACS = 24 # refers to vsqrtps
-ATAN_MACS = SQRT_MACS + 3 * MUL_MACS + MUL_MACS + DIV_MACS #refers to "Approximations to inverse tangent function"
-
+SQRT_MACS = 24  # refers to vsqrtps
+ATAN_MACS = SQRT_MACS + 3 * MUL_MACS + MUL_MACS + DIV_MACS  # refers to "Approximations to inverse tangent function"
 
 RESIZE_LINEAR_MACS = 4
 RESIZE_CUBIC_MACS = 8
@@ -154,7 +153,7 @@ class Node():
         return outshapes
 
     def value_infer(self, intensors: []):
-        raise NotImplementedError(f'this Node {self.op_type} has no value_infer')
+        raise NotImplementedError(f'this Node {self.op_type}-{self.name} has no value_infer')
 
     def profile(self, intensors: [], outtensors: []):
         return 0
@@ -326,7 +325,7 @@ class SoftmaxNode(ExpNode):
 
     def value_infer(self, intensors: []):
         xexp = numpy.exp(intensors[0])
-        return [xexp/numpy.sum(xexp)]
+        return [xexp / numpy.sum(xexp)]
 
 
 @NODE_REGISTRY.register()
@@ -364,6 +363,7 @@ class SqrtNode(PWNode):
     def value_infer(self, intensors: []):
         return [numpy.sqrt(intensors[0])]
 
+
 @NODE_REGISTRY.register()
 class PowNode(PWNode):
     def __init__(self, node_proto):
@@ -380,12 +380,18 @@ class SinNode(PWNode):
         super().__init__(node_proto)
         self.op_mac = SIN_MACS
 
+    def value_infer(self, intensors: []):
+        return [numpy.sin(intensors[0])]
+
 
 @NODE_REGISTRY.register()
 class CosNode(PWNode):
     def __init__(self, node_proto):
         super().__init__(node_proto)
         self.op_mac = COS_MACS
+
+    def value_infer(self, intensors: []):
+        return [numpy.cos(intensors[0])]
 
 
 @NODE_REGISTRY.register()
@@ -404,7 +410,7 @@ class RangeNode(Node):
 @NODE_REGISTRY.register()
 class SigmoidNode(ExpNode):
     def value_infer(self, intensors: []):
-        y=1 / (1 + numpy.exp(-intensors[0]))
+        y = 1 / (1 + numpy.exp(-intensors[0]))
         return [y]
 
 
@@ -418,23 +424,26 @@ class TanhNode(PWNode):
     def value_infer(self, intensors: []):
         return [numpy.tanh(intensors[0])]
 
+
 @NODE_REGISTRY.register()
 class AtanNode(TanhNode):
-    def __init__(self,n):
+    def __init__(self, n):
         super().__init__(n)
         self.op_mac = ATAN_MACS
 
     def value_infer(self, intensors: []):
         return [numpy.arctanh(intensors[0])]
 
+
 @NODE_REGISTRY.register()
 class SignNode(PWNode):
-    def __init__(self,n):
+    def __init__(self, n):
         super().__init__(n)
-        self.op_mac=CMP_MACS
+        self.op_mac = CMP_MACS
 
     def value_infer(self, intensors: []):
         return [numpy.sign(intensors[0])]
+
 
 @NODE_REGISTRY.register()
 class HardSigmoidNode(PWNode):
@@ -487,6 +496,7 @@ class NonMaxSuppressionNode(Node):
             return [(max_output_boxes_per_class, 3)]
         raise NotImplementedError()
 
+
 @NODE_REGISTRY.register()
 class LRNNode(PWNode):
     def __init__(self, nodeproto):
@@ -537,10 +547,10 @@ class AndNode(Node):
 @NODE_REGISTRY.register()
 class WhereNode(Node):
     def shape_infer(self, intensors: []):
-        cond_shape=_get_shape(intensors[0])
-        x_shape=_get_shape(intensors[1])
-        y_shape=_get_shape(intensors[2])
-        return [_max_shape((cond_shape,x_shape,y_shape))]
+        cond_shape = _get_shape(intensors[0])
+        x_shape = _get_shape(intensors[1])
+        y_shape = _get_shape(intensors[2])
+        return [_max_shape((cond_shape, x_shape, y_shape))]
 
     def value_infer(self, intensors: []):
         result = numpy.where(intensors[0], intensors[1], intensors[2])
@@ -592,21 +602,21 @@ class GemmNode(Node):
 
     def value_infer(self, intensors: []):
         if self.__class__ == MatMulNode:
-            ashape=_get_shape(intensors[0])
-            bshape=_get_shape(intensors[1])
-            assert(ashape[-1]==bshape[-2])
-            return [numpy.matmul(intensors[0],intensors[1])]
+            ashape = _get_shape(intensors[0])
+            bshape = _get_shape(intensors[1])
+            assert (ashape[-1] == bshape[-2])
+            return [numpy.matmul(intensors[0], intensors[1])]
         if self.transA is not None and self.transA > 0:
             A = numpy.transpose(intensors[0])
         else:
-            A=intensors[0]
+            A = intensors[0]
         if self.transB is not None and self.transB > 0:
             B = numpy.transpose(intensors[1])
         else:
             B = intensors[1]
-        C = numpy.matmul(A,B)
-        if len(intensors)>2:
-            C = numpy.add(C,intensors[2])
+        C = numpy.matmul(A, B)
+        if len(intensors) > 2:
+            C = numpy.add(C, intensors[2])
         return [C]
 
     def profile(self, intensors: [numpy.ndarray], outtensors: [numpy.ndarray]):
@@ -673,7 +683,7 @@ class ClipNode(PWNode):
         self.ratio = 1
 
     def value_infer(self, intensors: []):
-        y = numpy.clip(intensors[0],intensors[1],intensors[2])
+        y = numpy.clip(intensors[0], intensors[1], intensors[2])
         return [y]
 
 
@@ -691,7 +701,7 @@ class Relu6Node(PWNode):
 
 @NODE_REGISTRY.register()
 class ConstantNode(Node):
-    def __init__(self,n):
+    def __init__(self, n):
         super().__init__(n)
 
     def shape_infer(self, intensors: []):
@@ -743,13 +753,15 @@ class OneHotNode(Node):
         y = one_hot(indices, depth, self.axis)
         return [y]
 
+
 @NODE_REGISTRY.register()
 class TriluNode(Node):
-    def __init__(self,n):
+    def __init__(self, n):
         super().__init__(n)
 
     def shape_infer(self, intensors: []):
         return [_get_shape(intensors[0])]
+
 
 @NODE_REGISTRY.register()
 class EinsumNode(Node):
@@ -800,7 +812,7 @@ class UnsqueezeNode(Node):
             axes = intensors[1]
         else:
             axes = self.axes
-        newaxis_len=len(inshape) + len(axes)
+        newaxis_len = len(inshape) + len(axes)
         axes = _axes_neg2pos(newaxis_len, axes)
         newshape = []
         idx = 0
@@ -1027,8 +1039,8 @@ class ExpandNode(Node):
         expandshape = intensors[1]
         yshape = []
         if len(xshape) < len(expandshape):
-            for i in range(len(xshape),len(expandshape)):
-                xshape=[1,]+xshape
+            for i in range(len(xshape), len(expandshape)):
+                xshape = [1, ] + xshape
         for x, e in zip(xshape, expandshape):
             yshape.append(max(x, e))
         return [yshape]
@@ -1467,6 +1479,41 @@ class ConvNode(Node):
         outshapes.append(shape)
         return outshapes
 
+    def value_infer(self, intensors: []):
+        if self.group != 1:
+            raise NotImplementedError()
+        outshape = self.shape_infer(intensors)[0]
+        outtensor = numpy.zeros(outshape, dtype=numpy.float32)
+        has_bias = len(intensors) > 2
+        xshape = _get_shape(intensors[0])
+        wshape = _get_shape(intensors[1])
+        if len(wshape) != 4:
+            raise NotImplementedError()
+
+        reduce_shape = tuple(wshape[1:])
+        for i in numpy.ndindex(outshape):
+            batch = i[0]
+            ocn = i[1]
+            oh = i[2]
+            ow = i[3]
+            t = outtensor[i]
+            if has_bias:
+                t = intensors[2][ocn]
+            for j in numpy.ndindex(reduce_shape):
+                icn = j[0]
+                kh = j[1]
+                kw = j[2]
+                srch = oh * self.strides[0] + kh * self.dilations[0] - self.pads[0]
+                srcw = ow * self.strides[1] + kw * self.dilations[1] - self.pads[1]
+                if srch < 0 or srch >= xshape[2] or srcw < 0 or srcw >= xshape[3]:
+                    srcv = 0
+                else:
+                    srcv = intensors[0][batch, icn, srch, srcw]
+                wv = intensors[1][(ocn,) + j]
+                t += srcv * wv
+            outtensor[i] = t
+        return [outtensor]
+
     def profile(self, intensors: [], outtensors: []):
         macs = 0
         if len(outtensors) == 1:
@@ -1504,6 +1551,13 @@ class CumSumNode(PWNode):
         super().__init__(node_proto)
         self.op_mac = ADD_MACS
         self.ratio = 1
+        self.add_default_value('exclusive', 0)
+        self.add_default_value('reverse', 0)
+
+    def value_infer(self, intensors: []):
+        if self.exclusive == 0 and self.reverse == 0:
+            return [numpy.cumsum(intensors[0], intensors[1])]
+        raise NotImplementedError(f"CumSum doesnt support {self.exclusive} {self.reverse}")
 
 
 @NODE_REGISTRY.register()
@@ -1575,7 +1629,7 @@ def scatter_nd_impl(data, indices, updates, reduction='none'):  # type: ignore
     # Compute output
     output = numpy.copy(data)
     for i in numpy.ndindex(indices.shape[:-1]):
-        rawoutput=output[tuple(indices[i])]
+        rawoutput = output[tuple(indices[i])]
         # NOTE: The order of iteration in this loop is not specified.
         if reduction == "add":
             rawoutput += updates[i]
@@ -1587,7 +1641,7 @@ def scatter_nd_impl(data, indices, updates, reduction='none'):  # type: ignore
             rawoutput = numpy.minimum(rawoutput, updates[i])
         else:
             rawoutput = updates[i]
-        output[tuple(indices[i])]=rawoutput
+        output[tuple(indices[i])] = rawoutput
     return output
 
 
@@ -1905,22 +1959,24 @@ class ReshapeNode(Node):
     def value_infer(self, intensors: []):
         return [intensors[0].reshape(intensors[1])]
 
+
 @NODE_REGISTRY.register()
 class GatherElementsNode(Node):
     def shape_infer(self, intensors: []):
         return [_get_shape(intensors[1])]
 
     def value_infer(self, intensors: []):
-        if self.axis==1:
-            if len(intensors[1].shape)==4:
-                outtensor=numpy.zeros_like(intensors[1])
+        if self.axis == 1:
+            if len(intensors[1].shape) == 4:
+                outtensor = numpy.zeros_like(intensors[1])
                 for i in range(intensors[1].shape[0]):
                     for j in range(intensors[1].shape[1]):
                         for k in range(intensors[1].shape[2]):
                             for l in range(intensors[1].shape[3]):
-                                outtensor[i,j,k,l]= intensors[0][i,intensors[1][i,j,k,l],k,l]
+                                outtensor[i, j, k, l] = intensors[0][i, intensors[1][i, j, k, l], k, l]
                 return [outtensor]
         raise NotImplementedError()
+
 
 @NODE_REGISTRY.register()
 class GRUNode(Node):

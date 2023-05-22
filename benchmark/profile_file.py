@@ -19,9 +19,16 @@ models = [
     #             'seq': (16, 384)
     #         }
     # },
+    # {
+    #     'name': 'data/public/bevformer_tiny.onnx',
+    #     'dynamic_input': None
+    # },
     {
-        'name': 'data/public/bevformer_tiny.onnx',
-        'dynamic_input': None
+        'name': 'data/public/EdgeNeXt-small.onnx',
+        'dynamic_input':
+            {
+                'image': create_ndarray_f32((1, 3, 224, 224)),
+            }
     },
     # {
     #     'name': 'data/public/so-vits-svc.onnx',

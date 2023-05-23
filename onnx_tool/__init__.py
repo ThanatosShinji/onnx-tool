@@ -83,7 +83,7 @@ def model_profile(m, dynamic_shapes: {str: tuple} = None, savenode: str = None,
     if isinstance(m, str):
         m = onnx.load_model(m)
     if isinstance(m, onnx.ModelProto):
-        g = Graph(m.graph, verbose=verbose)
+        g = Graph(m.graph, constant_folding=False, verbose=verbose)
         gtmr = timer()
         g.graph_reorder()
         gtmr.start()

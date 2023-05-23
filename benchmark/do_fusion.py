@@ -153,7 +153,6 @@ def asr_fusion():
     file = 'data/private/asr_500G_.onnx'
     m = onnx.load_model(file)
     g = Graph(m.graph)
-    g.remove_constant()
     g.update_input_by_map({'input': numpy.zeros((1, 3, 256, 256), dtype=numpy.float32)})
 
     from onnx_tool.serialization import serialize_shape_engine, serialize_graph

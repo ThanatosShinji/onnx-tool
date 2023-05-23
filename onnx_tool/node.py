@@ -1537,7 +1537,7 @@ class ReduceL2Node(Node):
         self.axes = tuple(self.axes) if self.axes is not None else None
 
     def value_infer(self, intensors: []):
-        reduced = numpy.sqrt(numpy.sum(intensors[0], axis=self.axes, keepdims=self.keepdims == 1))
+        reduced = numpy.sqrt(numpy.sum(intensors[0] * intensors[0], axis=self.axes, keepdims=self.keepdims == 1))
         return [reduced]
 
     def profile(self, intensors: [numpy.ndarray], outtensors: [numpy.ndarray]):

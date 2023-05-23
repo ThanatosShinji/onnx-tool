@@ -27,6 +27,32 @@ def resnet50():
     output = debug_with_onnxrt(onnxfile, ['resnetv24_pool0_fwd'], {'data': input})
     print(output)
 
+
+def EdgeNeXt_small():
+    onnxfile = 'data/public/convnext_large.onnx'
+    input = np.ones((1, 3, 224, 224), dtype=np.float32)
+    input = input / 2
+    sess = ort.InferenceSession(onnxfile)
+    output = sess.run(['1509'], {'input.1': input})
+    print(output)
+    sess = ort.InferenceSession('shape.onnx')
+    output = sess.run(['1509'], {'input.1': input})
+    print(output)
+
+
+def text_encoder():
+    onnxfile = 'data/public/text_encoder.onnx'
+    input = np.ones((1, 77), dtype=np.int64)
+    sess = ort.InferenceSession(onnxfile)
+    output = sess.run(['emb'], {'tokens': input})
+    print(output)
+    sess = ort.InferenceSession('shape.onnx')
+    output = sess.run(['emb'], {'tokens': input})
+    print(output)
+
+
 if __name__ == '__main__':
-    resnet50()
-    resnet18()
+    # resnet50()
+    # resnet18()
+    # EdgeNeXt_small()
+    text_encoder()

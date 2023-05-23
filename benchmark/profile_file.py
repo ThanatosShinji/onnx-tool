@@ -23,12 +23,16 @@ models = [
     #     'name': 'data/public/bevformer_tiny.onnx',
     #     'dynamic_input': None
     # },
+    # {
+    #     'name': 'data/public/EdgeNeXt-small.onnx',
+    #     'dynamic_input':
+    #         {
+    #             'image': create_ndarray_f32((1, 3, 224, 224)),
+    #         }
+    # },
     {
-        'name': 'data/public/EdgeNeXt-small.onnx',
-        'dynamic_input':
-            {
-                'image': create_ndarray_f32((1, 3, 224, 224)),
-            }
+        'name': 'data/public/text_encoder.onnx',
+        'dynamic_input': None,
     },
     # {
     #     'name': 'data/public/so-vits-svc.onnx',
@@ -48,7 +52,8 @@ for modelinfo in models:
     # onnx_tool.model_simplify_names(modelinfo['name'],'mobilenetv1_quanpruned_sim.onnx',node_reorder=True)
     # onnx_tool.model_profile(modelinfo['name'], modelinfo['dynamic_input'], saveshapesmodel='debug.onnx',
     #                         dump_outputs=['resnetv15_conv0_fwd'])
-    onnx_tool.model_profile(modelinfo['name'], modelinfo['dynamic_input'],saveshapesmodel='shape.onnx',shapesonly=True)
+    onnx_tool.model_profile(modelinfo['name'], modelinfo['dynamic_input'], saveshapesmodel='shape.onnx',
+                            shapesonly=False, verbose=True)
     # shape_engie, compute_graph = onnx_tool.model_shape_regress(modelinfo['name'], modelinfo['input_desc'],
     #                                                            modelinfo['input_range'])
     # onnx_tool.serialize_graph(compute_graph, 'resnet18.cg')

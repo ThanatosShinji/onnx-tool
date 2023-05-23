@@ -443,7 +443,10 @@ class Tensor():
         else:
             shape = self.get_shape()
         if self.numpy is None:
-            dtype = onnx.TensorProto.FLOAT
+            if self.proto is not None:
+                dtype = self.proto.type.tensor_type.elem_type
+            else:
+                dtype = onnx.TensorProto.FLOAT
         else:
             dtype = npdtype2onnxdtype(self.numpy.dtype)
         # shape = [int(i) for i in shape]

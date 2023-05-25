@@ -351,7 +351,7 @@ def model_io_modify(m, savemodel: str, custom_io):
                                 nb.ClearField('dim_value')
                             nb.dim_param = shapeval
         graph = Graph(graph)
-        graph.save_model(savemodel)
+        graph.save_model(savemodel, rawmodel=m)
 
 
 def model_subgraph(m, in_tensor_names: [str] = None, out_tensor_names: [str] = None, nodenames: [str] = None,

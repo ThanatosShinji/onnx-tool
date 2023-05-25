@@ -315,6 +315,9 @@ class ExpNode(PWNode):
         self.op_mac = EXP_MACS
         self.ratio = 1
 
+    def value_infer(self, intensors: []):
+        return [numpy.exp(intensors[0])]
+
 
 @NODE_REGISTRY.register()
 class SoftmaxNode(ExpNode):
@@ -432,7 +435,7 @@ class AtanNode(TanhNode):
         self.op_mac = ATAN_MACS
 
     def value_infer(self, intensors: []):
-        return [numpy.arctanh(intensors[0])]
+        return [numpy.arctan(intensors[0])]
 
 
 @NODE_REGISTRY.register()
@@ -458,6 +461,9 @@ class ReluNode(PWNode):
         super().__init__(n)
         self.op_mac = CMP_MACS
 
+    def value_infer(self, intensors: []):
+        return [numpy.clip(intensors[0], 0, None)]
+
 
 @NODE_REGISTRY.register()
 class PReluNode(PWNode):
@@ -472,6 +478,14 @@ class LeakyReluNode(PWNode):
     def __init__(self, n):
         super().__init__(n)
         self.op_mac = self.op_mac = MUL_MACS + CMP_MACS
+        self.add_default_value('alpha', 0.01)
+
+    def value_infer(self, intensors: []):
+        outtensor = numpy.zeros_like(intensors[0])
+        for i in numpy.ndindex(intensors[0].shape):
+            x = intensors[0][i]
+            outtensor[i] = x if x >= 0 else x * self.alpha
+        return [outtensor]
 
 
 @NODE_REGISTRY.register()
@@ -1004,6 +1018,30 @@ class MaxPoolNode(PoolBase):
         super().__init__(nodeproto)
         self.op_mac = CMP_MACS
 
+    def value_infer(self, intensors: []):
+        xshape=intensors[0].shape
+        oshape=self.shape_infer(intensors)[0]
+        ot=numpy.zeros(oshape)
+        for i in numpy.ndindex(ot.shape):
+            batch = i[0]
+            ocn = i[1]
+            oh = i[2]
+            ow = i[3]
+            t = ot[i]
+            ks=tuple(self.kernel_shape)
+            for j in numpy.ndindex(ks):
+                kh = j[0]
+                kw = j[1]
+                srch = oh * self.strides[0] + kh - self.pads[0]
+                srcw = ow * self.strides[1] + kw - self.pads[1]
+                if srch < 0 or srch >= xshape[2] or srcw < 0 or srcw >= xshape[3]:
+                    continue
+                else:
+                    srcv = intensors[0][batch, ocn, srch, srcw]
+                t = max(srcv,t)
+            ot[i] = t
+        return [ot]
+
 
 @NODE_REGISTRY.register()
 class DropoutNode(FusedBase):
@@ -1021,6 +1059,20 @@ class GlobalAveragePoolNode(Node):
         for i in range(2, len(inshape)):
             shape += (1,)
         return [shape]
+
+    def value_infer(self, intensors: []):
+        x=intensors[0]
+        h=x.shape[2]
+        w=x.shape[3]
+        y=numpy.zeros(x.shape[:2],dtype=numpy.float32)
+        for i in numpy.ndindex(y.shape):
+            t=0
+            for j in numpy.ndindex((h,w)):
+                xi=i+j
+                t+=x[xi]
+            t/=(h*w)
+            y[i]=t
+        return [y]
 
     def profile(self, intensors: [], outtensors: []):
         inshape = _get_shape(intensors[0])
@@ -1084,8 +1136,27 @@ class ErfNode(FusedBase):
 
 @NODE_REGISTRY.register()
 class BatchNormalizationNode(FusedBase):
-    pass
+    def __init__(self,n):
+        super().__init__(n)
+        self.add_default_value('epsilon',1e-05)
+        self.add_default_value('momentum',0.9)
+        self.add_default_value('training_mode',int(0))
 
+    def value_infer(self, intensors: []):
+        x=intensors[0]
+        scale=intensors[1]
+        b=intensors[2]
+        mean=intensors[3]
+        var=intensors[4]
+        y=numpy.zeros_like(x)
+        for i in numpy.ndindex(y.shape):
+            cn=i[1]
+            sqrt_var=math.sqrt(var[cn]+self.epsilon)
+            sm=scale[cn]/sqrt_var
+            sv=b[cn]
+            m=mean[cn]
+            y[i]=(x[i]-m)*sm+sv
+        return [y]
 
 @NODE_REGISTRY.register()
 class FlattenNode(Node):

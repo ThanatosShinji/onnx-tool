@@ -20,10 +20,6 @@ models = [
     #         }
     # },
     # {
-    #     'name': 'data/public/bevformer_tiny.onnx',
-    #     'dynamic_input': None
-    # },
-    # {
     #     'name': 'data/public/EdgeNeXt-small.onnx',
     #     'dynamic_input':
     #         {

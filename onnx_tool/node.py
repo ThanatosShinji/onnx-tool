@@ -453,6 +453,12 @@ class HardSigmoidNode(PWNode):
     def __init__(self, node_proto):
         super().__init__(node_proto)
         self.op_mac = MUL_MACS + ADD_MACS + CMP_MACS * 2
+        self.add_default_value('alpha',0.2)
+        self.add_default_value('beta',0.5)
+
+    def value_infer(self, intensors: []):
+        y = max(0, min(1, self.alpha * intensors[0] + self.beta))
+        return [y]
 
 
 @NODE_REGISTRY.register()
@@ -707,10 +713,14 @@ class ReciprocalNode(PWNode):
         super().__init__(node_proto)
         self.op_mac = DIV_MACS
 
+    def value_infer(self, intensors: []):
+        return [numpy.reciprocal(intensors[0])]
+
 
 @NODE_REGISTRY.register()
 class Relu6Node(PWNode):
-    pass
+    def value_infer(self, intensors: []):
+        return [numpy.clip(intensors[0],0,6)]
 
 
 @NODE_REGISTRY.register()

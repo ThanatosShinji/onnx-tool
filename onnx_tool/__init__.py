@@ -68,12 +68,13 @@ NoMacsOps = (
 
 def model_profile(m, dynamic_shapes: {str: tuple} = None, savenode: str = None,
                   saveshapesmodel: str = None, shapesonly: bool = False, verbose: bool = False,
+                  constant_folding: bool = False,
                   hidden_ops: [str] = NoMacsOps,
                   dump_outputs: [str] = None) -> None:
     if isinstance(m, str):
         m = onnx.load_model(m)
     if isinstance(m, onnx.ModelProto):
-        g = Graph(m.graph, constant_folding=False, verbose=verbose)
+        g = Graph(m.graph, constant_folding=constant_folding, verbose=verbose)
         gtmr = timer()
         g.graph_reorder()
         gtmr.start()
@@ -107,8 +108,9 @@ def model_constant_folding(m, f: str):
     if isinstance(m, str):
         m = onnx.load_model(m)
     if isinstance(m, onnx.ModelProto):
-        g = Graph(m.graph,constant_folding=True,verbose=True)
-        g.save_model(f,rawmodel=m)
+        g = Graph(m.graph, constant_folding=True, verbose=True)
+        g.save_model(f, rawmodel=m)
+
 
 def model_shape_infer(m, dynamic_shapes: {str: tuple} = None,
                       saveshapesmodel: str = None, shapesonly: bool = False, verbose: bool = False,

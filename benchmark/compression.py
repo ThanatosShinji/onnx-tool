@@ -106,7 +106,7 @@ def bevformer():
 
     file = 'data/public/bevformer_tiny.onnx'
     m = onnx.load_model(file)
-    g = Graph(m.graph,verbose=True)
+    g = Graph(m.graph,constant_folding=True, verbose=True)
     g.shape_infer()
     g.profile()
     g.print_node_map()

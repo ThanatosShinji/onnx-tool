@@ -33,6 +33,9 @@ _SHAPE_TENSORS = {
     'TopK': ('1of2',),
     'Pad': ('1of3',),
     'NonMaxSuppression': ('2of5',),
+    'Split': ('1of2',),
+    'Unsqueeze': ('1of2',),
+    'Squeeze': ('1of2',)
 }
 
 
@@ -169,7 +172,7 @@ class Graph():
         self.input = []
         self.output = []
         self.__init_graph_from_onnxproto__(g, noderename)
-        self.__constant_search__()
+        self.__constant_search__(constant_folding)
         self.__update_nodes_tensors__(constant_folding)
         self.__find_shape_tensors__()
         self.valid_shape = False
@@ -180,6 +183,8 @@ class Graph():
             print(str)
 
     def __update_nodes_tensors__(self, constant_folding):
+        from .utils import timer
+        tm = timer()
         if constant_folding:
             rmlist = []
             for key in self.nodemap:
@@ -240,6 +245,7 @@ class Graph():
                     if tensor not in self.output:
                         self.output.append(tensor)
         self.__update_consumer_producer__()
+        self.log(f'Update Nodes Tensors  Time Elapsed {tm.stop()}')
 
     def __is_node_constant__(self, node):
         constant_node = True
@@ -249,7 +255,9 @@ class Graph():
                 break
         return constant_node
 
-    def __constant_search__(self):
+    def __constant_search__(self, constant_folding):
+        from .utils import timer
+        tm = timer()
         for name in self.nodemap.keys():
             node = self.nodemap[name]
             if hasattr(node, 'constant'):
@@ -261,17 +269,21 @@ class Graph():
                 while len(search_nodes) > 0:
                     this_node = self.nodemap[search_nodes[0]]
                     search_nodes.pop(0)
-                    itensors = []
-                    for input in this_node.input:
-                        if self.tensormap[input].numpy is None:
-                            warnings.warn(f'Tensor {input} has shape only, {name} may has wrong value infer result')
-                            itensors.append(self.tensormap[input].get_shape())
-                        else:
-                            itensors.append(self.tensormap[input].numpy)
-                    otensors = this_node.value_infer(itensors)
-                    if len(otensors) > 0:
+                    if constant_folding:
+                        itensors = []
+                        for input in this_node.input:
+                            if self.tensormap[input].numpy is None:
+                                warnings.warn(f'Tensor {input} has shape only, {name} may has wrong value infer result')
+                                itensors.append(self.tensormap[input].get_shape())
+                            else:
+                                itensors.append(self.tensormap[input].numpy)
+                        otensors = this_node.value_infer(itensors)
+                        if len(otensors) > 0:
+                            for i, output in enumerate(this_node.output):
+                                self.tensormap[output].update_tensor(otensors[i])
+                                self.tensormap[output].type = STATIC_TENSOR
+                    else:
                         for i, output in enumerate(this_node.output):
-                            self.tensormap[output].update_tensor(otensors[i])
                             self.tensormap[output].type = STATIC_TENSOR
                     for output in this_node.output:
                         for consumer in self.consumedby[output]:
@@ -279,6 +291,7 @@ class Graph():
                             if self.__is_node_constant__(cnode):
                                 cnode.constant = True
                                 search_nodes.append(consumer)
+        self.log(f'Constant Search Time Elapsed {tm.stop()}')
 
     def __update_consumer_producer__(self):
         self.producedby = {}
@@ -361,15 +374,12 @@ class Graph():
                         self.nodemap[node.name].nextnodes.append(self.nodemap[consumer])
         self.log(f'IO Tensor Init Time Elapsed {tm.stop()}')
 
-        tm.start()
         self.sparse_model = False
         for key in self.tensormap.keys():
             tensor = self.tensormap[key]
             if tensor.sparsity is not None and tensor.sparsity['ratio'] > 0.4:
                 self.sparse_model = True
                 break
-
-        self.log(f'Misc Tensor Init Time Elapsed {tm.stop()}')
 
     def __find_shape_tensors__(self):
         self.shape_tensors = []
@@ -1079,10 +1089,14 @@ class Graph():
                     maxmem = block[0] + block[1]
             for tname in nodetensors:
                 block0 = compress_mem[tname]
+                if block0[1] == 0:
+                    continue
                 for tname1 in nodetensors:
                     if tname1 == tname:
                         continue
                     block1 = compress_mem[tname1]
+                    if block1[1] == 0:
+                        continue
                     if block0[0] >= block1[0] and block0[0] < block1[0] + block1[1]:
                         overlap = True
                         laptensor = [tname, tname1]
@@ -1164,7 +1178,8 @@ class Graph():
                         if input in self.producedby:
                             if len(self.consumedby[input]) == 1:
                                 pnodename = self.producedby[input][0]
-                                rmnodes.append(pnodename)
+                                if pnodename not in rmnodes:
+                                    rmnodes.append(pnodename)
                                 searchnodes.append(pnodename)
                 continue
             nodes.append(node.name)

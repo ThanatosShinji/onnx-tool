@@ -15,16 +15,6 @@ def __remove_initilisers(graph: onnx.GraphProto):
     graph.ClearField('initializer')
 
 
-def __remove_constantnodes(graph: onnx.GraphProto):
-    validnodes = []
-    for node in graph.node:
-        if node.op_type != 'Constant':
-            validnodes.append(node)
-    graph.ClearField('node')
-    for node in validnodes:
-        graph.node.append(node)
-
-
 def model_export_tensors_numpy(m, tensornames: [str] = None, savefolder: str = None, fp16: bool = False) -> None:
     if isinstance(m, str):
         m = onnx.load_model(m)
@@ -113,29 +103,12 @@ def model_shape_regress(m, input_desc: {}, input_range: {}):
         return shape_engine, cg
 
 
-def model_remove_Identity(m, f: str):
+def model_constant_folding(m, f: str):
     if isinstance(m, str):
         m = onnx.load_model(m)
     if isinstance(m, onnx.ModelProto):
-        graph = m.graph
-        iden_map = {}
-        iden_set = []
-        for node in graph.node:
-            if node.op_type == 'Identity':
-                iden_map[node.output[0]] = node.input[0]
-                iden_set.append(node.name)
-        for node in graph.node:
-            for i, input in enumerate(node.input):
-                if input in iden_map.keys():
-                    node.input[i] = iden_map[input]
-        G = Graph(graph)
-        nodes = list(G.nodemap.keys())
-        for idenn in iden_set:
-            nodes.remove(idenn)
-        onnxg = G.get_onnxgraph_by_nodenames(nodes)
-        G = Graph(onnxg)
-        G.save_model(f)
-
+        g = Graph(m.graph,constant_folding=True,verbose=True)
+        g.save_model(f,rawmodel=m)
 
 def model_shape_infer(m, dynamic_shapes: {str: tuple} = None,
                       saveshapesmodel: str = None, shapesonly: bool = False, verbose: bool = False,

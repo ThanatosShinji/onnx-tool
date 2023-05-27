@@ -31,7 +31,7 @@ _SHAPE_TENSORS = {
     'Range': ('0,1,2of3',),
     'OneHot': ('1of3',),
     'TopK': ('1of2',),
-    'Pad': ('1of3',),
+    'Pad': ('1of2', '1of3',),
     'NonMaxSuppression': ('2of5',),
     'Split': ('1of2',),
     'Unsqueeze': ('1of2',),

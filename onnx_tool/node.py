@@ -782,10 +782,21 @@ class OneHotNode(Node):
 class TriluNode(Node):
     def __init__(self, n):
         super().__init__(n)
+        self.add_default_value('upper',1)
+
 
     def shape_infer(self, intensors: []):
         return [_get_shape(intensors[0])]
 
+    def value_infer(self, intensors: []):
+        if len(intensors)==2:
+            k=intensors[1]
+        else:
+            k=numpy.array(0).astype(numpy.int64)
+        if self.upper==0:
+            return [numpy.tril(intensors[0],k)]
+        else:
+            return [numpy.triu(intensors[0],k)]
 
 @NODE_REGISTRY.register()
 class EinsumNode(Node):
@@ -2047,16 +2058,14 @@ class GatherElementsNode(Node):
         return [_get_shape(intensors[1])]
 
     def value_infer(self, intensors: []):
-        if self.axis == 1:
-            if len(intensors[1].shape) == 4:
-                outtensor = numpy.zeros_like(intensors[1])
-                for i in range(intensors[1].shape[0]):
-                    for j in range(intensors[1].shape[1]):
-                        for k in range(intensors[1].shape[2]):
-                            for l in range(intensors[1].shape[3]):
-                                outtensor[i, j, k, l] = intensors[0][i, intensors[1][i, j, k, l], k, l]
-                return [outtensor]
-        raise NotImplementedError()
+        x=intensors[0]
+        indice=intensors[1].astype(numpy.int64)
+        outtensor = numpy.zeros_like(indice)
+        for i in numpy.ndindex(outtensor.shape):
+            idx = list(i)
+            idx[self.axis] = indice[i]
+            outtensor[i] = x[tuple(idx)]
+        return [outtensor]
 
 
 @NODE_REGISTRY.register()

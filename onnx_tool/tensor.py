@@ -403,8 +403,6 @@ class Tensor():
                 shape.append(s)
             else:
                 shape.append(int(s))
-        if len(shape) == 0:  # scalar
-            return [1, ]
         return shape
 
     def get_valueorshape(self):

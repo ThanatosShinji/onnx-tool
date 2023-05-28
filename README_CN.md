@@ -4,6 +4,7 @@
 
 * *快速的Tensor形状推理.*
 * *分析模型每一层.*
+* *<a href="data/ConstantFolding_CN.md">常量层折叠.</a>*
 * *Compute Graph 和 Shape Engine.*
 * *ONNX op融合.*
 * *模型激活Tensor的内存压缩.*
@@ -142,8 +143,7 @@ Then `pip install onnx-tool` again.
 
 ## Known Issues
 * Loop op is not supported
-* Compute Graph has some issues with BEVFomer
-* Weight Compression needs depth-first search strategy
+* Activation Compression is not optimum
 
 ---
 

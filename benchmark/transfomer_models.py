@@ -64,7 +64,7 @@ def transfomer_gptj():
     m = transformers.GPTJForCausalLM(config)
     ids = torch.zeros((1, 512), dtype=torch.long)
     torch.onnx.export(m, ids, tmpfile)
-    onnx_tool.model_profile(tmpfile,constant_folding=False, shapesonly=True, saveshapesmodel=modelname, verbose=True)
+    onnx_tool.model_profile(tmpfile,constant_folding=True, shapesonly=True, saveshapesmodel=modelname, verbose=True)
 
 def transformer_mpt():
     from mpt.configuration_mpt import MPTConfig
@@ -76,6 +76,6 @@ def transformer_mpt():
     torch.onnx.export(m, ids, tmpfile)
     onnx_tool.model_profile(tmpfile, constant_folding=False, shapesonly=True, saveshapesmodel=modelname, verbose=True)
 
-transfomer_llama()
+# transfomer_llama()
 transfomer_gptj()
-transformer_mpt()
+# transformer_mpt()

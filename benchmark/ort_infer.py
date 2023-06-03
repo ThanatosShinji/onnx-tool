@@ -99,9 +99,45 @@ def gpt2():
     # output = sess.run(['output1', "output13"], {'input1': input})
     # print(output[0])
 
+def mpt():
+    import numpy
+    onnxfile = 'benchmark/tmp.onnx'
+    input = np.ones((1, 8), dtype=np.int64)
+    inputs={'input.1': input}
+    dumpname='227'
+    output = debug_with_onnxrt(onnxfile,[dumpname],inputs)
+    ort_ret = output[0]
+    print(ort_ret)
+    m = onnx.load_model(onnxfile)
+    g = onnx_tool.Graph(m.graph, verbose=True)
+    _ = g.value_infer(inputs)
+    ot_ret = g.tensormap[dumpname].numpy
+    print(ot_ret)
+    diff = abs(ort_ret - ot_ret)
+    print(numpy.max(diff))
+
+def llama():
+    import numpy
+    onnxfile = 'benchmark/tmp.onnx'
+    input = np.ones((1, 512), dtype=np.int64)
+    inputs={'input.1': input}
+    dumpname='241'
+    output = debug_with_onnxrt(onnxfile,[dumpname],inputs)
+    ort_ret = output[0]
+    print(ort_ret)
+    m = onnx.load_model(onnxfile)
+    g = onnx_tool.Graph(m.graph, verbose=True)
+    _ = g.value_infer(inputs)
+    ot_ret = g.tensormap[dumpname].numpy
+    print(ot_ret)
+    diff = abs(ort_ret - ot_ret)
+    print(numpy.max(diff))
+
 if __name__ == '__main__':
     # resnet50()
-    gpt2()
+    # gpt2()
+    # mpt()
+    llama()
     # resnet18()
     # EdgeNeXt_small()
     # text_encoder()

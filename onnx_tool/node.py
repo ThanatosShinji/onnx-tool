@@ -1152,7 +1152,11 @@ class IdentityNode(FusedBase):
 
 @NODE_REGISTRY.register()
 class ErfNode(FusedBase):
-    pass
+    def value_infer(self, intensors: []):
+        outtensor=numpy.zeros_like(intensors[0])
+        for i in numpy.ndindex(intensors[0].shape):
+            outtensor[i]=math.erf(intensors[0][i])
+        return [outtensor]
 
 
 @NODE_REGISTRY.register()

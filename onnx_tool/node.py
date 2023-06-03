@@ -328,7 +328,7 @@ class SoftmaxNode(ExpNode):
 
     def value_infer(self, intensors: []):
         xexp = numpy.exp(intensors[0])
-        return [xexp / numpy.sum(xexp)]
+        return [xexp / numpy.sum(xexp,axis=self.axis,keepdims=True)]
 
 
 @NODE_REGISTRY.register()

@@ -122,11 +122,29 @@ def llama():
     diff = abs(ort_ret - ot_ret)
     print(numpy.max(diff))
 
+def gptj():
+    import numpy
+    onnxfile = 'benchmark/tmp.onnx'
+    input = np.ones((1, 8), dtype=np.int64)
+    inputs={'onnx::Reshape_0': input}
+    dumpname='/transformer/h.0/ln_1/Add_1_output_0'
+    # output = debug_with_onnxrt(onnxfile,[dumpname],inputs)
+    # ort_ret = output[0]
+    # print(ort_ret)
+    m = onnx.load_model(onnxfile)
+    g = onnx_tool.Graph(m.graph, verbose=True)
+    _ = g.value_infer(inputs)
+    ot_ret = g.tensormap[dumpname].numpy
+    print(ot_ret)
+    # diff = abs(ort_ret - ot_ret)
+    # print(numpy.max(diff))
+
 if __name__ == '__main__':
     # resnet50()
     # gpt2()
     # mpt()
-    llama()
+    # llama()
+    gptj()
     # resnet18()
     # EdgeNeXt_small()
     # text_encoder()

@@ -62,11 +62,9 @@ def transfomer_gptj():
     modelname = f"{config['model_type']}_{config['n_embd']}_{config['n_head']}_{config['n_layer']}.onnx"
     config = transformers.PretrainedConfig(**config)
     m = transformers.GPTJForCausalLM(config)
-    ids = torch.ones((1, 8), dtype=torch.long)
-    out = m(ids)
-    print(out)
-    # torch.onnx.export(m, ids, tmpfile)
-    # onnx_tool.model_profile(tmpfile,constant_folding=True, shapesonly=True, saveshapesmodel=modelname, verbose=True)
+    ids = torch.zeros((1, 512), dtype=torch.long)
+    torch.onnx.export(m, ids, tmpfile)
+    onnx_tool.model_profile(tmpfile,constant_folding=True, shapesonly=True, saveshapesmodel=modelname, verbose=True)
 
 def transformer_mpt():
     from mpt.configuration_mpt import MPTConfig

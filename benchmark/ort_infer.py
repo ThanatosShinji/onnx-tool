@@ -64,18 +64,6 @@ def text_encoder():
     print(output)
 
 def gpt2():
-    onnxfile = 'data/public/gpt2-10.onnx'
-    input = np.ones((1, 1, 8), dtype=np.int64)
-    sess = ort.InferenceSession(onnxfile)
-    output = sess.run(['output1'], {'input1': input})
-    print(output)
-    m = onnx.load_model(onnxfile)
-    g = onnx_tool.Graph(m.graph,constant_folding=True,verbose=True)
-    _=g.value_infer({'input1':input})
-    print(g.tensormap['output1'].numpy)
-
-
-def gpt2():
     import numpy
     onnxfile = 'data/public/gpt2-10.onnx'
     input = np.ones((1, 1, 8), dtype=np.int64)
@@ -152,10 +140,10 @@ def gptj():
 
 if __name__ == '__main__':
     # resnet50()
-    # gpt2()
+    gpt2()
     # mpt()
     # llama()
-    gptj()
+    # gptj()
     # resnet18()
     # EdgeNeXt_small()
     # text_encoder()

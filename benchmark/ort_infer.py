@@ -74,6 +74,7 @@ def gpt2():
     m = onnx.load_model(onnxfile)
     g = onnx_tool.Graph(m.graph, verbose=True)
     output=g.value_infer({'input1':input})
+    t= g.tensormap['194'].numpy
     idx=g.output.index('output1')
     ot_ret=output[idx]
     print(ot_ret)

@@ -228,8 +228,7 @@ def asr_fusion():
     serialize_graph(cg, 'asr_500G.cg')
     cg.save_model('asr_500G_merged.onnx')
 
-
 # test()
 # MHA_test()
 # resnet_fusion()
-asr_fusion()
+# asr_fusion()

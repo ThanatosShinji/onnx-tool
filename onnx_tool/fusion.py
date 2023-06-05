@@ -142,7 +142,7 @@ layernorm_pattern = [
         'op': 'Sub',
         'attrs': [],
         'inport': [[1, 'ReduceMean_196', 0]],
-        'outport': [[0, 'Pow_0', 0]]
+        'outport': [[0, 'Pow_0', 0],[0,'Div_0',0]]
     },
     {
         'name': 'Pow_0',
@@ -176,11 +176,41 @@ layernorm_pattern = [
         'name': 'Div_0',
         'op': 'Div',
         'attrs': [],
-        'inport': [[1, 'Sqrt_0', 0]],
+        'inport': [[0,'Sub_197',0],[1, 'Sqrt_0', 0]],
         'outport': []
     },
 ]
 
+ShapeOps=['Flatten', 'Reshape', 'Unsqueeze', 'Squeeze']
+def removeShapeOps(g:onnx_tool.Graph):
+    rmlist = []
+    for n in g.nodemap.keys():
+        node = g.nodemap[n]
+        if node.op_type in ShapeOps:
+            rmlist.append(n)
+    for n in rmlist:
+        g.skip_node(n)
+        g.nodemap.pop(n)
+    return g
+
+def createSerialOpChain(oplist:list[str]):
+    chain=[]
+    for i, op in enumerate(oplist):
+        inport=[] if i ==0 else [[-1,str(i-1),-1]]
+        outport=[] if i ==len(oplist)-1 else [[-1,str(i+1),-1]]
+        nodedesc={
+            'name':str(i),
+            'op':op,
+            'attrs':[],
+            'inport':inport,
+            'outport':outport
+        }
+        chain.append(nodedesc)
+    return chain
+
+def createSerialPattern(oplist:list[str]):
+    chain = createSerialOpChain(oplist)
+    return FusionPattern(chain)
 
 class AttrExpr():
     def __init__(self, raw: []):
@@ -253,7 +283,26 @@ class FusionPattern():
             outdescky = outset[1]
             next_inidx = outset[2]
             nextdesc = self.nodedesc[outdescky]
-            if outidx < len(node.output):
+            if outidx == -1:
+                for output in node.output:
+                    if output in graph.consumedby:
+                        consumed_nodes = graph.consumedby[output]
+                        if self.inplace_fusion and len(consumed_nodes) > 1:
+                            # inpalce_fusion the consumer op will be appended to this op as postop
+                            # it requires that the output of this op is consumed by next op only
+                            continue
+                        for nodename in consumed_nodes:
+                            if nodename in self.found_node_names:
+                                continue
+                            if nodename in self.tmp_names:
+                                continue
+                            nodeobject = graph.nodemap[nodename]
+                            if next_inidx==-1 or nodeobject.input.index(output) == next_inidx:
+                                if nextdesc.is_node(nodeobject):
+                                    nodename_to_search.append(nodename)
+                                    searched_desc.append(outdescky)
+                                    break
+            elif outidx < len(node.output):
                 tname = node.output[outidx]
                 if tname in graph.consumedby:
                     consumed_nodes = graph.consumedby[tname]
@@ -267,7 +316,7 @@ class FusionPattern():
                         if nodename in self.tmp_names:
                             continue
                         nodeobject = graph.nodemap[nodename]
-                        if nodeobject.input.index(tname) == next_inidx:
+                        if next_inidx==-1 or nodeobject.input.index(tname) == next_inidx:
                             if nextdesc.is_node(nodeobject):
                                 nodename_to_search.append(nodename)
                                 searched_desc.append(outdescky)
@@ -279,7 +328,23 @@ class FusionPattern():
             indesckey = inset[1]
             prev_outidx = inset[2]
             nextdesc = self.nodedesc[indesckey]
-            if inidx < len(node.input):
+            if inidx==-1:
+                for tname in node.input:
+                    if tname not in graph.producedby:
+                        continue
+                    producer_node = graph.producedby[tname]
+                    for nodename in producer_node:
+                        if nodename in self.found_node_names:
+                            continue
+                        if nodename in self.tmp_names:
+                            continue
+                        nodeobject = graph.nodemap[nodename]
+                        if prev_outidx==-1 or nodeobject.output.index(tname) == prev_outidx:
+                            if nextdesc.is_node(nodeobject):
+                                nodename_to_search.append(nodename)
+                                searched_desc.append(indesckey)
+                                break
+            elif inidx < len(node.input):
                 tname = node.input[inidx]
                 producer_node = graph.producedby[tname]
                 for nodename in producer_node:
@@ -288,7 +353,7 @@ class FusionPattern():
                     if nodename in self.tmp_names:
                         continue
                     nodeobject = graph.nodemap[nodename]
-                    if nodeobject.output.index(tname) == prev_outidx:
+                    if prev_outidx==-1 or nodeobject.output.index(tname) == prev_outidx:
                         if nextdesc.is_node(nodeobject):
                             nodename_to_search.append(nodename)
                             searched_desc.append(indesckey)

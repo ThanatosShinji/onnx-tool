@@ -515,13 +515,20 @@ class Graph():
                 indtensor = input
         if count == 1 and len(node.output) == 1:
             self.consumedby[indtensor].remove(nodename)
-            for con in self.consumedby[node.output[0]]:
-                con_node = self.nodemap[con]
-                for i in range(len(con_node.input)):
-                    if con_node.input[i] == node.output[0]:
-                        con_node.input[i] = indtensor
-                        self.consumedby[indtensor].append(con)
-                        break
+            if node.output[0] in self.consumedby:
+                for con in self.consumedby[node.output[0]]:
+                    con_node = self.nodemap[con]
+                    for i in range(len(con_node.input)):
+                        if con_node.input[i] == node.output[0]:
+                            con_node.input[i] = indtensor
+                            self.consumedby[indtensor].append(con)
+                            break
+            else:
+                for pro in self.producedby[indtensor]:
+                    pro_node = self.nodemap[pro]
+                    assert(len(pro_node.output)==1)
+                    pro_node.output[0]=node.output[0]
+
 
     def fuse_subgraph_node_names(self, nodes: [str], nodeop: str, nodename: str, keep_attr=True):
         _inputs, _outputs = self.get_iotensors(nodes, remove_initials=False)

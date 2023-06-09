@@ -600,23 +600,25 @@ class TransposeNode(Node):
 class GemmNode(Node):
     def __init__(self, nodeproto):
         super().__init__(nodeproto)
-        self.add_default_value('transA', None)
-        self.add_default_value('transB', None)
+        self.add_default_value('transA', 0)
+        self.add_default_value('transB', 0)
 
     def shape_infer(self, intensors: []):
         xshape = _get_shape(intensors[0])
         wshape = _get_shape(intensors[1])
         if self.__class__ == GemmNode:
-            if self.transA is not None and self.transA > 0:
+            if self.transA > 0:
                 xshape = xshape[::-1]
             else:
                 xshape = xshape
-            if self.transB is not None and self.transB > 0:
+            if self.transB > 0:
                 yshape = xshape[:-1] + [wshape[-2], ]
             else:
                 yshape = xshape[:-1] + [wshape[-1], ]
         else:
-            yshape = xshape[:-1] + [wshape[-1], ]
+            # broadcast support
+            batchshape=xshape[:-2] if len(xshape)> len(wshape) else wshape[:-2]
+            yshape = batchshape+[xshape[-2],wshape[-1]]
 
         return [yshape]
 
@@ -626,11 +628,11 @@ class GemmNode(Node):
             bshape = _get_shape(intensors[1])
             assert (ashape[-1] == bshape[-2])
             return [numpy.matmul(intensors[0], intensors[1])]
-        if self.transA is not None and self.transA > 0:
+        if self.transA > 0:
             A = numpy.transpose(intensors[0])
         else:
             A = intensors[0]
-        if self.transB is not None and self.transB > 0:
+        if self.transB > 0:
             B = numpy.transpose(intensors[1])
         else:
             B = intensors[1]
@@ -640,17 +642,19 @@ class GemmNode(Node):
         return [C]
 
     def profile(self, intensors: [numpy.ndarray], outtensors: [numpy.ndarray]):
-        xshape = _get_shape(intensors[0])
+        yshape = _get_shape(outtensors[0])
         if len(intensors) >= 2:
             weight_shape = _get_shape(intensors[1])
-            macs = volume(xshape)
+            macs = volume(yshape)
             if self.__class__ == GemmNode:
-                macs *= weight_shape[0]
+                if self.transB > 0:
+                    macs *= weight_shape[-1]
+                else:
+                    macs *= weight_shape[-2]
             else:
-                macs *= weight_shape[-1]
-
+                macs *= weight_shape[-2]
             if len(intensors) == 3:
-                macs += volume(_get_shape(outtensors[0])) * ADD_MACS
+                macs += volume(yshape) * ADD_MACS
         else:
             raise NotImplementedError()
         return macs

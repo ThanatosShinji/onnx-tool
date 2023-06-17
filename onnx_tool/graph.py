@@ -307,6 +307,11 @@ class Graph():
                     self.producedby[tensor] = []
                 self.producedby[tensor].append(node.name)
 
+    def update_tensor_relations(self):
+        self.__update_consumer_producer__()
+        self.dynamics=list(self.producedby.keys())
+
+
     def __init_graph_from_onnxproto__(self, g, noderename):
         if g is None:
             return
@@ -497,9 +502,10 @@ class Graph():
         node = self.nodemap[nodename]
         # update producer
         for o in node.output:
-            self.producedby[o].remove(nodename)
-            if len(self.producedby[o]) == 0:
-                self.producedby.pop(o)
+            if o in self.producedby.keys():
+                self.producedby[o].remove(nodename)
+                if len(self.producedby[o]) == 0:
+                    self.producedby.pop(o)
         # update consumer
         for i in node.input:
             if i in self.consumedby.keys():
@@ -753,6 +759,82 @@ class Graph():
             nextnodes = set(newnodes)
 
         return reorderednode
+
+    def backwardsearch_node(self,curnode,produced_by,consumed_by,produced,searched):
+        nodelist = []
+        backlist = []
+        node = self.nodemap[curnode]
+        searched.append(curnode)
+        for tname in node.input:
+            if tname in produced_by.keys() and tname not in produced:
+                backlist.append(tname)
+        for tname in backlist:
+            nodelist.extend(self.backwardsearch_node(produced_by[tname],produced_by,consumed_by,produced,searched))
+
+        produced.extend(node.output)
+        nodelist +=[curnode]
+        for tname in node.output:
+            if tname in consumed_by.keys():
+                for nextn in consumed_by[tname]:
+                    if nextn not in searched:
+                        nodelist.extend(self.forwardsearch_node(nextn,produced_by,consumed_by,produced,searched))
+        return nodelist
+
+
+    def forwardsearch_node(self,curnode,produced_by,consumed_by,produced,searched):
+        nodelist=[]
+        backlist=[]
+        searched.append(curnode)
+        node = self.nodemap[curnode]
+        for tname in node.input:
+            if tname in produced_by.keys() and tname not in produced:
+                backlist.append(tname)
+        if len(backlist):
+            for tname in backlist:
+                nodelist.extend(self.backwardsearch_node(produced_by[tname], produced_by, consumed_by, produced,searched))
+        nodelist+=[curnode]
+
+        for tname in node.output:
+            produced.append(tname)
+        for tname in node.output:
+            if tname in consumed_by.keys():
+                for nextn in consumed_by[tname]:
+                    if nextn not in searched:
+                        nodelist.extend(self.forwardsearch_node(nextn,produced_by,consumed_by,produced,searched))
+        return nodelist
+
+
+    def graph_reorder_nodes(self):
+        #update
+        produced_by={}
+        for name in self.nodemap.keys():
+            node = self.nodemap[name]
+            for tname in node.output:
+                produced_by[tname]=name
+
+        consumed_by={}
+        for name in self.nodemap.keys():
+            node = self.nodemap[name]
+            for tname in node.input:
+                if tname in produced_by.keys():
+                    if tname in consumed_by.keys():
+                        consumed_by[tname].append(name)
+                    else:
+                        consumed_by[tname]=[name]
+
+        produced=[]
+        searched=[]
+        ordered_nodes=[]
+        for input in self.input:
+            for cnode in self.consumedby[input]:
+                if cnode in searched:
+                    continue
+                ordered_nodes.extend(self.forwardsearch_node(cnode,produced_by,consumed_by,produced,searched))
+        new_map = {}
+        for nname in ordered_nodes:
+            new_map[nname] = self.nodemap[nname]
+        self.nodemap = new_map
+        self.update_tensor_relations()
 
     def get_iotensors(self, nodenames, remove_initials=True):
         intensors = []

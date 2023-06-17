@@ -73,6 +73,7 @@ def test():
     found_nodes = pattern.find_pattern(cg)
     for nodes in found_nodes:
         cg.fuse_subgraph_node_names(nodes, 'Conv', nodes[0], True)
+    cg.graph_reorder_nodes()
     cg.save_model('convbn.onnx')
 
 
@@ -91,7 +92,7 @@ def MHA_test():
     found_nodes = pattern1.find_pattern(cg)
     for nodes in found_nodes:
         cg.fuse_subgraph_node_names(nodes, 'Layernorm', nodes[0], True)
-    cg.graph_reorder()
+    cg.graph_reorder_nodes()
     cg.save_model('MHA_Layernorm.onnx')
 
 
@@ -144,7 +145,7 @@ def resnet_fusion():
     nodes = pattern.find_pattern(cg)
     for names in nodes:
         cg.fuse_postop_node_names(names, False)
-    cg.graph_reorder()
+    cg.graph_reorder_nodes()
     serialize_graph(cg, 'resnet50_fused.cg')
     cg.save_model('resnet50_fused.onnx')
 
@@ -224,11 +225,11 @@ def asr_fusion():
     for key in rmlist:
         cg.skip_node(key)
 
-    cg.graph_reorder()
+    cg.graph_reorder_nodes()
     serialize_graph(cg, 'asr_500G.cg')
     cg.save_model('asr_500G_merged.onnx')
 
 # test()
 # MHA_test()
-# resnet_fusion()
+resnet_fusion()
 # asr_fusion()

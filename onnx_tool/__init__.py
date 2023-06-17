@@ -76,7 +76,7 @@ def model_profile(m, dynamic_shapes: {str: tuple} = None, savenode: str = None,
     if isinstance(m, onnx.ModelProto):
         g = Graph(m.graph, constant_folding=constant_folding, verbose=verbose)
         gtmr = timer()
-        g.graph_reorder()
+        g.graph_reorder_nodes()
         gtmr.start()
         g.shape_infer(dynamic_shapes)
         if verbose:
@@ -98,7 +98,7 @@ def model_shape_regress(m, input_desc: {}, input_range: {}):
         m = onnx.load_model(m)
     if isinstance(m, onnx.ModelProto):
         G = Graph(m.graph)
-        G.graph_reorder()
+        G.graph_reorder_nodes()
         shape_engine = G.shape_regress(input_desc, input_range)
         cg = G.get_compute_graph()
         return shape_engine, cg
@@ -267,7 +267,7 @@ def model_simplify_names(m, savemodel: str, renametensor=True, renamelayer=True,
         graph_simplify_names(m.graph, renametensor, renamelayer, custom_inputs, custom_outputs, remove_unused_tensors)
         G = Graph(m.graph)
         if node_reorder:
-            G = G.graph_reorder()
+            G = G.graph_reorder_nodes()
         G.save_model(savemodel)
 
 
@@ -276,7 +276,7 @@ def model_reorder_nodes(m, savemodel: str, ):
         m = onnx.load_model(m)
     if isinstance(m, onnx.ModelProto):
         G = Graph(m.graph)
-        G = G.graph_reorder()
+        G = G.graph_reorder_nodes()
         G.save_model(savemodel)
 
 

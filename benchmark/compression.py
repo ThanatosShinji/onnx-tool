@@ -65,7 +65,7 @@ def resnet_fusion_compression():
     nodes = pattern.find_pattern(cg)
     for names in nodes:
         cg.fuse_postop_node_names(names, False)
-    cg.graph_reorder()
+    cg.graph_reorder_nodes()
     compress_mem = cg.compress_memory()
     serialize_memory_compression(compress_mem, max_shape_key, 'resnet50_fused.cm')
     serialize_graph(cg, 'resnet50_fused.cg')
@@ -114,6 +114,8 @@ def bevformer():
     compress_mem = g.compress_memory()
     print('compressed memory allocation: ',compress_mem[1])
     cg=g.get_compute_graph()
+    cg.graph_reorder_nodes()
+    cg.compress_memory()
     cg.save_model('bevformer_tiny_cg.onnx',rawmodel=m)
 
 def gpt2():
@@ -140,6 +142,6 @@ def gpt2():
     cg.save_model('gpt2_cg.onnx')
 
 # resnet_compress()
-# resnet_fusion_compression()
+resnet_fusion_compression()
 # bevformer()
-gpt2()
+# gpt2()

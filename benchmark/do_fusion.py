@@ -70,7 +70,7 @@ def test():
     m = onnx.load_model(file)
     g = Graph(m.graph)
     cg = g.get_compute_graph()
-    found_nodes = pattern.find_pattern(cg)
+    found_nodes = pattern.search_pattern(cg)
     for nodes in found_nodes:
         cg.fuse_subgraph_node_names(nodes, 'Conv', nodes[0], True)
     cg.graph_reorder_nodes()
@@ -86,10 +86,10 @@ def MHA_test():
     g = Graph(m.graph)
     cg = g.get_compute_graph()
 
-    found_nodes = pattern.find_pattern(cg)
+    found_nodes = pattern.search_pattern(cg)
     for nodes in found_nodes:
         cg.fuse_subgraph_node_names(nodes, 'MHA', nodes[0], True)
-    found_nodes = pattern1.find_pattern(cg)
+    found_nodes = pattern1.search_pattern(cg)
     for nodes in found_nodes:
         cg.fuse_subgraph_node_names(nodes, 'Layernorm', nodes[0], True)
     cg.graph_reorder_nodes()
@@ -133,16 +133,16 @@ def resnet_fusion():
 
     ConvBNFusion(cg)
     pattern = FusionPattern(Fused_Element)
-    nodes = pattern.find_pattern(cg)
+    nodes = pattern.search_pattern(cg)
     for names in nodes:
         cg.fuse_postop_node_names(names, True)
     pattern = FusionPattern(Conv_Res)
-    nodes = pattern.find_pattern(cg)
+    nodes = pattern.search_pattern(cg)
     for names in nodes:
         cg.fuse_postop_node_names(names, True)
     # remove flattern
     pattern = FusionPattern(remove_shapeop)
-    nodes = pattern.find_pattern(cg)
+    nodes = pattern.search_pattern(cg)
     for names in nodes:
         cg.fuse_postop_node_names(names, False)
     cg.graph_reorder_nodes()
@@ -186,7 +186,7 @@ def asr_fusion():
         },
     ]
     pattern = FusionPattern(Fused_leaky, inplace_fusion=True)
-    nodes = pattern.find_pattern(cg)
+    nodes = pattern.search_pattern(cg)
     for names in nodes:
         cg.fuse_postop_node_names(names, True)
 
@@ -208,7 +208,7 @@ def asr_fusion():
         },
     ]
     pattern = FusionPattern(SliceSlice, inplace_fusion=True)
-    nodes = pattern.find_pattern(cg)
+    nodes = pattern.search_pattern(cg)
     for names in nodes:
         cg.fuse_subgraph_node_names(names, 'Slice2D', names[0])
 
@@ -229,7 +229,7 @@ def asr_fusion():
     serialize_graph(cg, 'asr_500G.cg')
     cg.save_model('asr_500G_merged.onnx')
 
-# test()
-# MHA_test()
+test()
+MHA_test()
 resnet_fusion()
 # asr_fusion()

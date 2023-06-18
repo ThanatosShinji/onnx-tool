@@ -310,128 +310,6 @@ class FusionPattern():
         for desc in nodedescs:
             self.nodedesc[desc['name']] = NodeCondition(desc)
 
-    def expand_from_descandnode(self, desc, node, graph):
-        nodename_to_search = []
-        searched_desc = []
-        wrong_node = True
-        for outset in desc.outport:
-            outidx = outset[0]
-            outdescky = outset[1]
-            next_inidx = outset[2]
-            nextdesc = self.nodedesc[outdescky]
-            if outidx == -1:
-                for output in node.output:
-                    if output in graph.consumedby:
-                        consumed_nodes = graph.consumedby[output]
-                        if self.inplace_fusion and len(consumed_nodes) > 1:
-                            # inpalce_fusion the consumer op will be appended to this op as postop
-                            # it requires that the output of this op is consumed by next op only
-                            continue
-                        for nodename in consumed_nodes:
-                            if nodename in self.found_node_names:
-                                continue
-                            if nodename in self.tmp_names:
-                                continue
-                            nodeobject = graph.nodemap[nodename]
-                            if next_inidx == -1 or nodeobject.input.index(output) == next_inidx:
-                                if nextdesc.is_node(nodeobject):
-                                    nodename_to_search.append(nodename)
-                                    searched_desc.append(outdescky)
-                                    break
-            elif outidx < len(node.output):
-                tname = node.output[outidx]
-                if tname in graph.consumedby:
-                    consumed_nodes = graph.consumedby[tname]
-                    if self.inplace_fusion and len(consumed_nodes) > 1:
-                        # inpalce_fusion the consumer op will be appended to this op as postop
-                        # it requires that the output of this op is consumed by next op only
-                        continue
-                    for nodename in consumed_nodes:
-                        if nodename in self.found_node_names:
-                            continue
-                        if nodename in self.tmp_names:
-                            continue
-                        nodeobject = graph.nodemap[nodename]
-                        if next_inidx == -1 or nodeobject.input.index(tname) == next_inidx:
-                            if nextdesc.is_node(nodeobject):
-                                nodename_to_search.append(nodename)
-                                searched_desc.append(outdescky)
-
-        # expand in nodes
-        for inset in desc.inport:
-            inidx = inset[0]
-            indesckey = inset[1]
-            prev_outidx = inset[2]
-            nextdesc = self.nodedesc[indesckey]
-            if inidx == -1:
-                for tname in node.input:
-                    if tname not in graph.producedby:
-                        continue
-                    producer_node = graph.producedby[tname]
-                    for nodename in producer_node:
-                        if nodename in self.found_node_names:
-                            continue
-                        if nodename in self.tmp_names:
-                            continue
-                        nodeobject = graph.nodemap[nodename]
-                        if prev_outidx == -1 or nodeobject.output.index(tname) == prev_outidx:
-                            if nextdesc.is_node(nodeobject):
-                                nodename_to_search.append(nodename)
-                                searched_desc.append(indesckey)
-                                break
-            elif inidx < len(node.input):
-                tname = node.input[inidx]
-                producer_node = graph.producedby[tname]
-                for nodename in producer_node:
-                    if nodename in self.found_node_names:
-                        continue
-                    if nodename in self.tmp_names:
-                        continue
-                    nodeobject = graph.nodemap[nodename]
-                    if prev_outidx == -1 or nodeobject.output.index(tname) == prev_outidx:
-                        if nextdesc.is_node(nodeobject):
-                            nodename_to_search.append(nodename)
-                            searched_desc.append(indesckey)
-                            break
-        return nodename_to_search, searched_desc
-
-    def find_pattern(self, graph: Graph):
-        ls_nodes = []
-        first_desc = self.nodedesc[self.first_key]
-        self.found_node_names = []
-        self.tmp_names = []
-        for name in graph.nodemap.keys():
-            if name in self.found_node_names:
-                continue
-            node = graph.nodemap[name]
-            if first_desc.is_node(node):
-                searched_desc_keys = [self.first_key]
-                found_nodes = [name]
-                nodename_to_search, descs_to_search = self.expand_from_descandnode(first_desc, node, graph)
-                searched_desc_keys.extend(descs_to_search)
-                found_nodes.extend(nodename_to_search)
-                self.tmp_names = [name]
-                self.tmp_names.extend(nodename_to_search)
-                while len(nodename_to_search) > 0:
-                    next_desc_search = []
-                    next_nodes_search = []
-                    for desc, nodename in zip(descs_to_search, nodename_to_search):
-                        _nodenames, _desc = self.expand_from_descandnode(self.nodedesc[desc], graph.nodemap[nodename],
-                                                                         graph)
-                        searched_desc_keys.extend(_desc)
-                        for name in _nodenames:
-                            self.tmp_names.append(name)
-                        next_desc_search.extend(_desc)
-                        next_nodes_search.extend(_nodenames)
-                    descs_to_search = next_desc_search
-                    nodename_to_search = next_nodes_search
-                    found_nodes.extend(next_nodes_search)
-
-                if len(searched_desc_keys) == len(self.nodedesc.keys()):
-                    ls_nodes.append(found_nodes)
-                    self.found_node_names.extend(self.tmp_names)
-        return ls_nodes
-
     def search_node(self, nodepair, graph, searched):
         curdescname=nodepair[0]
         curnodename=nodepair[1]
@@ -579,7 +457,7 @@ class FusionPattern():
 def ConvBNFusion(graph: Graph):
     import math
     pattern = FusionPattern(ConvBN)
-    node_sets = pattern.find_pattern(graph)
+    node_sets = pattern.search_pattern(graph)
     for nodes in node_sets:
         conv_node = graph.nodemap[nodes[0]]
         bn_node = graph.nodemap[nodes[1]]

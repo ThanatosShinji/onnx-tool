@@ -155,11 +155,11 @@ def gpt2():
 
     #fusion without shape ops.
     pattern = FusionPattern(layernorm_pattern, inplace_fusion=False)
-    nodes = pattern.find_pattern(g)
+    nodes = pattern.search_pattern(g)
     for names in nodes:
         g.fuse_subgraph_node_names(names, 'Layernrom', names[0])
     RangeGatherPattern = createSerialPattern(RangeGatherOps)
-    nodes = RangeGatherPattern.find_pattern(g)
+    nodes = RangeGatherPattern.search_pattern(g)
     for names in nodes:
         g.fuse_subgraph_node_names(names, 'RangeGather', names[0])
 

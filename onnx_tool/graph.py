@@ -171,12 +171,14 @@ class Graph():
         self.dynamics = []
         self.input = []
         self.output = []
-        self.__init_graph_from_onnxproto__(g, noderename)
-        self.__constant_search__(constant_folding)
-        self.__update_nodes_tensors__(constant_folding)
-        self.__find_shape_tensors__()
         self.valid_shape = False
         self.valid_profile = False
+
+        if g is not None:
+            self.__init_graph_from_onnxproto__(g, noderename)
+            self.__constant_search__(constant_folding)
+            self.__update_nodes_tensors__(constant_folding)
+            self.__find_shape_tensors__()
 
     def log(self, str):
         if self.verbose:
@@ -535,7 +537,6 @@ class Graph():
                     assert(len(pro_node.output)==1)
                     pro_node.output[0]=node.output[0]
 
-
     def fuse_subgraph_node_names(self, nodes: [str], nodeop: str, nodename: str, keep_attr=True):
         _inputs, _outputs = self.get_iotensors(nodes, remove_initials=False)
         newnode = onnx.helper.make_node(nodeop, _inputs, _outputs, name=nodename)
@@ -613,11 +614,15 @@ class Graph():
                 newnode.nextnodes.append(self.consumedby[o])
         self.nodemap[mainnode.name] = newnode
 
-    def fuse_subgraph_iotensors(self, inputs: [], outputs: [], nodeop: str, name: str, keep_attr=True):
+    def fuse_subgraph_iotensors(self, inputs: [], outputs: [], nodeop: str, name_prefix:str=None, keep_attr=True):
         _, nodes, _ = self.__get_subnodes_byio__(inputs, outputs)
-        _inputs, _outputs = self.get_iotensors(nodes, remove_initials=True)
-        nodes = self.reorder_nodes(nodes, _inputs)
-        return self.fuse_subgraph_node_names(nodes, nodeop, name, keep_attr)
+        from .fusion import create_descs_from_nodenames,FusionPattern
+        descs=create_descs_from_nodenames(self,nodes)
+        pattern = FusionPattern(descs)
+        nodesls = pattern.search_pattern(self)
+        for i,nodes in enumerate(nodesls):
+            name = name_prefix+'_'+str(i) if name_prefix is not None else nodes[0]
+            self.fuse_subgraph_node_names(nodes,nodeop,name,keep_attr)
 
     def get_onnxgraph_by_nodenames(self, nodenames):
         if len(nodenames):
@@ -628,6 +633,9 @@ class Graph():
         return None
 
     def save_model(self, f: str, shape_only: bool = False, no_shape: bool = False, rawmodel: onnx.ModelProto = None):
+        if len(self.nodemap.keys())==0:
+            warnings.warn(f'Empty graph {f} to save')
+            return
         graph = self.make_graph_onnx(self.nodemap.keys(), 'graph', self.input, self.output,
                                      with_initializer=not shape_only, with_shape_info=not no_shape)
         if graph is not None and f is not None:
@@ -653,7 +661,7 @@ class Graph():
         outputs = []
         for name in inputnames:
             if name in self.tensormap:
-                proto = self.tensormap[name].make_value_proto()
+                proto = self.tensormap[name].make_value_proto(make_dummy=True)
                 if proto is not None:
                     inputs.append(proto)
             else:
@@ -677,90 +685,7 @@ class Graph():
                                        value_info=value_infos)
         return graph
 
-    def graph_reorder(self):
-        old_order = self.nodemap.keys()
-        ordered_nodes = self.reorder_nodes(old_order, self.input)
-        new_map = {}
-        for nname in ordered_nodes:
-            new_map[nname] = self.nodemap[nname]
-        self.nodemap = new_map
-        self.rawgraph = self.make_graph_onnx(self.nodemap.keys(), 'reordered', self.input, self.output)
-
-    def reorder_nodes(self, nodenames, itnames):
-        tensor_consumed = []
-        tensor_produced = []
-        nextnodes = []
-        reorderednode = []
-        search_flag = {}
-        for name in itnames:
-            for consumer in self.consumedby[name]:
-                if consumer in nodenames:
-                    if consumer not in nextnodes:
-                        search_flag[consumer] = True
-                        nextnodes.append(consumer)
-            tensor_produced.append(name)
-
-        for node in nodenames:
-            if self.__is_node_constant__(self.nodemap[node]):
-                dummy_node = True
-                for output in self.nodemap[node].output:
-                    if output in self.consumedby.keys():
-                        for consumer in self.consumedby[output]:
-                            if consumer in nodenames:
-                                if consumer not in nextnodes:
-                                    search_flag[consumer] = True
-                                    nextnodes.append(consumer)
-                        dummy_node = False
-                    else:
-                        if dummy_node:
-                            if output in self.output:
-                                dummy_node = False
-                    tensor_produced.append(output)
-                if not dummy_node:
-                    reorderednode.append(node)
-
-        while len(nextnodes):
-            execnodes = []
-            for node in nextnodes:
-                produced = True
-                for input in self.nodemap[node].input:
-                    if len(input) == 0:
-                        continue
-                    if input in self.initials:
-                        continue
-                    if input not in self.producedby:
-                        continue
-                    if input not in tensor_produced:
-                        produced = False
-                        break
-                if produced:
-                    execnodes.append(node)
-
-            newnodes = []
-            for node in nextnodes:
-                if node not in execnodes:
-                    newnodes.append(node)
-
-            reorderednode.extend(execnodes)
-            for node in execnodes:
-                for input in self.nodemap[node].input:
-                    if input in self.initials:
-                        continue
-                    tensor_consumed.append(input)
-                for output in self.nodemap[node].output:
-                    tensor_produced.append(output)
-                    if output in self.consumedby:
-                        for consumer in self.consumedby[output]:
-                            if consumer in nodenames:
-                                if consumer in search_flag:
-                                    continue
-                                newnodes.append(consumer)
-                                search_flag[consumer] = True
-            nextnodes = set(newnodes)
-
-        return reorderednode
-
-    def backwardsearch_node(self,curnode,produced_by,consumed_by,produced,searched):
+    def __backwardsearch_node__(self,curnode,produced_by,consumed_by,produced,searched):
         nodelist = []
         backlist = []
         node = self.nodemap[curnode]
@@ -769,7 +694,7 @@ class Graph():
             if tname in produced_by.keys() and tname not in produced:
                 backlist.append(tname)
         for tname in backlist:
-            nodelist.extend(self.backwardsearch_node(produced_by[tname],produced_by,consumed_by,produced,searched))
+            nodelist.extend(self.__backwardsearch_node__(produced_by[tname],produced_by,consumed_by,produced,searched))
 
         produced.extend(node.output)
         nodelist +=[curnode]
@@ -777,11 +702,10 @@ class Graph():
             if tname in consumed_by.keys():
                 for nextn in consumed_by[tname]:
                     if nextn not in searched:
-                        nodelist.extend(self.forwardsearch_node(nextn,produced_by,consumed_by,produced,searched))
+                        nodelist.extend(self.__forwardsearch_node__(nextn,produced_by,consumed_by,produced,searched))
         return nodelist
 
-
-    def forwardsearch_node(self,curnode,produced_by,consumed_by,produced,searched):
+    def __forwardsearch_node__(self,curnode,produced_by,consumed_by,produced,searched):
         nodelist=[]
         backlist=[]
         searched.append(curnode)
@@ -791,7 +715,7 @@ class Graph():
                 backlist.append(tname)
         if len(backlist):
             for tname in backlist:
-                nodelist.extend(self.backwardsearch_node(produced_by[tname], produced_by, consumed_by, produced,searched))
+                nodelist.extend(self.__backwardsearch_node__(produced_by[tname], produced_by, consumed_by, produced,searched))
         nodelist+=[curnode]
 
         for tname in node.output:
@@ -800,36 +724,41 @@ class Graph():
             if tname in consumed_by.keys():
                 for nextn in consumed_by[tname]:
                     if nextn not in searched:
-                        nodelist.extend(self.forwardsearch_node(nextn,produced_by,consumed_by,produced,searched))
+                        nodelist.extend(self.__forwardsearch_node__(nextn,produced_by,consumed_by,produced,searched))
         return nodelist
 
-
-    def graph_reorder_nodes(self):
-        #update
-        produced_by={}
-        for name in self.nodemap.keys():
+    def reorder_nodes(self, node_names,input_names):
+        # update
+        import sys
+        sys.setrecursionlimit(len(node_names))
+        produced_by = {}
+        for name in node_names:
             node = self.nodemap[name]
             for tname in node.output:
-                produced_by[tname]=name
+                produced_by[tname] = name
 
-        consumed_by={}
-        for name in self.nodemap.keys():
+        consumed_by = {}
+        for name in node_names:
             node = self.nodemap[name]
             for tname in node.input:
                 if tname in produced_by.keys():
                     if tname in consumed_by.keys():
                         consumed_by[tname].append(name)
                     else:
-                        consumed_by[tname]=[name]
+                        consumed_by[tname] = [name]
 
-        produced=[]
-        searched=[]
-        ordered_nodes=[]
-        for input in self.input:
+        produced = []
+        searched = []
+        ordered_nodes = []
+        for input in input_names:
             for cnode in self.consumedby[input]:
                 if cnode in searched:
                     continue
-                ordered_nodes.extend(self.forwardsearch_node(cnode,produced_by,consumed_by,produced,searched))
+                ordered_nodes.extend(self.__forwardsearch_node__(cnode, produced_by, consumed_by, produced, searched))
+        return ordered_nodes
+
+    def graph_reorder_nodes(self):
+        ordered_nodes=self.reorder_nodes(self.nodemap.keys(),self.input)
         new_map = {}
         for nname in ordered_nodes:
             new_map[nname] = self.nodemap[nname]
@@ -1211,31 +1140,6 @@ class Graph():
         self.log(f"Compressed memory size: {compress_size:,} bytes")
         self.log(f'Comression ratio: {compress_size / raw_memsize * 100:.3f}%')
         return compress_mem, compress_size
-
-    def get_compute_graph_onnx(self):
-        nodes = []
-        for key in self.nodemap.keys():
-            node = self.nodemap[key]
-            if node.shape_calc:
-                continue
-            dummy_node = True
-            for output in node.output:
-                dummy = True
-                if output in self.consumedby.keys():
-                    for consumer in self.consumedby[output]:
-                        if not self.nodemap[consumer].shape_calc:
-                            dummy = False
-                            break
-                else:
-                    dummy = False
-                dummy_node = dummy_node and dummy
-            if dummy_node:
-                continue
-            nodes.append(node.name)
-        _inputs0, _outputs0 = self.get_iotensors(nodes)
-        graph_level0 = self.reorder_nodes(nodes, _inputs0)
-        subgraph = self.make_graph_onnx(graph_level0, 'compute_graph', self.input, self.output)
-        return subgraph
 
     def get_compute_graph(self):
         cg = copy.copy(self)

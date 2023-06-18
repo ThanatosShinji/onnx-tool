@@ -49,6 +49,7 @@ def dynamic_input_shapes():
               'r4i': create_ndarray_f32((1, 64, 17, 30)), 'downsample_ratio': numpy.array((0.25,), dtype=numpy.float32)}
     onnx_tool.model_profile(modelpath, inputs, None, saveshapesmodel='rvm_mobilenetv3_fp32_shapes.onnx')
 
+dynamic_input_shapes()
 
 def custom_layer_register():
     import onnx_tool
@@ -87,15 +88,16 @@ def bert_mha_fuse():
     modelpath = 'data/public/bertsquad-12.onnx'
     mproto = onnx.load_model(modelpath)
     g = onnx_tool.Graph(mproto.graph)
-    g.graph_reorder()
+    g.graph_reorder_nodes()
 
     # do some graph search here
     in_tensor_names = ['bert/encoder/Reshape_1:0']
     out_tensor_names = ['bert/encoder/layer_0/attention/output/dense/BiasAdd:0']
-    fused_g = g.fuse_subgraph_iotensors(inputs=in_tensor_names, outputs=out_tensor_names, name='MHA_0',
+    g.fuse_subgraph_iotensors(inputs=in_tensor_names, outputs=out_tensor_names, name_prefix='MHA',
                                         nodeop='MHA', keep_attr=True)
-    fused_g.save_model('bertsquad_mha.onnx')
+    g.save_model('bertsquad_mha.onnx')
 
+bert_mha_fuse()
 
 def bert_mha_layernorm_fuse():
     import onnx_tool
@@ -103,22 +105,23 @@ def bert_mha_layernorm_fuse():
     modelpath = 'data/public/bertsquad-12.onnx'
     mproto = onnx.load_model(modelpath)
     g = onnx_tool.Graph(mproto.graph)
-    g.graph_reorder()
+    g.graph_reorder_nodes()
 
     # do some graph search here
     in_tensor_names = ['bert/encoder/Reshape_1:0']
     out_tensor_names = ['bert/encoder/layer_0/attention/output/dense/BiasAdd:0']
-    fused_g = g.fuse_subgraph_iotensors(inputs=in_tensor_names, outputs=out_tensor_names, name='MHA_0',
+    g.fuse_subgraph_iotensors(inputs=in_tensor_names, outputs=out_tensor_names, name_prefix='MHA_0',
                                         nodeop='MHA',
                                         keep_attr=True)  # ignore new op warning 'node MHA is not registed for profiling xxxx'
 
     in_tensor_names = ['bert/encoder/layer_0/attention/output/add:0']
     out_tensor_names = ['bert/encoder/layer_0/attention/output/LayerNorm/batchnorm/add_1:0']
-    fused_g = fused_g.fuse_subgraph_iotensors(inputs=in_tensor_names, outputs=out_tensor_names, name='layernrom_0',
+    g.fuse_subgraph_iotensors(inputs=in_tensor_names, outputs=out_tensor_names, name_prefix='layernrom',
                                               nodeop='layernorm',
                                               keep_attr=True)  # ignore new op warning 'node layernorm is not registed for profiling xxxx'
-    fused_g.save_model('bertsquad_mha_layernorm.onnx')
+    g.save_model('bertsquad_mha_layernorm.onnx')
 
+bert_mha_layernorm_fuse()
 
 def computegraph_with_shapeengine():
     import onnx_tool
@@ -141,11 +144,10 @@ def computegraph_with_shapeengine():
 
     mproto = onnx.load_model(model_config['name'])
     g = onnx_tool.Graph(mproto.graph)
-    g.graph_reorder()
+    g.graph_reorder_nodes()
 
     shape_engine = g.shape_regress(model_config['input_desc'], model_config['input_range'])
     cg = g.get_compute_graph()
-    cg = onnx_tool.Graph(cg)
     cg.save_model('compute_graph.onnx')
 
     shape_engine.update_variable('batch', 3)  # update batch size
@@ -154,6 +156,7 @@ def computegraph_with_shapeengine():
 
     print(shape_engine.get_tensorshape('1979'))  # query tensor shapes
 
+computegraph_with_shapeengine()
 
 def serialization():
     import onnx_tool
@@ -174,3 +177,4 @@ def serialization():
     onnx_tool.serialize_graph(compute_graph, 'resnet18.cg')
     onnx_tool.serialize_shape_engine(shape_engie, 'resnet18.se')
 
+serialization()

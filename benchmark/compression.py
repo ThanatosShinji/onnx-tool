@@ -53,16 +53,16 @@ def resnet_fusion_compression():
     cg = g.get_compute_graph()
     ConvBNFusion(cg)
     pattern = FusionPattern(Fused_Element)
-    nodes = pattern.find_pattern(cg)
+    nodes = pattern.search_pattern(cg)
     for names in nodes:
         cg.fuse_postop_node_names(names, True)
     pattern = FusionPattern(Conv_Res)
-    nodes = pattern.find_pattern(cg)
+    nodes = pattern.search_pattern(cg)
     for names in nodes:
         cg.fuse_postop_node_names(names, True)
     # remove flattern
     pattern = FusionPattern(remove_shapeop)
-    nodes = pattern.find_pattern(cg)
+    nodes = pattern.search_pattern(cg)
     for names in nodes:
         cg.fuse_postop_node_names(names, False)
     cg.graph_reorder_nodes()

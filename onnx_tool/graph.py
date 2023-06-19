@@ -689,12 +689,16 @@ class Graph():
         nodelist = []
         backlist = []
         node = self.nodemap[curnode]
+        if curnode in searched:
+            print(1)
         searched.append(curnode)
         for tname in node.input:
             if tname in produced_by.keys() and tname not in produced:
                 backlist.append(tname)
-        for tname in backlist:
-            nodelist.extend(self.__backwardsearch_node__(produced_by[tname],produced_by,consumed_by,produced,searched))
+        if len(backlist):
+            for tname in backlist:
+                if produced_by[tname] not in searched:
+                    nodelist.extend(self.__backwardsearch_node__(produced_by[tname],produced_by,consumed_by,produced,searched))
 
         produced.extend(node.output)
         nodelist +=[curnode]
@@ -715,7 +719,8 @@ class Graph():
                 backlist.append(tname)
         if len(backlist):
             for tname in backlist:
-                nodelist.extend(self.__backwardsearch_node__(produced_by[tname], produced_by, consumed_by, produced,searched))
+                if produced_by[tname] not in searched:
+                    nodelist.extend(self.__backwardsearch_node__(produced_by[tname], produced_by, consumed_by, produced,searched))
         nodelist+=[curnode]
 
         for tname in node.output:

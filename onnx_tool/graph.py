@@ -687,26 +687,15 @@ class Graph():
 
     def __backwardsearch_node__(self,curnode,produced_by,consumed_by,produced,searched):
         nodelist = []
-        backlist = []
         node = self.nodemap[curnode]
-        if curnode in searched:
-            print(1)
         searched.append(curnode)
         for tname in node.input:
             if tname in produced_by.keys() and tname not in produced:
-                backlist.append(tname)
-        if len(backlist):
-            for tname in backlist:
-                if produced_by[tname] not in searched:
-                    nodelist.extend(self.__backwardsearch_node__(produced_by[tname],produced_by,consumed_by,produced,searched))
+                nodelist.extend(self.__backwardsearch_node__(produced_by[tname], produced_by, consumed_by, produced, searched))
+
 
         produced.extend(node.output)
         nodelist +=[curnode]
-        for tname in node.output:
-            if tname in consumed_by.keys():
-                for nextn in consumed_by[tname]:
-                    if nextn not in searched:
-                        nodelist.extend(self.__forwardsearch_node__(nextn,produced_by,consumed_by,produced,searched))
         return nodelist
 
     def __forwardsearch_node__(self,curnode,produced_by,consumed_by,produced,searched):
@@ -719,8 +708,8 @@ class Graph():
                 backlist.append(tname)
         if len(backlist):
             for tname in backlist:
-                if produced_by[tname] not in searched:
-                    nodelist.extend(self.__backwardsearch_node__(produced_by[tname], produced_by, consumed_by, produced,searched))
+                nodelist.extend(self.__backwardsearch_node__(produced_by[tname], produced_by, consumed_by, produced,searched))
+
         nodelist+=[curnode]
 
         for tname in node.output:
@@ -735,7 +724,9 @@ class Graph():
     def reorder_nodes(self, node_names,input_names):
         # update
         import sys
-        sys.setrecursionlimit(len(node_names))
+        curlimit=sys.getrecursionlimit()
+        newlimit=len(node_names)*1 if len(node_names)*1 > curlimit else curlimit
+        sys.setrecursionlimit(newlimit+100) #TODO while version instead of recursion version
         produced_by = {}
         for name in node_names:
             node = self.nodemap[name]
@@ -760,6 +751,7 @@ class Graph():
                 if cnode in searched:
                     continue
                 ordered_nodes.extend(self.__forwardsearch_node__(cnode, produced_by, consumed_by, produced, searched))
+        sys.setrecursionlimit(curlimit)
         return ordered_nodes
 
     def graph_reorder_nodes(self):

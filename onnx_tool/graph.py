@@ -5,10 +5,9 @@ import warnings
 import numpy
 import onnx
 
-import onnx_tool
 from .node import create_node
-from .tensor import get_attribute_data, Tensor, volume
 from .tensor import STATIC_TENSOR, DYNAMIC_TENSOR
+from .tensor import get_attribute_data, Tensor, volume
 from .utils import VERSION, tuple2str
 
 
@@ -311,8 +310,7 @@ class Graph():
 
     def update_tensor_relations(self):
         self.__update_consumer_producer__()
-        self.dynamics=list(self.producedby.keys())
-
+        self.dynamics = list(self.producedby.keys())
 
     def __init_graph_from_onnxproto__(self, g, noderename):
         if g is None:
@@ -534,8 +532,8 @@ class Graph():
             else:
                 for pro in self.producedby[indtensor]:
                     pro_node = self.nodemap[pro]
-                    assert(len(pro_node.output)==1)
-                    pro_node.output[0]=node.output[0]
+                    assert (len(pro_node.output) == 1)
+                    pro_node.output[0] = node.output[0]
 
     def fuse_subgraph_node_names(self, nodes: [str], nodeop: str, nodename: str, keep_attr=True):
         _inputs, _outputs = self.get_iotensors(nodes, remove_initials=False)
@@ -614,26 +612,26 @@ class Graph():
                 newnode.nextnodes.append(self.consumedby[o])
         self.nodemap[mainnode.name] = newnode
 
-    def fuse_subgraph_iotensors(self, inputs: [], outputs: [], nodeop: str, name_prefix:str=None, keep_attr=True):
+    def fuse_subgraph_iotensors(self, inputs: [], outputs: [], nodeop: str, name_prefix: str = None, keep_attr=True):
         _, nodes, _ = self.__get_subnodes_byio__(inputs, outputs)
-        from .fusion import create_descs_from_nodenames,FusionPattern
-        descs=create_descs_from_nodenames(self,nodes)
+        from .fusion import create_descs_from_nodenames, FusionPattern
+        descs = create_descs_from_nodenames(self, nodes)
         pattern = FusionPattern(descs)
         nodesls = pattern.search_pattern(self)
-        for i,nodes in enumerate(nodesls):
-            name = name_prefix+'_'+str(i) if name_prefix is not None else nodes[0]
-            self.fuse_subgraph_node_names(nodes,nodeop,name,keep_attr)
+        for i, nodes in enumerate(nodesls):
+            name = name_prefix + '_' + str(i) if name_prefix is not None else nodes[0]
+            self.fuse_subgraph_node_names(nodes, nodeop, name, keep_attr)
 
     def get_onnxgraph_by_nodenames(self, nodenames):
         if len(nodenames):
             _inputs0, _outputs0 = self.get_iotensors(nodenames)
-            graph_level0 = self.reorder_nodes(nodenames, _inputs0)
+            graph_level0 = self.topsort_nodes(nodenames, _inputs0)
             subgraph = self.make_graph_onnx(graph_level0, 'subgraph', _inputs0, _outputs0)
             return subgraph
         return None
 
     def save_model(self, f: str, shape_only: bool = False, no_shape: bool = False, rawmodel: onnx.ModelProto = None):
-        if len(self.nodemap.keys())==0:
+        if len(self.nodemap.keys()) == 0:
             warnings.warn(f'Empty graph {f} to save')
             return
         graph = self.make_graph_onnx(self.nodemap.keys(), 'graph', self.input, self.output,
@@ -685,48 +683,8 @@ class Graph():
                                        value_info=value_infos)
         return graph
 
-    def __backwardsearch_node__(self,curnode,produced_by,consumed_by,produced,searched):
-        nodelist = []
-        node = self.nodemap[curnode]
-        searched.append(curnode)
-        for tname in node.input:
-            if tname in produced_by.keys() and tname not in produced:
-                nodelist.extend(self.__backwardsearch_node__(produced_by[tname], produced_by, consumed_by, produced, searched))
-
-
-        produced.extend(node.output)
-        nodelist +=[curnode]
-        return nodelist
-
-    def __forwardsearch_node__(self,curnode,produced_by,consumed_by,produced,searched):
-        nodelist=[]
-        backlist=[]
-        searched.append(curnode)
-        node = self.nodemap[curnode]
-        for tname in node.input:
-            if tname in produced_by.keys() and tname not in produced:
-                backlist.append(tname)
-        if len(backlist):
-            for tname in backlist:
-                nodelist.extend(self.__backwardsearch_node__(produced_by[tname], produced_by, consumed_by, produced,searched))
-
-        nodelist+=[curnode]
-
-        for tname in node.output:
-            produced.append(tname)
-        for tname in node.output:
-            if tname in consumed_by.keys():
-                for nextn in consumed_by[tname]:
-                    if nextn not in searched:
-                        nodelist.extend(self.__forwardsearch_node__(nextn,produced_by,consumed_by,produced,searched))
-        return nodelist
-
-    def reorder_nodes(self, node_names,input_names):
+    def topsort_nodes(self, node_names, input_names):
         # update
-        import sys
-        curlimit=sys.getrecursionlimit()
-        newlimit=len(node_names)*1 if len(node_names)*1 > curlimit else curlimit
-        sys.setrecursionlimit(newlimit+100) #TODO while version instead of recursion version
         produced_by = {}
         for name in node_names:
             node = self.nodemap[name]
@@ -734,28 +692,40 @@ class Graph():
                 produced_by[tname] = name
 
         consumed_by = {}
+        dependencies={}
         for name in node_names:
             node = self.nodemap[name]
+            count=0
             for tname in node.input:
                 if tname in produced_by.keys():
+                    count+=1
                     if tname in consumed_by.keys():
                         consumed_by[tname].append(name)
                     else:
                         consumed_by[tname] = [name]
+            dependencies[name]=count
 
-        produced = []
-        searched = []
         ordered_nodes = []
-        for input in input_names:
-            for cnode in self.consumedby[input]:
-                if cnode in searched:
-                    continue
-                ordered_nodes.extend(self.__forwardsearch_node__(cnode, produced_by, consumed_by, produced, searched))
-        sys.setrecursionlimit(curlimit)
+        queue =[]
+        while True:
+            for name in node_names:
+                if dependencies[name]==0:
+                    queue.append(name)
+                    ordered_nodes.append(name)
+                    dependencies[name]-=1
+            if len(queue)==0:
+                break
+            for name in queue:
+                node = self.nodemap[name]
+                for o in node.output:
+                    if o in consumed_by.keys():
+                        for con in consumed_by[o]:
+                            dependencies[con]-=1
+            queue.clear()
         return ordered_nodes
 
     def graph_reorder_nodes(self):
-        ordered_nodes=self.reorder_nodes(self.nodemap.keys(),self.input)
+        ordered_nodes = self.topsort_nodes(self.nodemap.keys(), self.input)
         new_map = {}
         for nname in ordered_nodes:
             new_map[nname] = self.nodemap[nname]

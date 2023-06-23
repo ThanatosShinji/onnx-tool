@@ -13,7 +13,7 @@ for modelinfo in public_models['models']:
     model = onnx.load_model(os.path.join(folder, modelinfo['name']))
     basen = os.path.basename(modelinfo['name'])
     name = os.path.splitext(basen)[0]
-    g = Graph(model.graph, constant_folding=False)
+    g = Graph(model.graph, verbose=True, constant_folding=False)
     g.shape_infer(modelinfo['dynamic_input'])
     g.compress_memory()
     print('-' * 64)
@@ -27,7 +27,7 @@ for modelinfo in private_models['models']:
     model = onnx.load_model(os.path.join(folder, modelinfo['name']))
     basen = os.path.basename(modelinfo['name'])
     name = os.path.splitext(basen)[0]
-    g = Graph(model.graph, constant_folding=False)
+    g = Graph(model.graph, verbose=True,constant_folding=False)
     g.shape_infer(modelinfo['dynamic_input'])
     g.compress_memory()
     print('-' * 64)

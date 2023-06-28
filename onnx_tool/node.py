@@ -930,7 +930,7 @@ class ResizeNode(Node):
 
         newshape = []
         if is_valid_ndarray(sizes):
-            if len(sizes) == 4:
+            if len(sizes) == len(xshape):
                 newshape = sizes
             if len(sizes) == 2:
                 newshape = xshape[:2] + sizes

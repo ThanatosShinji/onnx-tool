@@ -679,6 +679,13 @@ class Graph():
                 if vinfo is None:
                     continue
                 value_infos.append(vinfo)
+            if not with_initializer:
+                 for key in self.initials:
+                    tensor = self.tensormap[key]
+                    vinfo = tensor.make_value_proto()
+                    if vinfo is None:
+                        continue
+                    value_infos.append(vinfo)
         graph = onnx.helper.make_graph(nodes=nodes, name=gname, inputs=inputs, outputs=outputs, initializer=initializer,
                                        value_info=value_infos)
         return graph

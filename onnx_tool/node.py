@@ -1187,6 +1187,12 @@ class BatchNormalizationNode(FusedBase):
             y[i]=(x[i]-m)*sm+sv
         return [y]
 
+    # Fusion of batchnorm is determined by inference engine, here just gives the MACs.
+    def profile(self, intensors: [], outtensors: []):
+        base = volume(_get_shape(outtensors[0]))
+        base *= ADD_MACS + SQRT_MACS + DIV_MACS + ADD_MACS + MUL_MACS
+        return base
+
 @NODE_REGISTRY.register()
 class FlattenNode(Node):
     def __init__(self, node):

@@ -534,6 +534,7 @@ class Graph():
                     pro_node = self.nodemap[pro]
                     assert (len(pro_node.output) == 1)
                     pro_node.output[0] = node.output[0]
+        self.nodemap.pop(nodename)
 
     def fuse_subgraph_node_names(self, nodes: [str], nodeop: str, nodename: str, keep_attr=True):
         _inputs, _outputs = self.get_iotensors(nodes, remove_initials=False)
@@ -1230,7 +1231,7 @@ class Graph():
 
         self.valid_profile = True
 
-    def print_node_map(self, f: str = None, metric='MACs', exclude_nodes=None):
+    def print_node_map(self, f: str = None, metric='MACs', exclude_ops=None):
         if not self.valid_profile:
             warnings.warn('Please perform a valid profile() before print_node_map().')
             return
@@ -1287,7 +1288,7 @@ class Graph():
         macs += 1e-18
         for key in self.nodemap.keys():
             node = self.nodemap[key]
-            if exclude_nodes is not None and node.op_type in exclude_nodes:
+            if exclude_ops is not None and node.op_type in exclude_ops:
                 continue
             row = [key, self.nodemap[key].op_type]
             if print_sparse_table:

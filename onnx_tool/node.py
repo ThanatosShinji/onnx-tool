@@ -139,6 +139,10 @@ class Node():
                 if isinstance(self.axes, list):
                     self.axes = tuple(self.axes)
 
+    def set_attr(self,key,val):
+        self.attr[key]=val
+        self.__setattr__(key,val)
+
     def add_default_value(self, attname, defaultvalue):
         if not hasattr(self, attname):
             setattr(self, attname, defaultvalue)

@@ -1,42 +1,55 @@
-def get_profile_for_each_layer():
+import numpy
+
+def parse_and_edit():
     import onnx_tool
-    modelpath = 'resnet50-v1-12.onnx'
-    onnx_tool.model_profile(modelpath)  # pass file name
-    onnx_tool.model_profile(modelpath, savenode='node_table.txt')  # save profile table to txt file
-    onnx_tool.model_profile(modelpath, savenode='node_table.csv')  # save profile table to csv file
+    modelpath = 'data/public/resnet50-v1-7.onnx'
+    m = onnx_tool.Model(modelpath)
+    g = m.graph
+    g.nodemap['resnetv17_batchnorm0_fwd'].set_attr('epsilon',0.0001)
+    g.nodemap['resnetv17_batchnorm0_fwd'].set_attr('lol','haha')
+    raw=g.tensormap['resnetv17_batchnorm0_gamma'].numpy
+    g.tensormap['resnetv17_batchnorm0_gamma'].numpy=raw.astype(numpy.float16)
+    g.skip_node('flatten_473')#remove_node will break the input and output tensor relation
+    m.save_model('resnet50-v1-7-edited.onnx')
 
-
-def add_op_filter():
+def profile_model():
     import onnx_tool
-    from torchvision.models import ResNet
-    from torchvision.models.resnet import Bottleneck
-    import torch
-    from onnx_tool import NoMacsOps
-    net = ResNet(Bottleneck, [3, 4, 6, 3], num_classes=1000)  # build ResNet50 for ImageNet
-    x = torch.randn(1, 3, 224, 224)
-    torch.onnx.export(net, x, 'tmp.onnx')
-    hops = list(NoMacsOps)  # import onnx_tool's suggested ops
-    hops.extend(('Add', 'Flatten', 'Relu'))  # add Add and Flatten op to hidden list
-    onnx_tool.model_profile('tmp.onnx', hidden_ops=hops)  # conv, Gemm, GlobalAveragePool, MaxPool left
+    modelpath = 'data/public/resnet50-v1-7.onnx'
+    m = onnx_tool.Model(modelpath)
+    m.graph.shape_infer({'data':numpy.zeros((1,3,224,224))}) # update tensor shapes with new input tensor
+    m.graph.profile()
+    m.graph.print_node_map()#console print
+    m.graph.print_node_map('resnet50-224.txt')#save file
 
+    m.graph.shape_infer({'data': numpy.zeros((1, 3, 256, 256))})  # update new resolution
+    m.graph.profile()
+    m.graph.print_node_map(exclude_ops=['Flatten','Relu','BatchNormalization']) # remove ops from the profile
+    m.graph.print_node_map('resnet50-256.csv')#csv file
 
-def save_graph_structure_only():
+    m.save_model('resnet50_shapes_only.onnx',shape_only=True) #only with weight tensor shapes and dynamic tensor shapes
+    # remove static weights, minimize storage space. 46KB
+
+def simple_inference():
     import onnx
     import onnx_tool
-    modelpath = 'resnet50-v1-12.onnx'
-    model = onnx.load_model(modelpath)
-    onnx_tool.model_shape_infer(model, None, saveshapesmodel='resnet50_shapes.onnx', shapesonly=True)
-    # pass ONNX.ModelProto and remove static weights, minimize storage space. 46KB
-
-
-def add_dump_tensors():
-    import onnx
-    import onnx_tool
-    modelpath = 'resnet50-v1-12.onnx'
-    model = onnx.load_model(modelpath)
-    onnx_tool.model_shape_infer(model, None, saveshapesmodel='resnet50_shapes.onnx', shapesonly=True,
-                                dump_outputs=['resnetv17_stage1_conv3_fwd', 'resnetv17_stage1_conv3_fwd'])
+    modelpath = 'data/public/resnet50-v1-7.onnx'
+    tmppath = 'tmp.onnx'
+    m = onnx_tool.Model(modelpath)
+    dumptensors=['resnetv17_stage1_conv3_fwd', 'resnetv17_stage1_conv3_fwd']
+    m.graph.add_dump_tensors(dumptensors)
+    m.save_model(tmppath)
     # add two hidden tensors resnetv17_stage1_conv3_fwd resnetv17_stage1_conv3_fwd to 'resnet50_shapes.onnx' model's output tensors
+
+    def infer_with_ort(onnxfile,dumptensors,inputm):
+        import onnxruntime as ort
+        sess = ort.InferenceSession(onnxfile)
+        output = sess.run(dumptensors, inputm)
+        return output
+    inputm={'data':numpy.ones((1,3,224,224),dtype=numpy.float32)}
+    # outputs = infer_with_ort(tmppath,dumptensors,inputm) #with onnxruntime
+    # print(outputs[0])
+    outputs = m.graph.value_infer(inputm) #limited models, very slow, for debug purpose
+    print(m.graph.tensormap['resnetv17_stage1_conv3_fwd'].numpy)
 
 
 def dynamic_input_shapes():
@@ -44,12 +57,15 @@ def dynamic_input_shapes():
     import onnx_tool
     from onnx_tool import create_ndarray_f32  # or use numpy.ones(shape,numpy.float32) is ok
     modelpath = 'data/public/rvm_mobilenetv3_fp32.onnx'
+    m = onnx_tool.Model(modelpath)
     inputs = {'src': create_ndarray_f32((1, 3, 1080, 1920)), 'r1i': create_ndarray_f32((1, 16, 135, 240)),
               'r2i': create_ndarray_f32((1, 20, 68, 120)), 'r3i': create_ndarray_f32((1, 40, 34, 60)),
               'r4i': create_ndarray_f32((1, 64, 17, 30)), 'downsample_ratio': numpy.array((0.25,), dtype=numpy.float32)}
-    onnx_tool.model_profile(modelpath, inputs, None, saveshapesmodel='rvm_mobilenetv3_fp32_shapes.onnx')
+    m.graph.shape_infer(inputs)
+    m.graph.profile()
+    m.graph.print_node_map()
+    m.save_model('rvm_mobilenetv3_fp32_shapes.onnx')
 
-dynamic_input_shapes()
 
 def custom_layer_register():
     import onnx_tool
@@ -97,7 +113,6 @@ def bert_mha_fuse():
                                         nodeop='MHA', keep_attr=True)
     g.save_model('bertsquad_mha.onnx')
 
-bert_mha_fuse()
 
 def bert_mha_layernorm_fuse():
     import onnx_tool
@@ -121,7 +136,6 @@ def bert_mha_layernorm_fuse():
                                               keep_attr=True)  # ignore new op warning 'node layernorm is not registed for profiling xxxx'
     g.save_model('bertsquad_mha_layernorm.onnx')
 
-bert_mha_layernorm_fuse()
 
 def computegraph_with_shapeengine():
     import onnx_tool
@@ -156,7 +170,6 @@ def computegraph_with_shapeengine():
 
     print(shape_engine.get_tensorshape('1979'))  # query tensor shapes
 
-computegraph_with_shapeengine()
 
 def serialization():
     import onnx_tool
@@ -177,4 +190,3 @@ def serialization():
     onnx_tool.serialize_graph(compute_graph, 'resnet18.cg')
     onnx_tool.serialize_shape_engine(shape_engie, 'resnet18.se')
 
-serialization()

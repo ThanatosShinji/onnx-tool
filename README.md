@@ -6,7 +6,7 @@
 * *Parse and edit: <a href="data/ConstantFolding.md">Constant Folding</a>; OPs fusion.*
 * *Model profiling: Rapid shape inference; MACs statistics*
 * *Compute Graph and Shape Engine.*
-* *Activation memory compression.*
+* *Model memory compression: activation compression and weight compression.*
 * *Quantized models and sparse models are supported.*
 
 Supported Models:
@@ -27,6 +27,8 @@ To apply your changes, just call save_model method of onnx_tool.Model or onnx_to
 
 Please refer [benchmark/samples.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/samples.py).
 
+---
+
 ## Shape inference
 All profiling data must be built on shape inference result.
 <p align="center">  
@@ -39,7 +41,6 @@ tensorflow
 usage: [data/TensorflowUsage.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/TensorflowUsage.md).  
 samples: [benchmark/samples.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/samples.py).
 
----
 
 ## Profile Model
 
@@ -70,7 +71,7 @@ samples: [benchmark/samples.py](https://github.com/ThanatosShinji/onnx-tool/blob
 Remove shape calculation layers(created by ONNX export) to get a *Compute Graph*. Use *Shape Engine* to update tensor
 shapes at runtime.  
 Samples: [benchmark/shape_regress.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/shape_regress.py).
-[benchmark/samples.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/samples.py#L123).  
+[benchmark/samples.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/samples.py#L151).  
 Integrate *Compute Graph* and *Shape Engine* into a cpp inference
 engine: [data/inference_engine.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/inference_engine.md)
 
@@ -91,7 +92,7 @@ Resnet18 fusion
 </p>
 
 how to use: [data/Subgraph.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Subgraph.md).  
-BERT samples: [benchmark/samples.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/samples.py#L100).  
+BERT samples: [benchmark/samples.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/samples.py#L113).  
 Pattern fusion: [benchmark/do_fusion.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/do_fusion.py).
 
 ---
@@ -108,6 +109,11 @@ how to use: [data/Subgraph.md](https://github.com/ThanatosShinji/onnx-tool/blob/
 
 ## Memory Compression
 
+### Activation compression
+Activation memory also called temporary memory is created by each OP's output. Only the last activation marked as the
+model's output will be kept. So you don't have to prepare memory space for each activation tensor. They better reuse 
+an optimized memory size.
+
 For large language models and high-resolution CV models, the activation memory compression is a key to save memory.  
 The compression method achieves 5% memory compression on most models.   
 For example:
@@ -122,6 +128,13 @@ For example:
  BERT                          | 2,170                  | 27                         | 1.25                 
 
 code sample: [benchmark/compression.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/compression.py)
+
+### Weight compression
+A fp32 model with 7B parameters will take 28GB disk space and memory space. So weight compression is critical to run large
+ language models.
+
+code samples:[benchmark/samples.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/samples.py#L32).  
+
 
 ---
 

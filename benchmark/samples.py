@@ -29,6 +29,18 @@ def profile_model():
     m.save_model('resnet50_shapes_only.onnx',shape_only=True) #only with weight tensor shapes and dynamic tensor shapes
     # remove static weights, minimize storage space. 46KB
 
+def weight_compression():
+    import onnx_tool
+    modelpath = 'data/public/resnet50-v1-7.onnx'
+    m = onnx_tool.Model(modelpath)
+    g = m.graph
+    for key in g.initials:
+        tensor=g.tensormap[key]
+        raw=tensor.numpy
+        tensor.numpy=raw.astype(numpy.float16)
+    m.save_model('resnet50-v1-7-fp16.onnx')
+    # TODO quantization int8 and int4
+
 def simple_inference():
     import onnx
     import onnx_tool
@@ -106,7 +118,6 @@ def bert_mha_fuse():
     g = onnx_tool.Graph(mproto.graph)
     g.graph_reorder_nodes()
 
-    # do some graph search here
     in_tensor_names = ['bert/encoder/Reshape_1:0']
     out_tensor_names = ['bert/encoder/layer_0/attention/output/dense/BiasAdd:0']
     g.fuse_subgraph_iotensors(inputs=in_tensor_names, outputs=out_tensor_names, name_prefix='MHA',
@@ -122,18 +133,18 @@ def bert_mha_layernorm_fuse():
     g = onnx_tool.Graph(mproto.graph)
     g.graph_reorder_nodes()
 
-    # do some graph search here
     in_tensor_names = ['bert/encoder/Reshape_1:0']
     out_tensor_names = ['bert/encoder/layer_0/attention/output/dense/BiasAdd:0']
+    #automatically find all MHA nodes
     g.fuse_subgraph_iotensors(inputs=in_tensor_names, outputs=out_tensor_names, name_prefix='MHA_0',
                                         nodeop='MHA',
-                                        keep_attr=True)  # ignore new op warning 'node MHA is not registed for profiling xxxx'
+                                        keep_attr=True)
 
     in_tensor_names = ['bert/encoder/layer_0/attention/output/add:0']
     out_tensor_names = ['bert/encoder/layer_0/attention/output/LayerNorm/batchnorm/add_1:0']
     g.fuse_subgraph_iotensors(inputs=in_tensor_names, outputs=out_tensor_names, name_prefix='layernrom',
                                               nodeop='layernorm',
-                                              keep_attr=True)  # ignore new op warning 'node layernorm is not registed for profiling xxxx'
+                                              keep_attr=True)
     g.save_model('bertsquad_mha_layernorm.onnx')
 
 

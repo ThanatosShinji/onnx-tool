@@ -3,11 +3,9 @@
 
 **A tool for ONNX model:**
 
-* *Rapid shape inference.*
-* *Profile model.*
-* *<a href="data/ConstantFolding.md">Constant Folding.</a>*
+* *Parse and edit: <a href="data/ConstantFolding.md">Constant Folding</a>; OPs fusion.*
+* *Model profiling: Rapid shape inference; MACs statistics*
 * *Compute Graph and Shape Engine.*
-* *OPs fusion.*
 * *Activation memory compression.*
 * *Quantized models and sparse models are supported.*
 
@@ -20,8 +18,17 @@ Supported Models:
 
 ---
 
-## Shape inference
+## Parse and edit
+You can load any onnx file by onnx_tool.Model:  
+Change graph structure with onnx_tool.Graph;  
+Change op attributes and IO tensors with onnx_tool.Node;  
+Change tensor data or type with onnx_tool.Tensor.  
+To apply your changes, just call save_model method of onnx_tool.Model or onnx_tool.Graph.
 
+Please refer [benchmark/samples.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/samples.py).
+
+## Shape inference
+All profiling data must be built on shape inference result.
 <p align="center">  
   <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/shape_inference.jpg">
 </p>  
@@ -118,16 +125,6 @@ code sample: [benchmark/compression.py](https://github.com/ThanatosShinji/onnx-t
 
 ---
 
-## Tensor operations
-
-* *Export weight tensors to files*
-* *Simplify tensor and node names, convert name from a long string to a short string*
-* *Remove unused tensors, models like vgg19-7.onnx set its static weight tensors as its input tensors*
-* *Set custom input and output tensors' name and dimension, change model from fixed input to dynamic input*  
-  how to use: [data/Tensors.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Tensors.md).
-
----
-
 ## How to install
     
 `pip install onnx-tool`
@@ -146,7 +143,7 @@ Then `pip install onnx-tool` again.
 
 ## Known Issues
 * Loop op is not supported
-* Activation Compression is not optimum
+* Tensor types created by onnx_tool are not correct
   
 ---
 

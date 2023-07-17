@@ -139,7 +139,7 @@ Current support:
 * [int8]x[symmetric/asymmetric]x[per tensor/per channel/per block]  
 * [int4]x[symmetric/asymmetric]x[per tensor/per channel/per block]  
 
-code samples:[benchmark/samples.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/samples.py#L32).  
+code samples:[benchmark/samples.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/samples.py#L36).  
 
 
 ---

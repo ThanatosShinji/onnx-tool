@@ -6,10 +6,10 @@ def parse_and_edit():
     modelpath = 'data/public/resnet50-v1-7.onnx'
     m = onnx_tool.Model(modelpath)
     g = m.graph
-    g.nodemap['resnetv17_batchnorm0_fwd'].set_attr('epsilon', 0.0001)
-    g.nodemap['resnetv17_batchnorm0_fwd'].set_attr('lol', 'haha')
+    g.nodemap['resnetv17_batchnorm0_fwd'].set_attr('epsilon', 0.0001)  # update the epsilon attribute value
+    g.nodemap['resnetv17_batchnorm0_fwd'].set_attr('lol', 'haha')  # add new attributes of OP
     raw = g.tensormap['resnetv17_batchnorm0_gamma'].numpy
-    g.tensormap['resnetv17_batchnorm0_gamma'].numpy = raw.astype(numpy.float16)
+    g.tensormap['resnetv17_batchnorm0_gamma'].numpy = raw.astype(numpy.float16)  # convert weight tensor to float16
     g.skip_node('flatten_473')  # remove_node will break the input and output tensor relation
     m.save_model('resnet50-v1-7-edited.onnx')
 
@@ -35,7 +35,7 @@ def profile_model():
 
 def weight_compression():
     import onnx_tool
-    modelpath = 'data/public/gpt2-10.onnx'
+    modelpath = 'data/public/resnet50-v1-7.onnx'
     m = onnx_tool.Model(modelpath)
     g = m.graph
 
@@ -44,31 +44,31 @@ def weight_compression():
             tensor = g.tensormap[key]
             raw = tensor.numpy
             tensor.numpy = raw.astype(numpy.float16)
-        m.save_model('gpt2-10-fp16.onnx')
+        m.save_model(m.modelname + '-fp16.onnx')
 
     def quantize_sym():
         from onnx_tool.quantization import graph_quantize
         for key in g.initials:
             graph_quantize(g, key, block=-1, type='asym', bits=8)
-        m.save_model('gpt2-10-8bits-sym-default.onnx')
+        m.save_model(m.modelname + '-8bits-sym-default.onnx')
 
     def quantize_asym():
         from onnx_tool.quantization import graph_quantize
         for key in g.initials:
             graph_quantize(g, key, block=-1, type='asym', bits=8)
-        m.save_model('gpt2-10-8bits-asym-default.onnx')
+        m.save_model(m.modelname + '-8bits-asym-default.onnx')
 
     def quantize_sym_b32():
         from onnx_tool.quantization import graph_quantize
         for key in g.initials:
             graph_quantize(g, key, block=32, type='sym', bits=8)
-        m.save_model('gpt2-10-8bits-sym-b32.onnx')
+        m.save_model(m.modelname + '-8bits-sym-b32.onnx')
 
     def quantize_4bits_sym_b32():
         from onnx_tool.quantization import graph_quantize
         for key in g.initials:
             graph_quantize(g, key, block=32, type='sym', bits=4)
-        m.save_model('gpt2-10-4bits-sym-b32.onnx')
+        m.save_model(m.modelname + '-4bits-sym-b32.onnx')
 
 
 def simple_inference():

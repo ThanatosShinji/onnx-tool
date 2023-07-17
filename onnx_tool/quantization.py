@@ -133,7 +133,6 @@ def graph_quantize(g: onnx_tool.Graph, tname: str, block: int = -1, type: str = 
     if f32arr.dtype not in [numpy.float32, numpy.float16, numpy.float64]:
         return
     if len(f32arr.shape) != 2:
-        warnings.warn("Only gemm weight's quantization is supported now")
         return
     if f32arr.dtype is not numpy.float32:
         f32arr = f32arr.astype(numpy.float32)
@@ -142,6 +141,9 @@ def graph_quantize(g: onnx_tool.Graph, tname: str, block: int = -1, type: str = 
     if isinstance(node,onnx_tool.node.GemmNode):
         if node.transB==0:
             f32arr=f32arr.transpose()
+    node.set_attr('OTQ_Block',block)
+    node.set_attr('OTQ_Type',type)
+    node.set_attr('OTQ_Bits',bits)
     Q, scale, zp = quantize(f32arr, block, type, bits)
     tname_q = tname + '_ot_q'
     tname_s = tname + '_ot_s'

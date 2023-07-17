@@ -110,6 +110,7 @@ def tensorproto2ndarray(initial):
     arr = arr.reshape(shape)
     return arr
 
+
 def get_attribute_data(att):
     if att.type == att.INTS:
         val = []
@@ -458,8 +459,14 @@ class Tensor():
             tproto = onnx.helper.make_tensor(self.name, npdtype2onnxdtype(self.numpy.dtype)
                                              , [], [self.numpy.item()])
         else:
+            if self.numpy.dtype not in [numpy.float32, numpy.int32]:
+                raw = True
+                data = self.numpy.tobytes()
+            else:
+                raw = False
+                data = self.numpy.flatten()
             tproto = onnx.helper.make_tensor(self.name, npdtype2onnxdtype(self.numpy.dtype)
-                                             , self.numpy.shape, self.numpy.flatten())
+                                             , self.numpy.shape, data, raw=raw)
         return tproto
 
 

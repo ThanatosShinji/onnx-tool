@@ -1,45 +1,75 @@
 import numpy
 
+
 def parse_and_edit():
     import onnx_tool
     modelpath = 'data/public/resnet50-v1-7.onnx'
     m = onnx_tool.Model(modelpath)
     g = m.graph
-    g.nodemap['resnetv17_batchnorm0_fwd'].set_attr('epsilon',0.0001)
-    g.nodemap['resnetv17_batchnorm0_fwd'].set_attr('lol','haha')
-    raw=g.tensormap['resnetv17_batchnorm0_gamma'].numpy
-    g.tensormap['resnetv17_batchnorm0_gamma'].numpy=raw.astype(numpy.float16)
-    g.skip_node('flatten_473')#remove_node will break the input and output tensor relation
+    g.nodemap['resnetv17_batchnorm0_fwd'].set_attr('epsilon', 0.0001)
+    g.nodemap['resnetv17_batchnorm0_fwd'].set_attr('lol', 'haha')
+    raw = g.tensormap['resnetv17_batchnorm0_gamma'].numpy
+    g.tensormap['resnetv17_batchnorm0_gamma'].numpy = raw.astype(numpy.float16)
+    g.skip_node('flatten_473')  # remove_node will break the input and output tensor relation
     m.save_model('resnet50-v1-7-edited.onnx')
+
 
 def profile_model():
     import onnx_tool
     modelpath = 'data/public/resnet50-v1-7.onnx'
     m = onnx_tool.Model(modelpath)
-    m.graph.shape_infer({'data':numpy.zeros((1,3,224,224))}) # update tensor shapes with new input tensor
+    m.graph.shape_infer({'data': numpy.zeros((1, 3, 224, 224))})  # update tensor shapes with new input tensor
     m.graph.profile()
-    m.graph.print_node_map()#console print
-    m.graph.print_node_map('resnet50-224.txt')#save file
+    m.graph.print_node_map()  # console print
+    m.graph.print_node_map('resnet50-224.txt')  # save file
 
     m.graph.shape_infer({'data': numpy.zeros((1, 3, 256, 256))})  # update new resolution
     m.graph.profile()
-    m.graph.print_node_map(exclude_ops=['Flatten','Relu','BatchNormalization']) # remove ops from the profile
-    m.graph.print_node_map('resnet50-256.csv')#csv file
+    m.graph.print_node_map(exclude_ops=['Flatten', 'Relu', 'BatchNormalization'])  # remove ops from the profile
+    m.graph.print_node_map('resnet50-256.csv')  # csv file
 
-    m.save_model('resnet50_shapes_only.onnx',shape_only=True) #only with weight tensor shapes and dynamic tensor shapes
+    m.save_model('resnet50_shapes_only.onnx',
+                 shape_only=True)  # only with weight tensor shapes and dynamic tensor shapes
     # remove static weights, minimize storage space. 46KB
+
 
 def weight_compression():
     import onnx_tool
-    modelpath = 'data/public/resnet50-v1-7.onnx'
+    modelpath = 'data/public/gpt2-10.onnx'
     m = onnx_tool.Model(modelpath)
     g = m.graph
-    for key in g.initials:
-        tensor=g.tensormap[key]
-        raw=tensor.numpy
-        tensor.numpy=raw.astype(numpy.float16)
-    m.save_model('resnet50-v1-7-fp16.onnx')
-    # TODO quantization int8 and int4
+
+    def tofloat16():
+        for key in g.initials:
+            tensor = g.tensormap[key]
+            raw = tensor.numpy
+            tensor.numpy = raw.astype(numpy.float16)
+        m.save_model('gpt2-10-fp16.onnx')
+
+    def quantize_sym():
+        from onnx_tool.quantization import graph_quantize
+        for key in g.initials:
+            graph_quantize(g, key, block=-1, type='asym', bits=8)
+        m.save_model('gpt2-10-8bits-sym-default.onnx')
+
+    def quantize_asym():
+        from onnx_tool.quantization import graph_quantize
+        for key in g.initials:
+            graph_quantize(g, key, block=-1, type='asym', bits=8)
+        m.save_model('gpt2-10-8bits-asym-default.onnx')
+
+    def quantize_sym_b32():
+        from onnx_tool.quantization import graph_quantize
+        for key in g.initials:
+            graph_quantize(g, key, block=32, type='sym', bits=8)
+        m.save_model('gpt2-10-8bits-sym-b32.onnx')
+
+    def quantize_4bits_sym_b32():
+        from onnx_tool.quantization import graph_quantize
+        for key in g.initials:
+            graph_quantize(g, key, block=32, type='sym', bits=4)
+        m.save_model('gpt2-10-4bits-sym-b32.onnx')
+
 
 def simple_inference():
     import onnx
@@ -47,20 +77,22 @@ def simple_inference():
     modelpath = 'data/public/resnet50-v1-7.onnx'
     tmppath = 'tmp.onnx'
     m = onnx_tool.Model(modelpath)
-    dumptensors=['resnetv17_stage1_conv3_fwd', 'resnetv17_stage1_conv3_fwd']
+    dumptensors = ['resnetv17_stage1_conv3_fwd', 'resnetv17_stage1_conv3_fwd']
     m.graph.add_dump_tensors(dumptensors)
     m.save_model(tmppath)
+
     # add two hidden tensors resnetv17_stage1_conv3_fwd resnetv17_stage1_conv3_fwd to 'resnet50_shapes.onnx' model's output tensors
 
-    def infer_with_ort(onnxfile,dumptensors,inputm):
+    def infer_with_ort(onnxfile, dumptensors, inputm):
         import onnxruntime as ort
         sess = ort.InferenceSession(onnxfile)
         output = sess.run(dumptensors, inputm)
         return output
-    inputm={'data':numpy.ones((1,3,224,224),dtype=numpy.float32)}
+
+    inputm = {'data': numpy.ones((1, 3, 224, 224), dtype=numpy.float32)}
     # outputs = infer_with_ort(tmppath,dumptensors,inputm) #with onnxruntime
     # print(outputs[0])
-    outputs = m.graph.value_infer(inputm) #limited models, very slow, for debug purpose
+    outputs = m.graph.value_infer(inputm)  # limited models, very slow, for debug purpose
     print(m.graph.tensormap['resnetv17_stage1_conv3_fwd'].numpy)
 
 
@@ -121,7 +153,7 @@ def bert_mha_fuse():
     in_tensor_names = ['bert/encoder/Reshape_1:0']
     out_tensor_names = ['bert/encoder/layer_0/attention/output/dense/BiasAdd:0']
     g.fuse_subgraph_iotensors(inputs=in_tensor_names, outputs=out_tensor_names, name_prefix='MHA',
-                                        nodeop='MHA', keep_attr=True)
+                              nodeop='MHA', keep_attr=True)
     g.save_model('bertsquad_mha.onnx')
 
 
@@ -135,16 +167,16 @@ def bert_mha_layernorm_fuse():
 
     in_tensor_names = ['bert/encoder/Reshape_1:0']
     out_tensor_names = ['bert/encoder/layer_0/attention/output/dense/BiasAdd:0']
-    #automatically find all MHA nodes
+    # automatically find all MHA nodes
     g.fuse_subgraph_iotensors(inputs=in_tensor_names, outputs=out_tensor_names, name_prefix='MHA_0',
-                                        nodeop='MHA',
-                                        keep_attr=True)
+                              nodeop='MHA',
+                              keep_attr=True)
 
     in_tensor_names = ['bert/encoder/layer_0/attention/output/add:0']
     out_tensor_names = ['bert/encoder/layer_0/attention/output/LayerNorm/batchnorm/add_1:0']
     g.fuse_subgraph_iotensors(inputs=in_tensor_names, outputs=out_tensor_names, name_prefix='layernrom',
-                                              nodeop='layernorm',
-                                              keep_attr=True)
+                              nodeop='layernorm',
+                              keep_attr=True)
     g.save_model('bertsquad_mha_layernorm.onnx')
 
 
@@ -200,4 +232,3 @@ def serialization():
                                                                resnetinfo['input_range'])
     onnx_tool.serialize_graph(compute_graph, 'resnet18.cg')
     onnx_tool.serialize_shape_engine(shape_engie, 'resnet18.se')
-

@@ -130,8 +130,14 @@ For example:
 code sample: [benchmark/compression.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/compression.py)
 
 ### Weight compression
-A fp32 model with 7B parameters will take 28GB disk space and memory space. So weight compression is critical to run large
- language models.
+A fp32 model with 7B parameters will take 28GB disk space and memory space. You can not even run the model if your device
+ doesn't have that much memory space. So weight compression is critical to run large language models. As a reference, 7B 
+model with int4 symmetric per block(32) quantization(llama.cpp's q4_0 quantization method) only has ~0.156x model size compared with fp32 model. 
+
+Current support:   
+* [fp16]
+* [int8]x[symmetric/asymmetric]x[per tensor/per channel/per block]  
+* [int4]x[symmetric/asymmetric]x[per tensor/per channel/per block]  
 
 code samples:[benchmark/samples.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/samples.py#L32).  
 

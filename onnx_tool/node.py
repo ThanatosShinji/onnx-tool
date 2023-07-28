@@ -425,7 +425,7 @@ class SigmoidNode(ExpNode):
 class TanhNode(PWNode):
     def __init__(self, n):
         super().__init__(n)
-        self.op_mac = EXP_MACS
+        self.op_mac = TANH_MACS
         self.ratio = 2
 
     def value_infer(self, intensors: []):
@@ -1626,15 +1626,20 @@ class ConvNode(Node):
 
     def profile(self, intensors: [], outtensors: []):
         macs = 0
+        print('in', intensors)
+        print('out', outtensors)
         if len(outtensors) == 1:
             if len(intensors) == 3 or len(intensors) == 2:
                 kernel_shape = _get_shape(intensors[1])
                 outvol = volume(_get_shape(outtensors[0]))
+                print('kernel_shape', kernel_shape)
+                print('outvol', outvol)
                 if len(kernel_shape) > 3:
-                    macs += outvol * kernel_shape[1] * kernel_shape[2] * kernel_shape[3]
+                    macs += outvol * kernel_shape[1] * kernel_shape[2] * kernel_shape[3] * MUL_MACS
                 elif len(kernel_shape) == 3:
-                    macs += outvol * kernel_shape[1] * kernel_shape[2]
+                    macs += outvol * kernel_shape[1] * kernel_shape[2] * MUL_MACS
                 macs += (outvol * ADD_MACS)
+        print('macs', macs)
         return macs
 
 

@@ -1231,7 +1231,7 @@ class Graph():
 
         self.valid_profile = True
 
-    def print_node_map(self, f: str = None, metric='MACs', exclude_ops=None):
+    def print_node_map(self, f: str = None, metric='FLOPs', exclude_ops=None):
         if not self.valid_profile:
             warnings.warn('Please perform a valid profile() before print_node_map().')
             return

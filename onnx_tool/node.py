@@ -463,6 +463,19 @@ class HardSigmoidNode(PWNode):
     def value_infer(self, intensors: []):
         y = max(0, min(1, self.alpha * intensors[0] + self.beta))
         return [y]
+    
+
+@NODE_REGISTRY.register()
+class HardSwishNode(PWNode):
+    def __init__(self, node_proto):
+        super().__init__(node_proto)
+        self.op_mac = MUL_MACS * 2 + ADD_MACS + CMP_MACS * 2
+        self.add_default_value('alpha',0.2)
+        self.add_default_value('beta',0.5)
+
+    def value_infer(self, intensors: []):
+        y = intensors[0] * max(0, min(1, self.alpha * intensors[0] + self.beta))
+        return [y]
 
 
 @NODE_REGISTRY.register()

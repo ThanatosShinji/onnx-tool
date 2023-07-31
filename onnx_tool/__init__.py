@@ -86,7 +86,7 @@ def model_profile(m, dynamic_shapes: {str: tuple} = None, savenode: str = None,
     gtmr.start()
     g.profile()
     g.log(f'profile all nodes, time cost {gtmr.stop():.3f} s')
-    g.print_node_map(savenode, exclude_nodes=hidden_ops)
+    g.print_node_map(savenode, exclude_ops=hidden_ops)
     if saveshapesmodel is not None:
         model.save_model(saveshapesmodel, shape_only=shapesonly)
 

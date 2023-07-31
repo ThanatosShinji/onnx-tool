@@ -434,13 +434,9 @@ class Tensor():
         self.sparsity = {'blocksize': blocksize, 'blockratio': blockratio, 'ratio': ratio}
 
     def make_value_proto(self, make_dummy=False):
+        shape = self.get_shape()
         if len(self.shape) == 0:
-            if self.proto is None and make_dummy:
-                warnings.warn('Creating a dummpy tensor proto:' + self.name)
-                return onnx.helper.make_tensor_value_info(self.name, 1, None)
-            return self.proto
-        else:
-            shape = self.get_shape()
+            shape = None
         if self.numpy is None:
             if self.proto is not None:
                 dtype = self.proto.type.tensor_type.elem_type

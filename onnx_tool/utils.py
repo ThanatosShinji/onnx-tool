@@ -1,7 +1,7 @@
 import time
 import warnings
 
-VERSION = "0.7.3"
+VERSION = "0.7.4"
 
 
 class timer():

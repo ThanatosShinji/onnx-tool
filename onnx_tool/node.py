@@ -2044,13 +2044,11 @@ class ConvTransposeNode(Node):
         if len(outtensors) == 1:
             if len(intensors) == 3 or len(intensors) == 2:
                 kernel_shape = _get_shape(intensors[1])
-                if len(kernel_shape) > 3:
-                    outvol = volume(_get_shape(outtensors[0]))
-                    macs += outvol * kernel_shape[1] * kernel_shape[2] * kernel_shape[3]
-                    macs += outvol * ADD_MACS  # treat bias add as 0.5 MACs
-                elif len(kernel_shape) == 3:
-                    outvol = volume(_get_shape(outtensors[0]))
-                    macs += outvol * kernel_shape[1] * kernel_shape[2]
+                outvol = volume(_get_shape(outtensors[0]))
+                reduce_shape = kernel_shape[1:]
+                reduce_vol = volume(reduce_shape)
+                macs += outvol * reduce_vol * MUL_MACS
+                if len(intensors) > 2:
                     macs += (outvol * ADD_MACS)
         return macs
 

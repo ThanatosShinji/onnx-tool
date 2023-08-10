@@ -139,9 +139,9 @@ class Node():
                 if isinstance(self.axes, list):
                     self.axes = tuple(self.axes)
 
-    def set_attr(self,key,val):
-        self.attr[key]=val
-        self.__setattr__(key,val)
+    def set_attr(self, key, val):
+        self.attr[key] = val
+        self.__setattr__(key, val)
 
     def add_default_value(self, attname, defaultvalue):
         if not hasattr(self, attname):
@@ -332,7 +332,7 @@ class SoftmaxNode(ExpNode):
 
     def value_infer(self, intensors: []):
         xexp = numpy.exp(intensors[0])
-        return [xexp / numpy.sum(xexp,axis=self.axis,keepdims=True)]
+        return [xexp / numpy.sum(xexp, axis=self.axis, keepdims=True)]
 
 
 @NODE_REGISTRY.register()
@@ -457,21 +457,21 @@ class HardSigmoidNode(PWNode):
     def __init__(self, node_proto):
         super().__init__(node_proto)
         self.op_mac = MUL_MACS + ADD_MACS + CMP_MACS * 2
-        self.add_default_value('alpha',0.2)
-        self.add_default_value('beta',0.5)
+        self.add_default_value('alpha', 0.2)
+        self.add_default_value('beta', 0.5)
 
     def value_infer(self, intensors: []):
         y = max(0, min(1, self.alpha * intensors[0] + self.beta))
         return [y]
-    
+
 
 @NODE_REGISTRY.register()
 class HardSwishNode(PWNode):
     def __init__(self, node_proto):
         super().__init__(node_proto)
         self.op_mac = MUL_MACS * 2 + ADD_MACS + CMP_MACS * 2
-        self.add_default_value('alpha',1/6)
-        self.add_default_value('beta',0.5)
+        self.add_default_value('alpha', 1 / 6)
+        self.add_default_value('beta', 0.5)
 
     def value_infer(self, intensors: []):
         y = intensors[0] * max(0, min(1, self.alpha * intensors[0] + self.beta))
@@ -634,8 +634,8 @@ class GemmNode(Node):
                 yshape = xshape[:-1] + [wshape[-1], ]
         else:
             # broadcast support
-            batchshape=xshape[:-2] if len(xshape)> len(wshape) else wshape[:-2]
-            yshape = batchshape+[xshape[-2],wshape[-1]]
+            batchshape = xshape[:-2] if len(xshape) > len(wshape) else wshape[:-2]
+            yshape = batchshape + [xshape[-2], wshape[-1]]
 
         return [yshape]
 
@@ -741,7 +741,7 @@ class ReciprocalNode(PWNode):
 @NODE_REGISTRY.register()
 class Relu6Node(PWNode):
     def value_infer(self, intensors: []):
-        return [numpy.clip(intensors[0],0,6)]
+        return [numpy.clip(intensors[0], 0, 6)]
 
 
 @NODE_REGISTRY.register()
@@ -803,21 +803,21 @@ class OneHotNode(Node):
 class TriluNode(Node):
     def __init__(self, n):
         super().__init__(n)
-        self.add_default_value('upper',1)
-
+        self.add_default_value('upper', 1)
 
     def shape_infer(self, intensors: []):
         return [_get_shape(intensors[0])]
 
     def value_infer(self, intensors: []):
-        if len(intensors)==2:
-            k=intensors[1]
+        if len(intensors) == 2:
+            k = intensors[1]
         else:
-            k=numpy.array(0).astype(numpy.int64)
-        if self.upper==0:
-            return [numpy.tril(intensors[0],k)]
+            k = numpy.array(0).astype(numpy.int64)
+        if self.upper == 0:
+            return [numpy.tril(intensors[0], k)]
         else:
-            return [numpy.triu(intensors[0],k)]
+            return [numpy.triu(intensors[0], k)]
+
 
 @NODE_REGISTRY.register()
 class EinsumNode(Node):
@@ -1061,16 +1061,16 @@ class MaxPoolNode(PoolBase):
         self.op_mac = CMP_MACS
 
     def value_infer(self, intensors: []):
-        xshape=intensors[0].shape
-        oshape=self.shape_infer(intensors)[0]
-        ot=numpy.zeros(oshape)
+        xshape = intensors[0].shape
+        oshape = self.shape_infer(intensors)[0]
+        ot = numpy.zeros(oshape)
         for i in numpy.ndindex(ot.shape):
             batch = i[0]
             ocn = i[1]
             oh = i[2]
             ow = i[3]
             t = ot[i]
-            ks=tuple(self.kernel_shape)
+            ks = tuple(self.kernel_shape)
             for j in numpy.ndindex(ks):
                 kh = j[0]
                 kw = j[1]
@@ -1080,7 +1080,7 @@ class MaxPoolNode(PoolBase):
                     continue
                 else:
                     srcv = intensors[0][batch, ocn, srch, srcw]
-                t = max(srcv,t)
+                t = max(srcv, t)
             ot[i] = t
         return [ot]
 
@@ -1103,17 +1103,17 @@ class GlobalAveragePoolNode(Node):
         return [shape]
 
     def value_infer(self, intensors: []):
-        x=intensors[0]
-        h=x.shape[2]
-        w=x.shape[3]
-        y=numpy.zeros(x.shape[:2],dtype=numpy.float32)
+        x = intensors[0]
+        h = x.shape[2]
+        w = x.shape[3]
+        y = numpy.zeros(x.shape[:2], dtype=numpy.float32)
         for i in numpy.ndindex(y.shape):
-            t=0
-            for j in numpy.ndindex((h,w)):
-                xi=i+j
-                t+=x[xi]
-            t/=(h*w)
-            y[i]=t
+            t = 0
+            for j in numpy.ndindex((h, w)):
+                xi = i + j
+                t += x[xi]
+            t /= (h * w)
+            y[i] = t
         return [y]
 
     def profile(self, intensors: [], outtensors: []):
@@ -1174,34 +1174,34 @@ class IdentityNode(FusedBase):
 @NODE_REGISTRY.register()
 class ErfNode(FusedBase):
     def value_infer(self, intensors: []):
-        outtensor=numpy.zeros_like(intensors[0])
+        outtensor = numpy.zeros_like(intensors[0])
         for i in numpy.ndindex(intensors[0].shape):
-            outtensor[i]=math.erf(intensors[0][i])
+            outtensor[i] = math.erf(intensors[0][i])
         return [outtensor]
 
 
 @NODE_REGISTRY.register()
 class BatchNormalizationNode(FusedBase):
-    def __init__(self,n):
+    def __init__(self, n):
         super().__init__(n)
-        self.add_default_value('epsilon',1e-05)
-        self.add_default_value('momentum',0.9)
-        self.add_default_value('training_mode',int(0))
+        self.add_default_value('epsilon', 1e-05)
+        self.add_default_value('momentum', 0.9)
+        self.add_default_value('training_mode', int(0))
 
     def value_infer(self, intensors: []):
-        x=intensors[0]
-        scale=intensors[1]
-        b=intensors[2]
-        mean=intensors[3]
-        var=intensors[4]
-        y=numpy.zeros_like(x)
+        x = intensors[0]
+        scale = intensors[1]
+        b = intensors[2]
+        mean = intensors[3]
+        var = intensors[4]
+        y = numpy.zeros_like(x)
         for i in numpy.ndindex(y.shape):
-            cn=i[1]
-            sqrt_var=math.sqrt(var[cn]+self.epsilon)
-            sm=scale[cn]/sqrt_var
-            sv=b[cn]
-            m=mean[cn]
-            y[i]=(x[i]-m)*sm+sv
+            cn = i[1]
+            sqrt_var = math.sqrt(var[cn] + self.epsilon)
+            sm = scale[cn] / sqrt_var
+            sv = b[cn]
+            m = mean[cn]
+            y[i] = (x[i] - m) * sm + sv
         return [y]
 
     # Fusion of batchnorm is determined by inference engine, here just gives the MACs.
@@ -1209,6 +1209,7 @@ class BatchNormalizationNode(FusedBase):
         base = volume(_get_shape(outtensors[0]))
         base *= ADD_MACS + SQRT_MACS + DIV_MACS + ADD_MACS + MUL_MACS
         return base
+
 
 @NODE_REGISTRY.register()
 class FlattenNode(Node):
@@ -1643,10 +1644,10 @@ class ConvNode(Node):
             if len(intensors) == 3 or len(intensors) == 2:
                 kernel_shape = _get_shape(intensors[1])
                 outvol = volume(_get_shape(outtensors[0]))
-                reduce_shape=kernel_shape[1:]
-                reduce_vol=volume(reduce_shape)
-                macs+=outvol*reduce_vol * MUL_MACS
-                if len(intensors)>2:
+                reduce_shape = kernel_shape[1:]
+                reduce_vol = volume(reduce_shape)
+                macs += outvol * reduce_vol * MUL_MACS
+                if len(intensors) > 2:
                     macs += (outvol * ADD_MACS)
         return macs
 
@@ -1901,6 +1902,25 @@ class DequantizeLinearNode(PWNode):
 
 
 @NODE_REGISTRY.register()
+class LayerNormalizationNode(Node):
+    def __init__(self, node_proto):
+        super().__init__(node_proto)
+        self.add_default_value('axis', -1)
+        self.add_default_value('epsilon ', 1e-05)
+        self.add_default_value('stash_type', 1)
+
+    def shape_infer(self, intensors: []):
+        return [_get_shape(intensors[0])]
+
+    def profile(self, intensors: [], outtensors: []):
+        tshape = _get_shape(intensors[0])
+        axis = _axes_neg2pos(len(tshape), [self.axis])[0]
+        vol = volume(tshape)
+        tshape[axis] = 1
+        vol2 = volume(tshape)
+        return vol * (MUL_MACS * 3 + +ADD_MACS * 4) + vol2 * (ADD_MACS + SQRT_MACS + DIV_MACS)
+
+
 class QuantizeLinearNode(PWNode):
     def __init__(self, node_proto):
         super().__init__(node_proto)
@@ -2087,8 +2107,8 @@ class GatherElementsNode(Node):
         return [_get_shape(intensors[1])]
 
     def value_infer(self, intensors: []):
-        x=intensors[0]
-        indice=intensors[1].astype(numpy.int64)
+        x = intensors[0]
+        indice = intensors[1].astype(numpy.int64)
         outtensor = numpy.zeros_like(indice)
         for i in numpy.ndindex(outtensor.shape):
             idx = list(i)

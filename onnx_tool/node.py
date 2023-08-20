@@ -160,7 +160,7 @@ class Node():
         raise NotImplementedError(f'this Node {self.op_type}-{self.name} has no value_infer')
 
     def profile(self, intensors: [], outtensors: []):
-        return 0
+        return [0,0]
 
 
 class FusedBase(Node):
@@ -173,7 +173,7 @@ class FusedBase(Node):
         return [intensors[0]]
 
     def profile(self, intensors: [], outtensors: []):
-        return 0
+        return [0,0]
 
 
 class PWNode(Node):
@@ -193,7 +193,7 @@ class PWNode(Node):
     def profile(self, intensors: [], outtensors: []):
         outshape = _get_shape(outtensors[0])
         macs = volume(outshape) * self.ratio * self.op_mac
-        return macs
+        return [macs,0]
 
 
 class NpMathBase(Node):
@@ -226,7 +226,7 @@ class NpMathBase(Node):
     def profile(self, intensors: [], outtensors: []):
         outshape = _get_shape(outtensors[0])
         macs = volume(outshape) * self.ratio * self.op_mac
-        return macs
+        return [macs,0]
 
 
 @NODE_REGISTRY.register()
@@ -544,7 +544,7 @@ class LRNNode(PWNode):
         outvol = volume(_get_shape(outtensors[0]))
         outvol *= (DIV_MACS + EXP_MACS + ADD_MACS + self.size * MUL_MACS)
         macs += outvol
-        return macs
+        return [macs,0]
 
 
 @NODE_REGISTRY.register()
@@ -554,7 +554,7 @@ class LessNode(Node):
         return [result]
 
     def profile(self, intensors: [], outtensors: []):
-        return volume(_get_shape(outtensors[0])) * CMP_MACS
+        return [volume(_get_shape(outtensors[0])) * CMP_MACS,0]
 
 
 @NODE_REGISTRY.register()
@@ -674,7 +674,7 @@ class GemmNode(Node):
                 macs += volume(yshape) * ADD_MACS
         else:
             raise NotImplementedError()
-        return macs
+        return [macs,0]
 
 
 @NODE_REGISTRY.register()
@@ -853,7 +853,7 @@ class EinsumNode(Node):
             map[self.bshape[i]] = v
         for key in map.keys():
             macs *= map[key]
-        return macs
+        return [macs,0]
 
 
 @NODE_REGISTRY.register()
@@ -972,7 +972,7 @@ class ResizeNode(Node):
         elif self.mode == b'cubic':
             outvol *= RESIZE_CUBIC_MACS
         macs += outvol
-        return macs
+        return [macs,0]
 
 
 @NODE_REGISTRY.register()
@@ -1044,7 +1044,7 @@ class PoolBase(Node):
         macs = outvol * CMP_MACS * self.kernel_shape[0]
         if len(self.kernel_shape) == 2:
             macs *= self.kernel_shape[1]
-        return macs
+        return [macs,0]
 
 
 @NODE_REGISTRY.register()
@@ -1120,7 +1120,7 @@ class GlobalAveragePoolNode(Node):
         inshape = _get_shape(intensors[0])
         outshape = _get_shape(outtensors[0])
         macs = volume(inshape) * ADD_MACS + volume(outshape) * DIV_MACS
-        return macs
+        return [macs,0]
 
 
 @NODE_REGISTRY.register()
@@ -1208,7 +1208,7 @@ class BatchNormalizationNode(FusedBase):
     def profile(self, intensors: [], outtensors: []):
         base = volume(_get_shape(outtensors[0]))
         base *= ADD_MACS + SQRT_MACS + DIV_MACS + ADD_MACS + MUL_MACS
-        return base
+        return [base,0]
 
 
 @NODE_REGISTRY.register()
@@ -1407,7 +1407,7 @@ class ReduceMeanNode(Node):
 
     def profile(self, intensors: [numpy.ndarray], outtensors: [numpy.ndarray]):
         vol = volume(_get_shape(intensors[0]))
-        return vol * ADD_MACS
+        return [vol * ADD_MACS,0]
 
 
 @NODE_REGISTRY.register()
@@ -1423,7 +1423,7 @@ class ReduceProdNode(ReduceMeanNode):
     def profile(self, intensors: [numpy.ndarray], outtensors: [numpy.ndarray]):
         datashape = _get_shape(intensors[0])
         vol = volume(datashape)
-        return vol * MUL_MACS
+        return [vol * MUL_MACS,0]
 
 
 @NODE_REGISTRY.register()
@@ -1451,7 +1451,7 @@ class ReduceMinNode(ReduceMeanNode):
     def profile(self, intensors: [numpy.ndarray], outtensors: [numpy.ndarray]):
         datashape = _get_shape(intensors[0])
         vol = volume(datashape)
-        return vol * CMP_MACS
+        return [vol * CMP_MACS,0]
 
 
 @NODE_REGISTRY.register()
@@ -1549,7 +1549,7 @@ class LSTMNode(Node):
         batch = _get_shape(intensors[0])[1]
         macs = volume(wshape) + volume(rshape) + volume(bshape) * ADD_MACS
         macs *= batch
-        return macs
+        return [macs,0]
 
 
 @NODE_REGISTRY.register()
@@ -1649,7 +1649,7 @@ class ConvNode(Node):
                 macs += outvol * reduce_vol * MUL_MACS
                 if len(intensors) > 2:
                     macs += (outvol * ADD_MACS)
-        return macs
+        return [macs,0]
 
 
 @NODE_REGISTRY.register()
@@ -1666,7 +1666,7 @@ class ReduceL2Node(Node):
 
     def profile(self, intensors: [numpy.ndarray], outtensors: [numpy.ndarray]):
         vol = volume(_get_shape(intensors[0]))
-        return vol * (ADD_MACS + SQRT_MACS)
+        return [vol * (ADD_MACS + SQRT_MACS),0]
 
 
 @NODE_REGISTRY.register()
@@ -1695,7 +1695,7 @@ class NonZeroNode(Node):
         return [result]
 
     def profile(self, intensors: [numpy.ndarray], outtensors: [numpy.ndarray]):
-        return volume(_get_shape(outtensors[0])) * CMP_MACS
+        return [volume(_get_shape(outtensors[0])) * CMP_MACS,0]
 
 
 @NODE_REGISTRY.register()
@@ -1705,7 +1705,7 @@ class EqualNode(Node):
         return [result]
 
     def profile(self, intensors: [], outtensors: []):
-        return volume(_get_shape(outtensors[0])) * CMP_MACS
+        return [volume(_get_shape(outtensors[0])) * CMP_MACS,0]
 
 
 @NODE_REGISTRY.register()
@@ -1714,7 +1714,7 @@ class FloorNode(FusedBase):
         return [numpy.floor(intensors[0])]
 
     def profile(self, intensors: [], outtensors: []):
-        return volume(_get_shape(outtensors[0])) * CMP_MACS
+        return [volume(_get_shape(outtensors[0])) * CMP_MACS,0]
 
 
 @NODE_REGISTRY.register()
@@ -1890,7 +1890,7 @@ class GreaterNode(Node):
 
     def profile(self, intensors: [], outtensors: []):
         outshape = _get_shape(outtensors[0])
-        return volume(outshape) * CMP_MACS
+        return [volume(outshape) * CMP_MACS,0]
 
 
 @NODE_REGISTRY.register()
@@ -1918,9 +1918,10 @@ class LayerNormalizationNode(Node):
         vol = volume(tshape)
         tshape[axis] = 1
         vol2 = volume(tshape)
-        return vol * (MUL_MACS * 3 + +ADD_MACS * 4) + vol2 * (ADD_MACS + SQRT_MACS + DIV_MACS)
+        return [vol * (MUL_MACS * 3 + +ADD_MACS * 4) + vol2 * (ADD_MACS + SQRT_MACS + DIV_MACS),0]
 
 
+@NODE_REGISTRY.register()
 class QuantizeLinearNode(PWNode):
     def __init__(self, node_proto):
         super().__init__(node_proto)
@@ -1966,7 +1967,7 @@ class QLinearMatMulNode(GemmNode):
             macs *= weight_shape[0]
         else:
             macs *= weight_shape[-1]
-        return macs
+        return [macs,0]
 
 
 @NODE_REGISTRY.register()
@@ -2008,7 +2009,7 @@ class QLinearConvNode(ConvNode):
                 macs += outvol * kernel_shape[1] * kernel_shape[2]
             if len(intensors) == 9:
                 macs += (outvol * ADD_MACS)
-        return macs
+        return [macs,0]
 
 
 @NODE_REGISTRY.register()
@@ -2070,7 +2071,7 @@ class ConvTransposeNode(Node):
                 macs += outvol * reduce_vol * MUL_MACS
                 if len(intensors) > 2:
                     macs += (outvol * ADD_MACS)
-        return macs
+        return [macs,0]
 
 
 @NODE_REGISTRY.register()
@@ -2136,7 +2137,7 @@ class GRUNode(Node):
         batch = xshape[1]
         macs = volume(wshape) + volume(rshape) + volume(bshape) * ADD_MACS
         macs *= batch
-        return macs
+        return [macs,0]
 
 
 @NODE_REGISTRY.register()

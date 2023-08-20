@@ -1252,6 +1252,7 @@ class Graph():
 
         forward_macs = int(round(self.macs[0]))
         backward_macs = int(round(self.macs[1]))
+        backward_valid = backward_macs > 0
         params = int(self.params)
         memory = int(self.memory)
 
@@ -1301,8 +1302,9 @@ class Graph():
                 row.append('{:.2%}'.format(sparsity['ratio']))
             row.append(num2str(int(node.macs[0]) * factor, csvformat))
             row.append('{:.2%}'.format(node.macs[0] / forward_macs))
-            row.append(num2str(int(node.macs[1]) * factor, csvformat))
-            row.append('{:.2%}'.format(node.macs[1] / backward_macs))
+            if backward_valid:
+                row.append(num2str(int(node.macs[1]) * factor, csvformat))
+                row.append('{:.2%}'.format(node.macs[1] / backward_macs))
             row.append(num2str(int(node.memory), csvformat))
             row.append('{:.2%}'.format(node.memory / memory))
             row.append(num2str(int(node.params), csvformat))
@@ -1318,8 +1320,9 @@ class Graph():
             row.append('_')
         row.append(num2str(int(forward_macs * factor), csvformat))
         row.append('100%')
-        row.append(num2str(int(backward_macs * factor), csvformat))
-        row.append('100%')
+        if backward_valid:
+            row.append(num2str(int(backward_macs * factor), csvformat))
+            row.append('100%')
         row.append(num2str(int(memory), csvformat))
         row.append('100%')
         row.append(num2str(int(params), csvformat))
@@ -1334,7 +1337,12 @@ class Graph():
             header.append('Sparse Block Ratio')
             header.append('Sparse Ratio')
         header.extend(
-            ['Forward_' + metric, 'FPercent', 'Backward_' + metric, 'BPercent', 'Memory', 'MPercent', 'Params',
+            ['Forward_' + metric, 'FPercent'])
+        if backward_valid:
+            header.extend(
+                ['Backward_' + metric, 'BPercent'])
+        header.extend(
+            ['Memory', 'MPercent', 'Params',
              'PPercent', 'InShape',
              'OutShape'])
 

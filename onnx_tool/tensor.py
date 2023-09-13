@@ -25,6 +25,7 @@ def shape_of_tensor(tensor):
     return shape
 
 
+
 def shape_of_initializer(initial):
     shape = []
     # for nb in tensor.shape.dim
@@ -55,6 +56,8 @@ def onnxdtype2npdtype(data_type):
     if data_type == onnx.TensorProto.STRING:
         return numpy.string_
 
+def type_of_tensor(tensor):
+    return onnxdtype2npdtype(tensor.type.tensor_type.elem_type)
 
 def npdtype2onnxdtype(npdtype):
     if npdtype == numpy.float32:
@@ -355,18 +358,21 @@ class Tensor():
             self.shape = []
             self.numpy = None
             self.type = DYNAMIC_TENSOR
+            self.dtype = numpy.float32
         elif isinstance(t, onnx.ValueInfoProto):
             self.name = t.name
             self.proto = t
             self.shape = shape_of_tensor(t)
             self.numpy = None
             self.type = DYNAMIC_TENSOR
+            self.dtype = type_of_tensor(t)
         elif isinstance(t, onnx.TensorProto):
             self.name = t.name
             self.proto = t
             self.numpy = tensorproto2ndarray(t)
             self.shape = self.numpy.shape
             self.type = STATIC_TENSOR
+            self.dtype = self.numpy.dtype.type
         else:
             assert 0
         self.sparsity_search()
@@ -376,6 +382,7 @@ class Tensor():
             data = numpy.array(data)
         self.numpy = data
         self.shape = data.shape
+        self.dtype = self.numpy.dtype.type
 
     def update_proto(self, data: numpy.ndarray):
         self.update_tensor(data)
@@ -385,6 +392,9 @@ class Tensor():
         if isinstance(shape, numpy.ndarray):
             assert 0
         self.shape = shape
+
+    def update_dtype(self, dtype):
+        self.dtype = dtype
 
     def shape2str(self):
         st = '['
@@ -405,6 +415,11 @@ class Tensor():
             else:
                 shape.append(int(s))
         return shape
+
+    def get_numpy(self):
+        if self.numpy is not None:
+            return self.numpy
+        return numpy.zeros(self.shape,dtype=self.dtype)
 
     def get_valueorshape(self):
         if self.numpy is not None:
@@ -472,4 +487,5 @@ def create_initial_Tensor(name: str, ndarray: numpy.ndarray):
     t.numpy = ndarray
     t.shape = t.numpy.shape
     t.proto = t.make_tensor_proto()
+    t.dtype = t.numpy.dtype.type
     return t

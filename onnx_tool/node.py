@@ -550,6 +550,7 @@ class NonMaxSuppressionNode(Node):
             max_output_boxes_per_class = int(intensors[2].get_numpy()[0])
             outtensors[0].update_shape([max_output_boxes_per_class, 3])
             outtensors[0].update_dtype(numpy.int64)
+            return
         raise NotImplementedError()
 
 
@@ -625,9 +626,10 @@ class TransposeNode(Node):
         xshape = intensors[0].get_shape()
         yshape = []
         if self.perm is None:
-            return [xshape[::-1]]
-        for axis in self.perm:
-            yshape.append(xshape[axis])
+            yshape = xshape[::-1]
+        else:
+            for axis in self.perm:
+                yshape.append(xshape[axis])
         outtensors[0].update_shape(yshape)
         outtensors[0].update_dtype(intensors[0].dtype)
 
@@ -735,8 +737,6 @@ class GatherNode(Node):
         outtensors[0].update_dtype(intensors[0].dtype)
 
     def value_infer(self, intensors: list[Tensor], outtensors: list[Tensor]):
-        if self.name =='Gather_191':
-            print(1)
         out = numpy.take(intensors[0].get_numpy(), intensors[1].get_numpy(), axis=self.axis)
         outtensors[0].update_tensor(out)
 
@@ -792,11 +792,12 @@ class ConstantNode(Node):
 @NODE_REGISTRY.register()
 class ConcatNode(Node):
     def shape_infer(self, intensors: list[Tensor], outtensors: list[Tensor]):
-        outshape = _get_shape(intensors[0])
+        outshape = intensors[0].get_shape()
         for i in range(len(intensors) - 1):
-            shape = _get_shape(intensors[i + 1])
+            shape = intensors[i + 1].get_shape()
             outshape[self.axis] += shape[self.axis]
-        return [outshape]
+        outtensors[0].update_shape(outshape)
+        outtensors[0].update_dtype(intensors[0].dtype)
 
     def value_infer(self, intensors: list[Tensor], outtensors: list[Tensor]):
         ins = []
@@ -898,8 +899,6 @@ class UnsqueezeNode(Node):
         self.add_default_value('axes', [0])
 
     def shape_infer(self, intensors: list[Tensor], outtensors: list[Tensor]):
-        if  self.name=='Unsqueeze_253':
-            print(1)
         inshape = intensors[0].get_shape()
         if len(intensors) == 2:
             axes = intensors[1].get_numpy()
@@ -919,8 +918,6 @@ class UnsqueezeNode(Node):
         outtensors[0].update_dtype(intensors[0].dtype)
 
     def value_infer(self, intensors: list[Tensor], outtensors: list[Tensor]):
-        if  self.name=='Unsqueeze_253':
-            print(1)
         outtensor = intensors[0].get_numpy()
         if len(intensors) == 2:
             axes = intensors[1].get_numpy()
@@ -965,8 +962,6 @@ class SqueezeNode(Node):
 @NODE_REGISTRY.register()
 class ShapeNode(Node):
     def value_infer(self, intensors: list[Tensor], outtensors: list[Tensor]):
-        if  self.name =='Shape_273':
-            print(1)
         ret = numpy.array(intensors[0].get_shape(), dtype=numpy.int64)
         outtensors[0].update_tensor(ret)
 
@@ -1172,8 +1167,8 @@ class ExpandNode(Node):
     def shape_infer(self, intensors: list[Tensor], outtensors: list[Tensor]):
         xshape = intensors[0].get_shape()
         expandshape = intensors[1].get_numpy().tolist()
-        if not isinstance(expandshape,list):
-            expandshape=[expandshape,]
+        if not isinstance(expandshape, list):
+            expandshape = [expandshape, ]
         yshape = []
         if len(xshape) < len(expandshape):
             for i in range(len(xshape), len(expandshape)):
@@ -1305,7 +1300,7 @@ class ArrayFeatureExtractorNode(Node):
 @NODE_REGISTRY.register()
 class ZipMapNode(Node):
     def shape_infer(self, intensors: list[Tensor], outtensors: list[Tensor]):
-        outtensors[0].update_shape([intensors[0].get_shape()[0],])
+        outtensors[0].update_shape([intensors[0].get_shape()[0], ])
         outtensors[0].update_dtype(intensors[0].dtype)
 
 
@@ -1561,7 +1556,7 @@ class ScanNode(Node):
         outtensors[0].update_dtype(intensors[3].dtype)
         outtensors[1].update_shape([1, 1])
         outtensors[1].update_dtype(intensors[3].dtype)
-        outtensors[2].update_shape([1,])
+        outtensors[2].update_shape([1, ])
         outtensors[2].update_dtype(intensors[3].dtype)
         outtensors[3].update_shape(intensors[3].get_shape())
         outtensors[3].update_dtype(intensors[3].dtype)
@@ -1606,7 +1601,14 @@ class LSTMNode(Node):
         batch = xshape[1]
         num_dir = wshape[0]
         h_len = wshape[1] // 4
-        return [(seq_len, num_dir, batch, h_len), (num_dir, batch, h_len)]
+        outtensors[0].update_shape([seq_len, num_dir, batch, h_len])
+        outtensors[0].update_dtype(intensors[0].dtype)
+        if len(outtensors) > 1:
+            outtensors[1].update_shape([num_dir, batch, h_len])
+            outtensors[1].update_dtype(intensors[0].dtype)
+            if len(outtensors) > 2:
+                outtensors[2].update_shape([num_dir, batch, h_len])
+                outtensors[2].update_dtype(intensors[0].dtype)
 
     def profile(self, intensors: list[Tensor], outtensors: list[Tensor]):
         wshape = intensors[1].get_shape()
@@ -1629,7 +1631,6 @@ class ConvNode(Node):
         self.add_default_value('group', 1)
 
     def shape_infer(self, intensors: list[Tensor], outtensors: list[Tensor]):
-        outshapes = []
         xshape = intensors[0].get_shape()
         wshape = intensors[1].get_shape()
         shape = []
@@ -1682,7 +1683,7 @@ class ConvNode(Node):
             raise NotImplementedError()
 
         reduce_shape = tuple(wshape[1:])
-        for i in numpy.ndindex(outshape):
+        for i in numpy.ndindex(tuple(outshape)):
             batch = i[0]
             ocn = i[1]
             oh = i[2]
@@ -1750,6 +1751,7 @@ class CumSumNode(PWNode):
         if self.exclusive == 0 and self.reverse == 0:
             y = numpy.cumsum(intensors[0].get_numpy(), intensors[1].get_numpy())
             outtensors[0].update_tensor(y)
+            return
         raise NotImplementedError(f"CumSum doesnt support {self.exclusive} {self.reverse}")
 
 

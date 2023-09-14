@@ -78,6 +78,8 @@ def npdtype2onnxdtype(npdtype):
         return onnx.TensorProto.UINT8
     if npdtype == numpy.bool_:
         return onnx.TensorProto.BOOL
+    if npdtype == numpy.bytes_:
+        return onnx.TensorProto.STRING
     if npdtype.type == numpy.string_:
         return onnx.TensorProto.STRING
 
@@ -381,8 +383,8 @@ class Tensor():
         if not isinstance(data, numpy.ndarray):
             data = numpy.array(data)
         self.numpy = data
-        self.shape = data.shape
-        self.dtype = self.numpy.dtype.type
+        self.update_shape(data.shape)
+        self.update_dtype(self.numpy.dtype.type)
 
     def update_proto(self, data: numpy.ndarray):
         self.update_tensor(data)
@@ -453,10 +455,7 @@ class Tensor():
         if len(self.shape) == 0:
             shape = None
         if self.numpy is None:
-            if self.proto is not None:
-                dtype = self.proto.type.tensor_type.elem_type
-            else:
-                dtype = onnx.TensorProto.FLOAT
+            dtype = npdtype2onnxdtype(self.dtype)
         else:
             dtype = npdtype2onnxdtype(self.numpy.dtype)
         # shape = [int(i) for i in shape]

@@ -681,7 +681,7 @@ class GemmNode(Node):
             B = intensors[1].get_numpy()
         C = numpy.matmul(A, B)
         if len(intensors) > 2:
-            C = numpy.add(C, intensors[2])
+            C = numpy.add(C, intensors[2].get_numpy())
         outtensors[0].update_tensor(C)
 
     def profile(self, intensors: list[Tensor], outtensors: list[Tensor]):
@@ -2201,7 +2201,15 @@ class ReshapeNode(Node):
         outtensors[0].update_dtype(intensors[0].dtype)
 
     def value_infer(self, intensors: list[Tensor], outtensors: list[Tensor]):
-        ret = intensors[0].get_numpy().reshape(intensors[1].get_numpy())
+        shape = []
+        xtensor = intensors[0].get_numpy()
+        stensor = intensors[1].get_numpy()
+        for i,v in enumerate(stensor):
+            if v == 0:
+                shape.append(xtensor.shape[i])
+            else:
+                shape.append(v)
+        ret = xtensor.reshape(shape)
         outtensors[0].update_tensor(ret)
 
 

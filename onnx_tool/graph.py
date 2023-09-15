@@ -276,10 +276,10 @@ class Graph():
                             itensors.append(self.tensormap[input])
                             if self.tensormap[input].numpy is None:
                                 warnings.warn(f'Tensor {input} has shape only, {name} may has wrong value infer result')
-                        otensors=[]
+                        otensors = []
                         for output in this_node.output:
                             otensors.append(self.tensormap[output])
-                        this_node.value_infer(itensors,otensors)
+                        this_node.value_infer(itensors, otensors)
                         if len(otensors) > 0:
                             for i, output in enumerate(this_node.output):
                                 self.tensormap[output].type = STATIC_TENSOR
@@ -839,10 +839,11 @@ class Graph():
             node = self.nodemap[key]
             itensors = []
             for input in node.input:
-                itensors.append(self.tensormap[input].numpy)
-            otensors = node.value_infer(itensors)
-            for i, output in enumerate(node.output):
-                self.tensormap[output].update_tensor(otensors[i])
+                itensors.append(self.tensormap[input])
+            otensors = []
+            for output in node.output:
+                otensors.append(self.tensormap[output])
+            node.value_infer(itensors, otensors)
         outputs = []
         for output in self.output:
             outputs.append(self.tensormap[output].numpy)

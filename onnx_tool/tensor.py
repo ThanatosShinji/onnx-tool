@@ -430,7 +430,7 @@ class Tensor():
 
     def get_elementsize(self):
         if self.numpy is None or not isinstance(self.numpy, numpy.ndarray):
-            return 4  # default as float
+            return numpy_dtype2bytes(self.dtype)  # default as float
         return numpy_dtype2bytes(self.numpy.dtype)
 
     def get_memsize(self):

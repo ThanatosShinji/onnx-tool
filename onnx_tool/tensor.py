@@ -25,7 +25,6 @@ def shape_of_tensor(tensor):
     return shape
 
 
-
 def shape_of_initializer(initial):
     shape = []
     # for nb in tensor.shape.dim
@@ -56,8 +55,10 @@ def onnxdtype2npdtype(data_type):
     if data_type == onnx.TensorProto.STRING:
         return numpy.string_
 
+
 def type_of_tensor(tensor):
     return onnxdtype2npdtype(tensor.type.tensor_type.elem_type)
+
 
 def npdtype2onnxdtype(npdtype):
     if npdtype == numpy.float32:
@@ -421,7 +422,8 @@ class Tensor():
     def get_numpy(self):
         if self.numpy is not None:
             return self.numpy
-        return numpy.zeros(self.shape,dtype=self.dtype)
+        self.numpy = numpy.zeros(self.shape, dtype=self.dtype)
+        return self.numpy
 
     def get_valueorshape(self):
         if self.numpy is not None:

@@ -118,7 +118,7 @@ For example:
  GPT2                          | 40                     | 2                          | 6.9                  
  BERT                          | 2,170                  | 27                         | 1.25                 
 
-code sample: [benchmark/compression.py](benchmark/compression.py)
+code example: [benchmark/compression.py](benchmark/compression.py)
 
 ### Weight compression
 A fp32 model with 7B parameters will take 28GB disk space and memory space. You can not even run the model if your device

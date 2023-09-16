@@ -61,7 +61,7 @@ examples: [benchmark/examples.py](benchmark/examples.py).
 
 Remove shape calculation layers(created by ONNX export) to get a *Compute Graph*. Use *Shape Engine* to update tensor
 shapes at runtime.  
-Samples: [benchmark/shape_regress.py](benchmark/shape_regress.py).
+Examples: [benchmark/shape_regress.py](benchmark/shape_regress.py).
 [benchmark/examples.py](benchmark/examples.py).  
 Integrate *Compute Graph* and *Shape Engine* into a cpp inference
 engine: [data/inference_engine.md](data/inference_engine.md)
@@ -83,7 +83,7 @@ Resnet18 fusion
 </p>
 
 how to use: [data/Subgraph.md](data/Subgraph.md).  
-BERT samples: [benchmark/examples.py](benchmark/examples.py).  
+BERT examples: [benchmark/examples.py](benchmark/examples.py).  
 Pattern fusion: [benchmark/do_fusion.py](benchmark/do_fusion.py).
 
 ---
@@ -130,7 +130,7 @@ Current support:
 * [int8]x[symmetric/asymmetric]x[per tensor/per channel/per block]  
 * [int4]x[symmetric/asymmetric]x[per tensor/per channel/per block]  
 
-code samples:[benchmark/examples.py](benchmark/examples.py).  
+code examples:[benchmark/examples.py](benchmark/examples.py).  
 
 
 ---

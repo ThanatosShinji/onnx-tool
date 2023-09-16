@@ -112,19 +112,10 @@ how to use: [data/Subgraph.md](data/Subgraph.md).
  GPT2                          | 40                     | 2                          | 6.9                  
  BERT                          | 2,170                  | 27                         | 1.25                 
 
-code sample: [benchmark/compression.py](benchmark/compression.py)
+code example: [benchmark/compression.py](benchmark/compression.py)
 
 ---
 
-## Tensor operations
-
-* *支持模型权重的编辑和导出*
-* *简化模型的op名称和Tensor名称*
-* *移除模型的无用Tensor*
-* *设置模型的输入输出Tensor以及形状描述*  
-  how to use: [data/Tensors.md](data/Tensors.md).
-
----
 
 ## How to install
     

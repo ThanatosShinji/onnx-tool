@@ -29,20 +29,11 @@ Please refer [benchmark/examples.py](benchmark/examples.py).
 
 ---
 
-## Shape inference
+## Shape inference & Profile Model
 All profiling data must be built on shape inference result.
 <p align="center">  
   <img src="data/shape_inference.jpg">
 </p>  
-
-how to use: [data/Profile.md](data/Profile.md).  
-pytorch usage: [data/PytorchUsage.md](data/PytorchUsage.md).  
-tensorflow
-usage: [data/TensorflowUsage.md](data/TensorflowUsage.md).  
-samples: [benchmark/examples.py](benchmark/examples.py).
-
-
-## Profile Model
 
 <p align="center">
   <img src="data/macs_counting.png">
@@ -58,7 +49,7 @@ how to use: [data/Profile.md](data/Profile.md).
 pytorch usage: [data/PytorchUsage.md](data/PytorchUsage.md).  
 tensorflow
 usage: [data/TensorflowUsage.md](data/TensorflowUsage.md).  
-samples: [benchmark/examples.py](benchmark/examples.py).
+examples: [benchmark/examples.py](benchmark/examples.py).
 
 ---
 

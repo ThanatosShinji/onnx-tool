@@ -2,38 +2,37 @@
 
 **A tool for ONNX model:**
 
-* *快速的Tensor形状推理.*
-* *分析模型每一层.*
-* *<a href="data/ConstantFolding_CN.md">常量层折叠.</a>*
+* *解析ONNX模型并且编辑: [常量层折叠](data/ConstantFolding_CN.md), Ops fusion.*
+* *模型分析：Tensor形状推理，每个Op的MACs统计*
 * *Compute Graph 和 Shape Engine.*
-* *ONNX op融合.*
-* *模型激活Tensor的内存压缩.*
+* *内存压缩：激活Tenosr的内存压缩和权重的内存压缩*
 * *支持量化模型和稀疏模型.*
 
 支持的模型有:
 
-* NLP: BERT, T5, GPT, LLaMa, MPT(<a href="benchmark/transfomer_models.py">TransformerModel</a>)
+* NLP: BERT, T5, GPT, LLaMa, MPT([TransformerModel](benchmark/transfomer_models.py))
 * Diffusion: Stable Diffusion(TextEncoder, VAE, UNET)
-* CV: <a href="benchmark/compression.py">BEVFormer</a>, MobileNet, YOLO, ...
-* Audio: LPCNet
+* CV: [BEVFormer](benchmark/compression.py), MobileNet, YOLO, ...
+* Audio: sovits, LPCNet
 
 ---
 
-## 形状推理
+## 解析与编辑
+你可以用onnx_tool.Model类去加载任意ONNX模型，变成易于编辑的python类实例，你可以:  
+用onnx_tool.Graph类去改变图结构;  
+用onnx_tool.Node类去改变每个Op的属性和输入输出Tensor;  
+用onnx_tool.Tensor改变任意Tensor的数据类型和数据内容.  
+修改完成后，只需要调用Graph或者Model类的save_model接口可以保存所有的修改内容到新的ONNX模型.
 
+请参考 [benchmark/examples.py](benchmark/examples.py).
+
+---
+
+## 形状推理 和 模型分析
+每个模型分析报告需要基于某个特定的输入Tensor的形状。所以在分析模型之前要先进行一次形状推理。
 <p align="center">  
   <img src="data/shape_inference.jpg">
 </p>  
-
-how to use: [data/Profile.md](data/Profile.md).  
-pytorch usage: [data/PytorchUsage.md](data/PytorchUsage.md).  
-tensorflow
-usage: [data/TensorflowUsage.md](data/TensorflowUsage.md).  
-examples: [benchmark/examples.py](benchmark/examples.py).
-
----
-
-## 模型分析
 
 <p align="center">
   <img src="data/macs_counting.png">
@@ -135,7 +134,6 @@ Then `pip install onnx-tool` again.
 
 ## Known Issues
 * Loop op is not supported
-* Activation Compression is not optimum
 
 ---
 

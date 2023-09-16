@@ -11,9 +11,9 @@
 
 Supported Models:
 
-* NLP: BERT, T5, GPT, LLaMa, MPT(<a href="benchmark/transfomer_models.py">TransformerModel</a>)
+* NLP: BERT, T5, GPT, LLaMa, MPT([TransformerModel](benchmark/transfomer_models.py))
 * Diffusion: Stable Diffusion(TextEncoder, VAE, UNET)
-* CV: <a href="benchmark/compression.py">BEVFormer</a>, MobileNet, YOLO, ...
+* CV: [BEVFormer](benchmark/compression.py), MobileNet, YOLO, ...
 * Audio: sovits, LPCNet
 
 ---
@@ -153,7 +153,6 @@ Then `pip install onnx-tool` again.
 
 ## Known Issues
 * Loop op is not supported
-* Tensor types created by onnx_tool are not correct
   
 ---
 

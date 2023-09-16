@@ -22,47 +22,48 @@
 ## 形状推理
 
 <p align="center">  
-  <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/shape_inference.jpg">
+  <img src="data/shape_inference.jpg">
 </p>  
 
-how to use: [data/Profile.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Profile.md).  
-pytorch usage: [data/PytorchUsage.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/PytorchUsage.md).  
+how to use: [data/Profile.md](data/Profile.md).  
+pytorch usage: [data/PytorchUsage.md](data/PytorchUsage.md).  
 tensorflow
-usage: [data/TensorflowUsage.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/TensorflowUsage.md).  
-samples: [benchmark/samples.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/samples.py).
+usage: [data/TensorflowUsage.md](data/TensorflowUsage.md).  
+examples: [benchmark/examples.py](benchmark/examples.py).
 
 ---
 
 ## 模型分析
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/macs_counting.png">
+  <img src="data/macs_counting.png">
 </p>
 浮点乘加数（等于2倍的浮点操作数）, 内存占用(字节数), 参数量(参数个数)<br><br>
 
 <p id="sparsity" align="center">
-  <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/sparse_model.png">
+  <img src="data/sparse_model.png">
 </p>
 稀疏的块的形状, 稀疏块的稀疏率（全为0的稀疏块的稀疏率）, 参数的稀疏率（数值为0的稀疏率）<br><br>  
 
-how to use: [data/Profile.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Profile.md).  
-pytorch usage: [data/PytorchUsage.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/PytorchUsage.md).  
+how to use: [data/Profile.md](data/Profile.md).  
+pytorch usage: [data/PytorchUsage.md](data/PytorchUsage.md).  
 tensorflow
-usage: [data/TensorflowUsage.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/TensorflowUsage.md).  
-samples: [benchmark/samples.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/samples.py).
+usage: [data/TensorflowUsage.md](data/TensorflowUsage.md).  
+examples: [benchmark/examples.py](benchmark/examples.py).
 
 ---
 
 ## Compute Graph with Shape Engine
 
 <p id="compute_graph" align="center">
-  <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/compute_graph.png">
+  <img src="data/compute_graph.png">
 </p>  
 
 移除了所有的Tensor形状计算op， 更新动态Tensor的形状可以用Shape Engine来替代。推理引擎只需要负责计算图的计算，不需要考虑Tensor的形状更新。   
-Samples: [benchmark/shape_regress.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/shape_regress.py).
-[benchmark/samples.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/samples.py#L123).  
-如何集成 *Compute Graph* 和 *Shape Engine* 到cpp推理引擎中: [data/inference_engine.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/inference_engine.md)
+examples:   
+[benchmark/shape_regress.py](benchmark/shape_regress.py).  
+[benchmark/examples.py](benchmark/examples.py).  
+如何集成 *Compute Graph* 和 *Shape Engine* 到cpp推理引擎中: [data/inference_engine.md](data/inference_engine.md)
 
 ---
 
@@ -70,29 +71,29 @@ Samples: [benchmark/shape_regress.py](https://github.com/ThanatosShinji/onnx-too
 
 MHA and Layernorm Fusion for Transformers
 <p align="center">
-  <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/mha_fusion.png">
+  <img src="data/mha_fusion.png">
 </p>
 <p align="center">
-  <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/layernorm_fusion.png">
+  <img src="data/layernorm_fusion.png">
 </p>
 Resnet18 fusion
 <p align="center">
-  <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/resnet18_fused.png">
+  <img src="data/resnet18_fused.png">
 </p>
 
-how to use: [data/Subgraph.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Subgraph.md).  
-BERT samples: [benchmark/samples.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/samples.py#L100).  
-Pattern fusion: [benchmark/do_fusion.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/do_fusion.py).
+how to use: [data/Subgraph.md](data/Subgraph.md).  
+BERT examples: [benchmark/examples.py](benchmark/examples.py).  
+Pattern fusion: [benchmark/do_fusion.py](benchmark/do_fusion.py).
 
 ---
 
 ## 从模型中提取一个子模型
 可以帮助实现model parallel。
 <p align="center">
-  <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/resnet18_subgraph.png">
+  <img src="data/resnet18_subgraph.png">
 </p>
 
-how to use: [data/Subgraph.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Subgraph.md).
+how to use: [data/Subgraph.md](data/Subgraph.md).
 
 ---
 
@@ -111,7 +112,7 @@ how to use: [data/Subgraph.md](https://github.com/ThanatosShinji/onnx-tool/blob/
  GPT2                          | 40                     | 2                          | 6.9                  
  BERT                          | 2,170                  | 27                         | 1.25                 
 
-code sample: [benchmark/compression.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/compression.py)
+code sample: [benchmark/compression.py](benchmark/compression.py)
 
 ---
 
@@ -121,7 +122,7 @@ code sample: [benchmark/compression.py](https://github.com/ThanatosShinji/onnx-t
 * *简化模型的op名称和Tensor名称*
 * *移除模型的无用Tensor*
 * *设置模型的输入输出Tensor以及形状描述*  
-  how to use: [data/Tensors.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Tensors.md).
+  how to use: [data/Tensors.md](data/Tensors.md).
 
 ---
 
@@ -148,7 +149,7 @@ Then `pip install onnx-tool` again.
 ---
 
 ## Results of [ONNX Model Zoo](https://github.com/onnx/models) and SOTA models
-注意对于支持动态输入形状的模型，模型的MACs随输入形状的改变而改变。下表中的MACs数据是基于[data/public/config.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/public/config.py)中的配置输入形状得到。
+注意对于支持动态输入形状的模型，模型的MACs随输入形状的改变而改变。下表中的MACs数据是基于[data/public/config.py](data/public/config.py)中的配置输入形状得到。
 带有所有Tensor形状的模型和分析报告可以从下面的网盘中下载: [baidu drive](https://pan.baidu.com/s/1eebBP-n-wXvOhSmIH-NUZQ 
 )(code: p91k) [google drive](https://drive.google.com/drive/folders/1H-ya1wTvjIMg2pMcMITWDIfWNSnjYxTn?usp=sharing)
 <p id="results" align="center">

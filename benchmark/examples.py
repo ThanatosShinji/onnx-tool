@@ -49,7 +49,7 @@ def weight_compression():
     def quantize_sym():
         from onnx_tool.quantization import graph_quantize
         for key in g.initials:
-            graph_quantize(g, key, block=-1, type='asym', bits=8)
+            graph_quantize(g, key, block=-1, type='sym', bits=8)
         m.save_model(m.modelname + '-8bits-sym-default.onnx')
 
     def quantize_asym():

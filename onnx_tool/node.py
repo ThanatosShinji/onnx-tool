@@ -2339,7 +2339,8 @@ class SplitNode(Node):
             splitpos.append(end + v)
             end += v
         ret = numpy.split(intensors[0].get_numpy(), splitpos, axis)
-        outtensors[0].update_tensor(ret)
+        for i,t in enumerate(ret):
+            outtensors[i].update_tensor(t)
 
 
 def create_node(n: onnx.NodeProto):

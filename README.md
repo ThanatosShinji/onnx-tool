@@ -11,9 +11,9 @@
 
 Supported Models:
 
-* NLP: BERT, T5, GPT, LLaMa, MPT(<a href="benchmark/transfomer_models.py">TransformerModel</a>)
+* NLP: BERT, T5, GPT, LLaMa, MPT([TransformerModel](benchmark/transfomer_models.py))
 * Diffusion: Stable Diffusion(TextEncoder, VAE, UNET)
-* CV: <a href="benchmark/compression.py">BEVFormer</a>, MobileNet, YOLO, ...
+* CV: [BEVFormer](benchmark/compression.py), MobileNet, YOLO, ...
 * Audio: sovits, LPCNet
 
 ---
@@ -25,55 +25,46 @@ Change op attributes and IO tensors with onnx_tool.Node;
 Change tensor data or type with onnx_tool.Tensor.  
 To apply your changes, just call save_model method of onnx_tool.Model or onnx_tool.Graph.
 
-Please refer [benchmark/samples.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/samples.py).
+Please refer [benchmark/examples.py](benchmark/examples.py).
 
 ---
 
-## Shape inference
+## Shape inference & Profile Model
 All profiling data must be built on shape inference result.
 <p align="center">  
-  <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/shape_inference.jpg">
+  <img src="data/shape_inference.jpg">
 </p>  
 
-how to use: [data/Profile.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Profile.md).  
-pytorch usage: [data/PytorchUsage.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/PytorchUsage.md).  
-tensorflow
-usage: [data/TensorflowUsage.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/TensorflowUsage.md).  
-samples: [benchmark/samples.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/samples.py).
-
-
-## Profile Model
-
 <p align="center">
-  <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/macs_counting.png">
+  <img src="data/macs_counting.png">
 </p>
 Float MultipleAdd Count(1 MAC=2 FLOPs), Memory Usage(in bytes), Parameters(elements number)<br><br>
 
 <p id="sparsity" align="center">
-  <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/sparse_model.png">
+  <img src="data/sparse_model.png">
 </p>
 Sparse Pattern, Sparse Block Ratio, Sparse Element Ratio<br><br>  
 
-how to use: [data/Profile.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Profile.md).  
-pytorch usage: [data/PytorchUsage.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/PytorchUsage.md).  
+how to use: [data/Profile.md](data/Profile.md).  
+pytorch usage: [data/PytorchUsage.md](data/PytorchUsage.md).  
 tensorflow
-usage: [data/TensorflowUsage.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/TensorflowUsage.md).  
-samples: [benchmark/samples.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/samples.py).
+usage: [data/TensorflowUsage.md](data/TensorflowUsage.md).  
+examples: [benchmark/examples.py](benchmark/examples.py).
 
 ---
 
 ## Compute Graph with Shape Engine
 
 <p id="compute_graph" align="center">
-  <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/compute_graph.png">
+  <img src="data/compute_graph.png">
 </p>  
 
 Remove shape calculation layers(created by ONNX export) to get a *Compute Graph*. Use *Shape Engine* to update tensor
 shapes at runtime.  
-Samples: [benchmark/shape_regress.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/shape_regress.py).
-[benchmark/samples.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/samples.py#L151).  
+Examples: [benchmark/shape_regress.py](benchmark/shape_regress.py).
+[benchmark/examples.py](benchmark/examples.py).  
 Integrate *Compute Graph* and *Shape Engine* into a cpp inference
-engine: [data/inference_engine.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/inference_engine.md)
+engine: [data/inference_engine.md](data/inference_engine.md)
 
 ---
 
@@ -81,29 +72,29 @@ engine: [data/inference_engine.md](https://github.com/ThanatosShinji/onnx-tool/b
 
 MHA and Layernorm Fusion for Transformers
 <p align="center">
-  <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/mha_fusion.png">
+  <img src="data/mha_fusion.png">
 </p>
 <p align="center">
-  <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/layernorm_fusion.png">
+  <img src="data/layernorm_fusion.png">
 </p>
 Resnet18 fusion
 <p align="center">
-  <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/resnet18_fused.png">
+  <img src="data/resnet18_fused.png">
 </p>
 
-how to use: [data/Subgraph.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Subgraph.md).  
-BERT samples: [benchmark/samples.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/samples.py#L113).  
-Pattern fusion: [benchmark/do_fusion.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/do_fusion.py).
+how to use: [data/Subgraph.md](data/Subgraph.md).  
+BERT examples: [benchmark/examples.py](benchmark/examples.py).  
+Pattern fusion: [benchmark/do_fusion.py](benchmark/do_fusion.py).
 
 ---
 
 ## Extract subgraph from ONNX model
 Help implement model parallelism.
 <p align="center">
-  <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/resnet18_subgraph.png">
+  <img src="data/resnet18_subgraph.png">
 </p>
 
-how to use: [data/Subgraph.md](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/Subgraph.md).
+how to use: [data/Subgraph.md](data/Subgraph.md).
 
 ---
 
@@ -127,7 +118,7 @@ For example:
  GPT2                          | 40                     | 2                          | 6.9                  
  BERT                          | 2,170                  | 27                         | 1.25                 
 
-code sample: [benchmark/compression.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/compression.py)
+code example: [benchmark/compression.py](benchmark/compression.py)
 
 ### Weight compression
 A fp32 model with 7B parameters will take 28GB disk space and memory space. You can not even run the model if your device
@@ -139,7 +130,7 @@ Current support:
 * [int8]x[symmetric/asymmetric]x[per tensor/per channel/per block]  
 * [int4]x[symmetric/asymmetric]x[per tensor/per channel/per block]  
 
-code samples:[benchmark/samples.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/samples.py#L36).  
+code examples:[benchmark/examples.py](benchmark/examples.py).  
 
 
 ---
@@ -162,12 +153,11 @@ Then `pip install onnx-tool` again.
 
 ## Known Issues
 * Loop op is not supported
-* Tensor types created by onnx_tool are not correct
   
 ---
 
 ## Results of [ONNX Model Zoo](https://github.com/onnx/models) and SOTA models
-Some models have dynamic input shapes. The MACs varies from input shapes. The input shapes used in these results are writen to [data/public/config.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/data/public/config.py).
+Some models have dynamic input shapes. The MACs varies from input shapes. The input shapes used in these results are writen to [data/public/config.py](data/public/config.py).
 These onnx models with all tensors' shape can be downloaded: [baidu drive](https://pan.baidu.com/s/1eebBP-n-wXvOhSmIH-NUZQ 
 )(code: p91k) [google drive](https://drive.google.com/drive/folders/1H-ya1wTvjIMg2pMcMITWDIfWNSnjYxTn?usp=sharing)
 <p id="results" align="center">

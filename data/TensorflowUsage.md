@@ -35,4 +35,4 @@
     onnx_tool.model_profile(temp_model_file,dynamic_shapes=dynamics_input)
     ```    
 
-* sample code [tfkeras_sample.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/tfkeras_sample.py)
+* example code [tfkeras_example.py](../benchmark/tfkeras_example.py)

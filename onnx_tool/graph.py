@@ -273,15 +273,15 @@ class Graph():
                     if constant_folding:
                         itensors = []
                         for input in this_node.input:
+                            itensors.append(self.tensormap[input])
                             if self.tensormap[input].numpy is None:
                                 warnings.warn(f'Tensor {input} has shape only, {name} may has wrong value infer result')
-                                itensors.append(self.tensormap[input].get_shape())
-                            else:
-                                itensors.append(self.tensormap[input].numpy)
-                        otensors = this_node.value_infer(itensors)
+                        otensors = []
+                        for output in this_node.output:
+                            otensors.append(self.tensormap[output])
+                        this_node.value_infer(itensors, otensors)
                         if len(otensors) > 0:
                             for i, output in enumerate(this_node.output):
-                                self.tensormap[output].update_tensor(otensors[i])
                                 self.tensormap[output].type = STATIC_TENSOR
                     else:
                         for i, output in enumerate(this_node.output):
@@ -814,29 +814,18 @@ class Graph():
         for key in self.nodemap.keys():
             tm.start()
             node = self.nodemap[key]
+            itensors = []
+            for input in node.input:
+                itensors.append(self.tensormap[input])
+            otensors = []
+            for output in node.output:
+                otensors.append(self.tensormap[output])
+
             if node.shape_calc:
-                itensors = []
-                for input in node.input:
-                    if self.tensormap[input].numpy is None:
-                        assert (node.op_type in ('Shape', 'Slice'))
-                        itensors.append(self.tensormap[input].get_shape())
-                    else:
-                        itensors.append(self.tensormap[input].numpy)
-                otensors = node.value_infer(itensors)
-                if len(otensors) > 0:
-                    for i, output in enumerate(node.output):
-                        self.tensormap[output].update_tensor(otensors[i])
+                node.value_infer(itensors, otensors)
             else:
-                itensors = []
-                for input in node.input:
-                    if self.tensormap[input].numpy is not None:
-                        itensors.append(self.tensormap[input].numpy)
-                    else:
-                        itensors.append(self.tensormap[input].get_shape())
-                oshapes = node.shape_infer(itensors)
-                if len(oshapes) > 0:
-                    for i, output in enumerate(node.output):
-                        self.tensormap[output].update_shape(oshapes[i])
+                node.shape_infer(itensors, otensors)
+
             if node.op_type in self.shapeinfer_optime_map.keys():
                 self.shapeinfer_optime_map[node.op_type] += tm.stop()
             else:
@@ -850,10 +839,11 @@ class Graph():
             node = self.nodemap[key]
             itensors = []
             for input in node.input:
-                itensors.append(self.tensormap[input].numpy)
-            otensors = node.value_infer(itensors)
-            for i, output in enumerate(node.output):
-                self.tensormap[output].update_tensor(otensors[i])
+                itensors.append(self.tensormap[input])
+            otensors = []
+            for output in node.output:
+                otensors.append(self.tensormap[output])
+            node.value_infer(itensors, otensors)
         outputs = []
         for output in self.output:
             outputs.append(self.tensormap[output].numpy)
@@ -1178,7 +1168,6 @@ class Graph():
         self.macs = [0.0, 0.0]
         self.params = 0
         self.memory = 0
-        tensors = []
         for key in self.nodemap.keys():
             node = self.nodemap[key]
             itensors = []
@@ -1188,7 +1177,7 @@ class Graph():
             block_sparsity = {'blocksize': (1, 1), 'blockratio': 0, 'ratio': 0}
             for input in node.input:
                 tensor = self.tensormap[input]
-                itensors.append(tensor.get_valueorshape())
+                itensors.append(tensor)
                 if input in self.initials:
                     if params_flag_map[input] == 0:
                         elesize = volume(self.tensormap[input].get_shape())
@@ -1200,15 +1189,11 @@ class Graph():
                     block_sparsity = tensor.sparsity
             otensors = []
             for output in node.output:
-                if self.tensormap[output].numpy is not None:
-                    otensors.append(self.tensormap[output].numpy)
-                else:
-                    otensors.append(self.tensormap[output].get_shape())
+                otensors.append(self.tensormap[output])
                 if node.op_type == 'Constant':
                     # Constant's output tensors are already counted as weight tensors
                     continue
                 _memory += self.tensormap[output].get_memsize()
-                tensors.append(output)
             macs = node.profile(itensors, otensors)
             outshape = (0,)
             if len(node.output) > 0:

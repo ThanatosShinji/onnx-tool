@@ -10,7 +10,7 @@ Level 1 model: the subgraph model.
 Level 2 model: need to be executed after the subgraph.  
 You may see this image:
 <p align="center">
-  <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/resnet18_subgraph.png">
+  <img src="./resnet18_subgraph.png">
 </p>
 
 Step1: execute level 0 model to get resnetv15_stage4_batchnorm2_fwd and resnetv15_stage4_conv0_fwd tensors.  
@@ -21,7 +21,7 @@ Step3: feed resnetv15_stage4_batchnorm2_fwd and resnetv15_stage4_batchnorm1_fwd 
 In this case, the onnx model will still be executed as one inference. The subgraph may be fused as one op layer which contains the all attributes of
 op layers and all weight tensors from the subgraph .
 <p align="center">
-  <img src="https://raw.githubusercontent.com/ThanatosShinji/onnx-tool/main/data/resnet18_fused.png">
+  <img src="./resnet18_fused.png">
 </p>
 You can register your implementation to the inference engine to execute the fused op, for example: create a custom plugin in TensorRT.
 

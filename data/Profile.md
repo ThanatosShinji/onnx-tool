@@ -42,7 +42,7 @@ is [1,0,0,0], it can be sparse ratio=75% with block=1x1, also can be sparse rati
 ## How to use
 
 * python usage  
-please refer to profile_model, dynamic_input_shapes and custom_layer_register in [benchmark/samples.py](https://github.com/ThanatosShinji/onnx-tool/blob/main/benchmark/samples.py)
+please refer to profile_model, dynamic_input_shapes and custom_layer_register in [benchmark/examples.py](../benchmark/examples.py)
 * cli usage  
 
     ```shell

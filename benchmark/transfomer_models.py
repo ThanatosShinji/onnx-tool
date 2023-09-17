@@ -78,6 +78,6 @@ def transformer_mpt():
     torch.onnx.export(m, ids, tmpfile)
     onnx_tool.model_profile(tmpfile, constant_folding=False, shapesonly=True, saveshapesmodel=modelname, verbose=True)
 
-# transfomer_llama()
+transfomer_llama()
 transfomer_gptj()
-# transformer_mpt()
+transformer_mpt()

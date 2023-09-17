@@ -74,6 +74,7 @@ def resnet_fusion_compression():
 def bevformer():
     from onnx_tool import NODE_REGISTRY
     from onnx_tool.node import PWNode,Node,_get_shape
+    from onnx_tool.tensor import Tensor
     # this is the TensorRT version of BEVFormer
     # It fused some ops as two TRT plugins
     @NODE_REGISTRY.register()
@@ -87,22 +88,22 @@ def bevformer():
         def __init__(self, n):
             super().__init__(n)
 
-        def shape_infer(self, intensors: []):
-            s0 = _get_shape(intensors[0])
-            s3 = _get_shape(intensors[3])
+        def shape_infer(self, intensors: list[Tensor],outtensors: list[Tensor]):
+            s0 = intensors[0].get_shape()
+            s3 = intensors[3].get_shape()
             s0[1] = s3[1]
-            return [s0]
+            outtensors[0].update_shape(s0)
 
         def profile(self, intensors: [], outtensors: []):
             macs = 8
-            batch = _get_shape(intensors[0])[0]
-            num_heads = _get_shape(intensors[0])[2]
-            channels = _get_shape(intensors[0])[3]
-            num_levels = _get_shape(intensors[1])[0]
-            num_query = _get_shape(intensors[3])[1]
-            num_points = _get_shape(intensors[4])[3]
+            batch = intensors[0].get_shape()[0]
+            num_heads = intensors[0].get_shape()[2]
+            channels = intensors[0].get_shape()[3]
+            num_levels = intensors[1].get_shape()[0]
+            num_query = intensors[3].get_shape()[1]
+            num_points = intensors[4].get_shape()[3]
             base_num = batch * num_query * num_heads * channels * num_levels * num_points
-            return base_num * macs
+            return [base_num * macs,0]
 
     file = 'data/public/bevformer_tiny.onnx'
     m = onnx.load_model(file)
@@ -142,6 +143,6 @@ def gpt2():
     cg.save_model('gpt2_cg.onnx')
 
 # resnet_compress()
-resnet_fusion_compression()
-# bevformer()
+# resnet_fusion_compression()
+bevformer()
 # gpt2()

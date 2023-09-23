@@ -30,7 +30,7 @@ def InceptionV3():
     dynamics_input = {
         'input_1': create_ndarray_f32(inputshape)
     }
-    onnx_tool.model_profile_v2(temp_model_file, dynamic_shapes=dynamics_input)
+    onnx_tool.model_profile(temp_model_file, dynamic_shapes=dynamics_input)
 
 
 def MobileNetV3Large():
@@ -55,7 +55,7 @@ def MobileNetV3Large():
     dynamics_input = {
         'input_2': create_ndarray_f32(inputshape)
     }
-    onnx_tool.model_profile_v2(temp_model_file, saveshapesmodel='shapes.onnx', dynamic_shapes=dynamics_input)
+    onnx_tool.model_profile(temp_model_file, saveshapesmodel='shapes.onnx', dynamic_shapes=dynamics_input)
 
 
 InceptionV3()

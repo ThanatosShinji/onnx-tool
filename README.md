@@ -3,11 +3,11 @@
 
 **A tool for ONNX model:**
 
-* *Parse and edit: <a href="data/ConstantFolding.md">Constant Folding</a>; OPs fusion.*
-* *Model profiling: Rapid shape inference; MACs statistics*
-* *Compute Graph and Shape Engine.*
-* *Model memory compression: activation compression and weight compression.*
-* *Quantized models and sparse models are supported.*
+* *Parse and edit: [Basic](#basic-parse-edit); [Constant folding](data/ConstantFolding.md); [OPs fusion](data/GraphFusion.md).*
+* *[Model profiling](#shapeinfer-profile): Rapid shape inference; MACs statistics*
+* *[Compute Graph and Shape Engine](#compute_graph-header).*
+* *[Model memory compression](#memory-compression): activation compression and weight compression.*
+* *[Quantized models and sparse models](#models) are supported.*
 
 Supported Models:
 
@@ -18,7 +18,8 @@ Supported Models:
 
 ---
 
-## Parse and edit
+## Basic parse and edit
+<a id="basic-parse-edit"></a>
 You can load any onnx file by onnx_tool.Model:  
 Change graph structure with onnx_tool.Graph;  
 Change op attributes and IO tensors with onnx_tool.Node;  
@@ -30,22 +31,24 @@ Please refer [benchmark/examples.py](benchmark/examples.py).
 ---
 
 ## Shape inference & Profile Model
-All profiling data must be built on shape inference result.
+<a id="shapeinfer-profile"></a>
+All profiling data must be built on shape inference result.  
+ONNX graph with tensor shapes:
 <p align="center">  
   <img src="data/shape_inference.jpg">
 </p>  
-
+Regular model profiling table:  
 <p align="center">
   <img src="data/macs_counting.png">
 </p>
-Float MultipleAdd Count(1 MAC=2 FLOPs), Memory Usage(in bytes), Parameters(elements number)<br><br>
-
+<br><br>
+Sparse profiling table:
 <p id="sparsity" align="center">
   <img src="data/sparse_model.png">
 </p>
-Sparse Pattern, Sparse Block Ratio, Sparse Element Ratio<br><br>  
+<br><br>  
 
-how to use: [data/Profile.md](data/Profile.md).  
+Introduction: [data/Profile.md](data/Profile.md).  
 pytorch usage: [data/PytorchUsage.md](data/PytorchUsage.md).  
 tensorflow
 usage: [data/TensorflowUsage.md](data/TensorflowUsage.md).  
@@ -54,7 +57,8 @@ examples: [benchmark/examples.py](benchmark/examples.py).
 ---
 
 ## Compute Graph with Shape Engine
-
+<a id="compute_graph-header"></a>
+From a raw graph to a compute graph:
 <p id="compute_graph" align="center">
   <img src="data/compute_graph.png">
 </p>  
@@ -68,37 +72,8 @@ engine: [data/inference_engine.md](data/inference_engine.md)
 
 ---
 
-## Inplace op fusion
-
-MHA and Layernorm Fusion for Transformers
-<p align="center">
-  <img src="data/mha_fusion.png">
-</p>
-<p align="center">
-  <img src="data/layernorm_fusion.png">
-</p>
-Resnet18 fusion
-<p align="center">
-  <img src="data/resnet18_fused.png">
-</p>
-
-how to use: [data/Subgraph.md](data/Subgraph.md).  
-BERT examples: [benchmark/examples.py](benchmark/examples.py).  
-Pattern fusion: [benchmark/do_fusion.py](benchmark/do_fusion.py).
-
----
-
-## Extract subgraph from ONNX model
-Help implement model parallelism.
-<p align="center">
-  <img src="data/resnet18_subgraph.png">
-</p>
-
-how to use: [data/Subgraph.md](data/Subgraph.md).
-
----
-
 ## Memory Compression
+<a id="memory-compression"></a>
 
 ### Activation compression
 Activation memory also called temporary memory is created by each OP's output. Only the last activation marked as the
@@ -153,10 +128,12 @@ Then `pip install onnx-tool` again.
 
 ## Known Issues
 * Loop op is not supported
+* Sequence type is not supported
   
 ---
 
 ## Results of [ONNX Model Zoo](https://github.com/onnx/models) and SOTA models
+<a id='models'></a>
 Some models have dynamic input shapes. The MACs varies from input shapes. The input shapes used in these results are writen to [data/public/config.py](data/public/config.py).
 These onnx models with all tensors' shape can be downloaded: [baidu drive](https://pan.baidu.com/s/1eebBP-n-wXvOhSmIH-NUZQ 
 )(code: p91k) [google drive](https://drive.google.com/drive/folders/1H-ya1wTvjIMg2pMcMITWDIfWNSnjYxTn?usp=sharing)

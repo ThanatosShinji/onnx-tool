@@ -80,7 +80,7 @@ Resnet18 fusion
   <img src="data/resnet18_fused.png">
 </p>
 
-how to use: [data/Subgraph.md](data/Subgraph.md).  
+how to use: [data/Subgraph.md](data/GraphFusion.md).  
 BERT examples: [benchmark/examples.py](benchmark/examples.py).  
 Pattern fusion: [benchmark/do_fusion.py](benchmark/do_fusion.py).
 
@@ -92,7 +92,7 @@ Pattern fusion: [benchmark/do_fusion.py](benchmark/do_fusion.py).
   <img src="data/resnet18_subgraph.png">
 </p>
 
-how to use: [data/Subgraph.md](data/Subgraph.md).
+how to use: [data/Subgraph.md](data/GraphFusion.md).
 
 ---
 

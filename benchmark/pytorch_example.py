@@ -28,25 +28,4 @@ def convnext_large():
         # do not use dynamic axes will simplify the process
         onnx_tool.model_profile(tmpfile, verbose=False)
 
-
-def Issue11():
-    from torch.nn import Module
-    import torch
-
-    class Dummy(Module):
-        def __init__(self):
-            super(Dummy, self).__init__()
-
-        def forward(self, x):
-            return torch.unsqueeze(torch.sum(x, dim=1), 1)
-
-    model = Dummy()
-    x = torch.zeros((32, 10))
-    torch.onnx.export(model, x, "model.onnx")
-    m = onnx.load_model('model.onnx')
-    graph = onnx_tool.Graph(m.graph)
-    graph.shape_infer()
-    graph.save_model('shapes.onnx')
-
-
 convnext_large()

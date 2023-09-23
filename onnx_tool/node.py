@@ -2110,6 +2110,47 @@ class QLinearConvNode(ConvNode):
                 macs += (outvol * ADD_MACS)
         return [macs, 0]
 
+@NODE_REGISTRY.register()
+class ConvIntegerNode(ConvNode):
+    def shape_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
+        xshape = intensors[0].get_shape()
+        wshape = intensors[1].get_shape()
+        shape = []
+        if self.auto_pad is not None and self.auto_pad != b'NOTSET':
+            if self.auto_pad in [b'SAME_LOWER', b'SAME_UPPER']:
+                shape = [xshape[0], wshape[0], math.ceil(xshape[2] / self.strides[0])]
+                if len(xshape) == 4:
+                    shape += [math.ceil(xshape[3] / self.strides[1]), ]
+        else:
+            if len(xshape) == 4:
+                oh = _conv_output_shape(xshape[2], self.pads[0] + self.pads[2], wshape[2], self.strides[0],
+                                        self.dilations[0])
+                ow = _conv_output_shape(xshape[3], self.pads[1] + self.pads[3], wshape[3], self.strides[1],
+                                        self.dilations[1])
+                shape = [xshape[0], wshape[0], oh, ow]
+            elif len(xshape) == 3:
+                oh = _conv_output_shape(xshape[2], self.pads[0] + self.pads[1], wshape[2], self.strides[0],
+                                        self.dilations[0])
+                shape = [xshape[0], wshape[0], oh]
+        outtensors[0].update_shape(shape)
+        outtensors[0].update_dtype(numpy.int32)
+
+    def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
+        macs = 0
+        outshape = outtensors[0].get_shape()
+        if len(outtensors) == 1:
+            kernel_shape = intensors[1].get_shape()
+            if len(kernel_shape) > 3:
+                outvol = volume(outshape)
+                macs += outvol * kernel_shape[1] * kernel_shape[2] * kernel_shape[3]
+            elif len(kernel_shape) == 3:
+                outvol = volume(outshape)
+                macs += outvol * kernel_shape[1] * kernel_shape[2]
+            else:
+                outvol = 0
+                raise NotImplementedError()
+        return [macs, 0]
+
 
 @NODE_REGISTRY.register()
 class ConvTransposeNode(Node):

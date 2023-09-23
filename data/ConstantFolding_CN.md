@@ -20,12 +20,9 @@ Identity大多数情况下它的输入Tensor都是Graph的initializer。所以�
 python API, 很多用法都无法用命令行来完成，推荐使用python的API。
 ```python
 import onnx_tool
-import onnx
 rawonnx='test.onnx'
-m = onnx.load_model(rawonnx)
-g = onnx_tool.Graph(m.graph,constant_folding=True)
-g.save_model('folded.onnx',rawmodel=m)
-#rawmodel是为了保持和原来的模型属性，以便能够使用OnnxRuntime推理保存后的模型
+m = onnx_tool.Model(rawonnx,constant_folding=True)
+m.save_model('folded.onnx')
 ```
 cli
 ```commandline

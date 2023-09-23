@@ -3,7 +3,7 @@
 
 **A tool for ONNX model:**
 
-* *Parse and edit: [Basic](#basic-parse-edit); [Constant folding](data/ConstantFolding.md); [OPs fusion](data/GraphFusion.md).*
+* *[Parse and edit](#basic-parse-edit): [Constant folding](data/ConstantFolding.md); [OPs fusion](data/GraphFusion.md).*
 * *[Model profiling](#shapeinfer-profile): Rapid shape inference; MACs statistics*
 * *[Compute Graph and Shape Engine](#compute_graph-header).*
 * *[Model memory compression](#memory-compression): activation compression and weight compression.*
@@ -18,7 +18,7 @@ Supported Models:
 
 ---
 
-## Basic parse and edit
+## Basic Parse and Edit
 <a id="basic-parse-edit"></a>
 You can load any onnx file by onnx_tool.Model:  
 Change graph structure with onnx_tool.Graph;  
@@ -30,7 +30,7 @@ Please refer [benchmark/examples.py](benchmark/examples.py).
 
 ---
 
-## Shape inference & Profile Model
+## Shape Inference & Profile Model
 <a id="shapeinfer-profile"></a>
 All profiling data must be built on shape inference result.  
 ONNX graph with tensor shapes:
@@ -75,7 +75,7 @@ engine: [data/inference_engine.md](data/inference_engine.md)
 ## Memory Compression
 <a id="memory-compression"></a>
 
-### Activation compression
+### Activation Compression
 Activation memory also called temporary memory is created by each OP's output. Only the last activation marked as the
 model's output will be kept. So you don't have to prepare memory space for each activation tensor. They better reuse 
 an optimized memory size.
@@ -95,7 +95,7 @@ For example:
 
 code example: [benchmark/compression.py](benchmark/compression.py)
 
-### Weight compression
+### Weight Compression
 A fp32 model with 7B parameters will take 28GB disk space and memory space. You can not even run the model if your device
  doesn't have that much memory space. So weight compression is critical to run large language models. As a reference, 7B 
 model with int4 symmetric per block(32) quantization(llama.cpp's q4_0 quantization method) only has ~0.156x model size compared with fp32 model. 

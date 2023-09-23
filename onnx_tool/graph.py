@@ -250,6 +250,8 @@ class Graph():
 
     def __is_node_constant__(self, node):
         constant_node = True
+        if node.op_type in ['DequantizeLinear']:
+            return False
         for tname in node.input:
             if self.tensormap[tname].type == DYNAMIC_TENSOR:
                 constant_node = False

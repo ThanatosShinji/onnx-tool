@@ -192,7 +192,6 @@ def removeShapeOps(g: onnx_tool.Graph):
             rmlist.append(n)
     for n in rmlist:
         g.skip_node(n)
-        g.nodemap.pop(n)
     g.update_tensor_relations()
     return g
 
@@ -272,34 +271,36 @@ class NodeCondition():
             flag &= attrexpr(node)
         return flag
 
-def create_descs_from_nodenames(graph:Graph, nodenames:[str]):
-    nodedesc=[]
-    consumed_by={}
-    produced_by={}
+
+def create_descs_from_nodenames(graph: Graph, nodenames: [str]):
+    nodedesc = []
+    consumed_by = {}
+    produced_by = {}
     for name in nodenames:
         node = graph.nodemap[name]
-        desc ={
-            'name':node.name,
-            'op':node.op_type,
+        desc = {
+            'name': node.name,
+            'op': node.op_type,
             'attrs': [],
             'inport': [],
             'outport': [],
         }
         nodedesc.append(desc)
         for t in node.output:
-            consumed_by[t]=[]
-            produced_by[t]=name
+            consumed_by[t] = []
+            produced_by[t] = name
 
-    for i,name in enumerate(nodenames):
+    for i, name in enumerate(nodenames):
         node = graph.nodemap[name]
-        for j,t in enumerate(node.input):
+        for j, t in enumerate(node.input):
             if t in consumed_by.keys():
-                pnode=produced_by[t]
-                pidx=nodenames.index(pnode)
-                prodnode=graph.nodemap[pnode]
-                nodedesc[pidx]['outport'].append([prodnode.output.index(t),name,j])
-                nodedesc[i]['inport'].append([j,pnode,prodnode.output.index(t)])
+                pnode = produced_by[t]
+                pidx = nodenames.index(pnode)
+                prodnode = graph.nodemap[pnode]
+                nodedesc[pidx]['outport'].append([prodnode.output.index(t), name, j])
+                nodedesc[i]['inport'].append([j, pnode, prodnode.output.index(t)])
     return nodedesc
+
 
 class FusionPattern():
     def __init__(self, nodedescs: {}, inplace_fusion=False):
@@ -311,16 +312,16 @@ class FusionPattern():
             self.nodedesc[desc['name']] = NodeCondition(desc)
 
     def search_node(self, nodepair, graph, searched):
-        curdescname=nodepair[0]
-        curnodename=nodepair[1]
+        curdescname = nodepair[0]
+        curnodename = nodepair[1]
 
         desc = self.nodedesc[curdescname]
         node = graph.nodemap[curnodename]
         searched.append(curnodename)
 
         # expand in nodes
-        invalid=False if len(desc.inport)>0 else True
-        uppaths=[]
+        invalid = False if len(desc.inport) > 0 else True
+        uppaths = []
         for inset in desc.inport:
             inidx = inset[0]
             indesckey = inset[1]
@@ -367,8 +368,8 @@ class FusionPattern():
                     outpath.append(v)
         outpath.append(nodepair)
 
-        outvalid=False if len(desc.outport)>0 else True
-        downpaths=[]
+        outvalid = False if len(desc.outport) > 0 else True
+        downpaths = []
         for outset in desc.outport:
             outidx = outset[0]
             outdescky = outset[1]
@@ -389,12 +390,12 @@ class FusionPattern():
                             if next_inidx == -1 or nodeobject.input.index(output) == next_inidx:
                                 if nextdesc.is_node(nodeobject):
                                     if nodename not in searched:
-                                        outvalid,downpath=self.search_node((outdescky,nodename),graph,searched)
+                                        outvalid, downpath = self.search_node((outdescky, nodename), graph, searched)
                                         if outvalid:
                                             downpaths.append(downpath)
                                             break
                                     else:
-                                        outvalid=True
+                                        outvalid = True
 
 
             elif outidx < len(node.output):
@@ -438,20 +439,16 @@ class FusionPattern():
                 continue
             node = graph.nodemap[name]
             if first_desc.is_node(node):
-                searched=[]
+                searched = []
                 valid, path = self.search_node((self.first_key, name), graph, searched)
                 if valid:
-                    desckeys=list(self.nodedesc.keys())
-                    nodes=['a']*len(desckeys)
+                    desckeys = list(self.nodedesc.keys())
+                    nodes = ['a'] * len(desckeys)
                     for val in path:
                         idx = desckeys.index(val[0])
-                        nodes[idx]=val[1]
+                        nodes[idx] = val[1]
                     ls_nodes.append(nodes)
         return ls_nodes
-
-
-
-
 
 
 def ConvBNFusion(graph: Graph):

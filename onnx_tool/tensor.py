@@ -235,6 +235,15 @@ def numpy_dtype2bytes(ndtype):
     return numpy.dtype(ndtype).itemsize
 
 
+def same_shape(shape0, shape1):
+    if len(shape1) != len(shape0):
+        return False
+    for a, b in zip(shape0, shape1):
+        if a != b:
+            return False
+    return True
+
+
 def search_sparse_blocksize(arr, ratio, deltar_thres=0.1):
     if len(arr.shape) == 2:  # gemm or matmul
         initsize = 2
@@ -421,7 +430,8 @@ class Tensor():
 
     def get_numpy(self):
         if self.numpy is not None:
-            return self.numpy
+            if same_shape(self.numpy.shape, self.shape):
+                return self.numpy
         self.numpy = numpy.zeros(self.shape, dtype=self.dtype)
         return self.numpy
 

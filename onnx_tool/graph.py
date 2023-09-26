@@ -860,7 +860,6 @@ class Graph():
 
     def shape_regress(self, input_desc: {}, input_range: {}):
         shapeengine = ShapeEngine(input_desc)
-
         for key in input_range.keys():
             shapeengine.update_variable(key, input_range[key][1])
         tmp_input = shapeengine.generate_input()

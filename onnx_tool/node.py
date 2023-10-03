@@ -808,6 +808,30 @@ class ConcatNode(Node):
         outtensors[0].update_tensor(outtensor)
 
 
+@NODE_REGISTRY.register()
+class GridSampleNode(Node):
+    def __init__(self, n):
+        super().__init__(n)
+
+    def shape_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
+        r = intensors[1].shape[-1]
+        out_shape = intensors[0].shape[:2] + intensors[1].shape[1:1+r]
+        outtensors[0].update_shape(out_shape)
+        outtensors[0].update_dtype(intensors[0].dtype)
+
+
+@NODE_REGISTRY.register()
+class DepthToSpaceNode(Node):
+    def __init__(self, n):
+        super().__init__(n)
+
+    def shape_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
+        n, c, h, w = intensors[0].shape
+        b = self.attr["blocksize"]
+        outtensors[0].update_shape([n, c // (b * b), h * b, w * b])
+        outtensors[0].update_dtype(intensors[0].dtype)
+
+
 # copy from https://github.com/onnx/onnx/blob/main/onnx/backend/test/case/node/onehot.py
 def one_hot(indices, depth, axis=-1, dtype=numpy.float32):  # type: ignore
     ''' Compute one hot from indices at a specific axis '''

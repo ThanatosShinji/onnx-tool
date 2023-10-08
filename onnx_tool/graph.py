@@ -289,11 +289,12 @@ class Graph():
                         for i, output in enumerate(this_node.output):
                             self.tensormap[output].type = STATIC_TENSOR
                     for output in this_node.output:
-                        for consumer in self.consumedby[output]:
-                            cnode = self.nodemap[consumer]
-                            if self.__is_node_constant__(cnode):
-                                cnode.constant = True
-                                search_nodes.append(consumer)
+                        if output in self.consumedby:
+                            for consumer in self.consumedby[output]:
+                                cnode = self.nodemap[consumer]
+                                if self.__is_node_constant__(cnode):
+                                    cnode.constant = True
+                                    search_nodes.append(consumer)
         self.log(f'Constant Search Time Elapsed {tm.stop()}')
 
     def __update_consumer_producer__(self):

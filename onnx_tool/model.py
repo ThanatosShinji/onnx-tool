@@ -11,7 +11,7 @@ class Model:
                  noderename: bool = False):
         self.modelname = ''
         if isinstance(m, pathlib.Path):
-            self.modelname = m.name.stem
+            self.modelname = m.stem
             m = onnx.load_model(m)
         elif isinstance(m, str):
             self.modelname = os.path.basename(m)

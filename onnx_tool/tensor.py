@@ -369,7 +369,7 @@ class Tensor():
             self.proto = None
             self.shape = []
             self.numpy = None
-            self.type = DYNAMIC_TENSOR
+            self.type = DYNAMIC_TENSOR if t != '' else STATIC_TENSOR
             self.dtype = numpy.float32
         elif isinstance(t, onnx.ValueInfoProto):
             self.name = t.name
@@ -470,6 +470,8 @@ class Tensor():
             dtype = npdtype2onnxdtype(self.dtype)
         else:
             dtype = npdtype2onnxdtype(self.numpy.dtype)
+        if self.name == '':
+            return None
         # shape = [int(i) for i in shape]
         vinf = onnx.helper.make_tensor_value_info(self.name, dtype, shape)
         return vinf

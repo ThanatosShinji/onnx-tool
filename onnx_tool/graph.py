@@ -276,7 +276,7 @@ class Graph():
                         itensors = []
                         for input in this_node.input:
                             itensors.append(self.tensormap[input])
-                            if self.tensormap[input].numpy is None:
+                            if self.tensormap[input].numpy is None and input != '':
                                 warnings.warn(f'Tensor {input} has shape only, {name} may has wrong value infer result')
                         otensors = []
                         for output in this_node.output:
@@ -497,7 +497,9 @@ class Graph():
         for name in nodenames:
             for input in self.nodemap[name].input:
                 if input in self.initials and input not in enqueued:
-                    initializer.append(self.tensormap[input].make_tensor_proto())
+                    proto = self.tensormap[input].make_tensor_proto()
+                    if proto is not None:
+                        initializer.append(proto)
                     enqueued.append(input)
         return initializer
 

@@ -750,7 +750,15 @@ class ClipNode(PWNode):
         self.ratio = 1
 
     def value_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
-        y = numpy.clip(intensors[0].get_numpy(), intensors[1].get_numpy(), intensors[2].get_numpy())
+        if intensors[1].name == '':
+            minval = None
+        else:
+            minval = intensors[1].get_numpy()
+        if intensors[2].name == '':
+            maxval = None
+        else:
+            maxval = intensors[2].get_numpy()
+        y = numpy.clip(intensors[0].get_numpy(), minval, maxval)
         outtensors[0].update_tensor(y)
 
 
@@ -815,7 +823,7 @@ class GridSampleNode(Node):
 
     def shape_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
         r = intensors[1].shape[-1]
-        out_shape = intensors[0].shape[:2] + intensors[1].shape[1:1+r]
+        out_shape = intensors[0].shape[:2] + intensors[1].shape[1:1 + r]
         outtensors[0].update_shape(out_shape)
         outtensors[0].update_dtype(intensors[0].dtype)
 
@@ -2134,6 +2142,7 @@ class QLinearConvNode(ConvNode):
                 macs += (outvol * ADD_MACS)
         return [macs, 0]
 
+
 @NODE_REGISTRY.register()
 class ConvIntegerNode(ConvNode):
     def shape_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
@@ -2270,7 +2279,7 @@ class ReshapeNode(Node):
         shape = []
         xtensor = intensors[0].get_numpy()
         stensor = intensors[1].get_numpy()
-        for i,v in enumerate(stensor):
+        for i, v in enumerate(stensor):
             if v == 0:
                 shape.append(xtensor.shape[i])
             else:
@@ -2405,7 +2414,7 @@ class SplitNode(Node):
             splitpos.append(end + v)
             end += v
         ret = numpy.split(intensors[0].get_numpy(), splitpos, axis)
-        for i,t in enumerate(ret):
+        for i, t in enumerate(ret):
             outtensors[i].update_tensor(t)
 
 

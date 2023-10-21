@@ -288,6 +288,16 @@ class DivNode(NpMathBase):
             result = intensors[0].get_numpy() / intensors[1].get_numpy()
         outtensors[0].update_tensor(result)
 
+@NODE_REGISTRY.register()
+class ModNode(NpMathBase):
+    def __init__(self, n):
+        super().__init__(n)
+        self.op_mac = ADD_MACS
+
+    def value_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
+        result = numpy.mod(intensors[0].get_numpy(),intensors[1].get_numpy())
+        outtensors[0].update_tensor(result)
+
 
 @NODE_REGISTRY.register()
 class MulNode(NpMathBase):

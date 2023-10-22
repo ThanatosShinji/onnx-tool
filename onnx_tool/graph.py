@@ -34,7 +34,9 @@ _SHAPE_TENSORS = {
     'NonMaxSuppression': ('2of5',),
     'Split': ('1of2',),
     'Unsqueeze': ('1of2',),
-    'Squeeze': ('1of2',)
+    'Squeeze': ('1of2',),
+    'ReduceSum': ('1of2',),
+    'ReduceMean': ('1of2',)
 }
 
 

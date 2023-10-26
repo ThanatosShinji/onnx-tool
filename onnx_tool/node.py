@@ -1668,9 +1668,9 @@ class ConvNode(Node):
     def __init__(self, n):
         super(ConvNode, self).__init__(n)
         self.add_default_value('auto_pad', None)
-        self.add_default_value('pads', (0, 0, 0, 0))
-        self.add_default_value('strides', (1, 1))
-        self.add_default_value('dilations', (1, 1))
+        self.add_default_value('pads', (0, 0, 0, 0, 0, 0))
+        self.add_default_value('strides', (1, 1, 1))
+        self.add_default_value('dilations', (1, 1, 1))
         self.add_default_value('group', 1)
 
     def shape_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):

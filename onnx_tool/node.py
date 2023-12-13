@@ -612,6 +612,11 @@ class AndNode(LessNode):
         result = numpy.logical_and(intensors[0].get_numpy(), intensors[1].get_numpy())
         outtensors[0].update_tensor(result)
 
+@NODE_REGISTRY.register()
+class OrNode(LessNode):
+    def value_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
+        result = numpy.logical_or(intensors[0].get_numpy(), intensors[1].get_numpy())
+        outtensors[0].update_tensor(result)
 
 @NODE_REGISTRY.register()
 class WhereNode(Node):

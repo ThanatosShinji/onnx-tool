@@ -459,6 +459,14 @@ class Graph():
         else:
             raise NotImplementedError('unsupported data type')
 
+    def add_dynamic(self, name, data):
+        from .tensor import create_dynamic_Tensor
+        self.dynamics.append(name)
+        if isinstance(data, numpy.ndarray):
+            self.tensormap[name] = create_dynamic_Tensor(name, data)
+        else:
+            raise NotImplementedError('unsupported data type')
+
     def get_subgraph(self, inputs: [], outputs: []):
         graph_level0, graph_level1, graph_level2 = self.__get_subnodes_byio__(inputs, outputs)
 
@@ -651,7 +659,9 @@ class Graph():
             model = onnx.helper.make_model(graph, **attr)
             if rawmodel is not None:
                 model.ir_version = rawmodel.ir_version
-                model.opset_import[0].version = rawmodel.opset_import[0].version
+                model.opset_import.pop()
+                for opset in rawmodel.opset_import:
+                    model.opset_import.append(opset)
             onnx.save_model(model, f)
 
     def make_graph_onnx(self, nodenames, gname, inputnames, outputnames, with_initializer=True, with_shape_info=True):

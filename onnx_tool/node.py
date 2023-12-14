@@ -2305,8 +2305,12 @@ class ReshapeNode(Node):
 
 @NODE_REGISTRY.register()
 class GatherElementsNode(Node):
+    def __init__(self, node):
+        super().__init__(node)
+        self.add_default_value('axis',0)
+
     def shape_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
-        outtensors[0].update_shape(intensors[0].get_shape())
+        outtensors[0].update_shape(intensors[1].get_shape())
         outtensors[0].update_dtype(intensors[0].dtype)
 
     def value_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):

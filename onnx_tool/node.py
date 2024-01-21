@@ -288,6 +288,7 @@ class DivNode(NpMathBase):
             result = intensors[0].get_numpy() / intensors[1].get_numpy()
         outtensors[0].update_tensor(result)
 
+
 @NODE_REGISTRY.register()
 class ModNode(NpMathBase):
     def __init__(self, n):
@@ -295,7 +296,7 @@ class ModNode(NpMathBase):
         self.op_mac = ADD_MACS
 
     def value_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
-        result = numpy.mod(intensors[0].get_numpy(),intensors[1].get_numpy())
+        result = numpy.mod(intensors[0].get_numpy(), intensors[1].get_numpy())
         outtensors[0].update_tensor(result)
 
 
@@ -612,11 +613,20 @@ class AndNode(LessNode):
         result = numpy.logical_and(intensors[0].get_numpy(), intensors[1].get_numpy())
         outtensors[0].update_tensor(result)
 
+
 @NODE_REGISTRY.register()
 class OrNode(LessNode):
     def value_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
         result = numpy.logical_or(intensors[0].get_numpy(), intensors[1].get_numpy())
         outtensors[0].update_tensor(result)
+
+
+@NODE_REGISTRY.register()
+class XorNode(LessNode):
+    def value_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
+        result = numpy.logical_xor(intensors[0].get_numpy(), intensors[1].get_numpy())
+        outtensors[0].update_tensor(result)
+
 
 @NODE_REGISTRY.register()
 class WhereNode(Node):
@@ -1237,6 +1247,7 @@ class PadNode(Node):
         super().__init__(nodeproto)
         self.add_default_value('pads', None)
         self.add_default_value('value', 0)
+        self.add_default_value('mode', 'constant')
 
     def shape_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
         inshape = intensors[0].get_shape()
@@ -1252,6 +1263,22 @@ class PadNode(Node):
         newshape = [int(val) for val in newshape]
         outtensors[0].update_shape(newshape)
         outtensors[0].update_dtype(intensors[0].dtype)
+
+    def value_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
+        if self.pads is not None:
+            pads = self.pads
+        elif len(intensors) > 1:
+            pads = intensors[1].get_numpy()
+        nrank = len(pads) // 2
+        start = pads[:nrank].reshape(nrank, 1)
+        end = pads[nrank:].reshape(nrank, 1)
+        pad_width = numpy.concatenate([start, end], axis=-1)
+        value = self.value
+        if len(intensors) > 2:
+            value = intensors[2].get_numpy()
+        outtensor = numpy.pad(intensors[0].get_numpy(), pad_width=pad_width, mode=self.mode.decode("utf-8"),
+                              constant_values=value)
+        outtensors[0].update_tensor(outtensor)
 
 
 @NODE_REGISTRY.register()
@@ -1641,6 +1668,7 @@ class LSTMNode(Node):
         super().__init__(nodeproto)
         self.add_default_value('direction', None)
         self.add_default_value('hidden_size', None)
+        # TODO(Shinji) add activation types support in attributes
 
     def shape_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
         xshape = intensors[0].get_shape()
@@ -1649,6 +1677,8 @@ class LSTMNode(Node):
         batch = xshape[1]
         num_dir = wshape[0]
         h_len = wshape[1] // 4
+        if self.hidden_size is not None:
+            assert (h_len == self.hidden_size)
         outtensors[0].update_shape([seq_len, num_dir, batch, h_len])
         outtensors[0].update_dtype(intensors[0].dtype)
         if len(outtensors) > 1:
@@ -1659,12 +1689,30 @@ class LSTMNode(Node):
                 outtensors[2].update_dtype(intensors[0].dtype)
 
     def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
+        xshape = intensors[0].get_shape()
         wshape = intensors[1].get_shape()
         rshape = intensors[2].get_shape()
         bshape = intensors[3].get_shape()
-        batch = intensors[0].get_shape()[1]
-        macs = volume(wshape) + volume(rshape) + volume(bshape) * ADD_MACS
-        macs *= batch
+        seq = xshape[0]
+        batch = xshape[1]
+        num_dir = wshape[0]
+        h_len = wshape[1] // 4
+        if self.hidden_size is not None:
+            assert (h_len == self.hidden_size)
+        ht_size = volume([batch, seq, h_len])
+        # ft = sig(W*X+U*Ht-1+B)
+        # it = sig(W*X+U*Ht-1+B)
+        # ot = sig(W*X+U*Ht-1+B)
+        # ct' = tanh(W*X+U*Ht-1+B)
+        # ct = ft*Ct-1+it*ct'
+        # ht = ot*tanh(ct)
+        gemm_macs = (volume(wshape) + volume(rshape)) * batch * seq
+        gemm_bias_macs = volume(bshape) * ADD_MACS * batch * seq
+        gemm_add_macs = ht_size * ADD_MACS * 4
+        sig_macs = ht_size * EXP_MACS * 3
+        tanh_macs = ht_size * TANH_MACS * 2
+        blend_macs = ht_size * (ADD_MACS + MUL_MACS + MUL_MACS + MUL_MACS)
+        macs = gemm_macs + gemm_bias_macs + sig_macs + tanh_macs + blend_macs + gemm_add_macs
         return [macs, 0]
 
 
@@ -2307,7 +2355,7 @@ class ReshapeNode(Node):
 class GatherElementsNode(Node):
     def __init__(self, node):
         super().__init__(node)
-        self.add_default_value('axis',0)
+        self.add_default_value('axis', 0)
 
     def shape_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
         outtensors[0].update_shape(intensors[1].get_shape())
@@ -2326,6 +2374,7 @@ class GatherElementsNode(Node):
 
 @NODE_REGISTRY.register()
 class GRUNode(Node):
+    # TODO(Shinji) add activation types support in attributes
     def shape_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
         xshape = intensors[0].get_shape()
         wshape = intensors[1].get_shape()
@@ -2344,8 +2393,20 @@ class GRUNode(Node):
         rshape = intensors[2].get_shape()
         bshape = intensors[3].get_shape()
         batch = xshape[1]
-        macs = volume(wshape) + volume(rshape) + volume(bshape) * ADD_MACS
-        macs *= batch
+        seq = xshape[0]
+        h_len = wshape[1] // 3
+        ht_size = volume([batch, seq, h_len])
+        # r = sigmoid(Wr*X+Wr*Ht-1+br)
+        # z = sigmoid(Wz*X+Wz*Ht-1+bz)
+        # h' = tanh(W*X+W*(r*Ht-1)+bh)
+        # Ht = (1-z)*Ht-1 + z*h'
+        gemm_macs = (volume(wshape) + volume(rshape)) * batch * seq
+        gemm_bias_macs = volume(bshape) * ADD_MACS * batch * seq
+        gemm_add_macs = ht_size * ADD_MACS * 3
+        sig_macs = ht_size * EXP_MACS * 2
+        tanh_macs = ht_size * TANH_MACS
+        blend_macs = ht_size * (ADD_MACS + MUL_MACS + MUL_MACS + ADD_MACS + MUL_MACS)
+        macs = gemm_macs + gemm_bias_macs + gemm_add_macs + sig_macs + tanh_macs + blend_macs
         return [macs, 0]
 
 

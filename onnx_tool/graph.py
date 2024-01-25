@@ -521,11 +521,35 @@ class Graph():
                 self.producedby[o].remove(nodename)
                 if len(self.producedby[o]) == 0:
                     self.producedby.pop(o)
+
+                if o in self.output:
+                    self.output.remove(o)
+
         # update consumer
         for i in node.input:
             if i in self.consumedby.keys():
                 self.consumedby[i].remove(nodename)
         self.nodemap.pop(nodename)
+
+    def remove_subtree(self, nodename, nodeset=None):
+        if nodeset is not None:
+            if nodename in self.nodemap:  # may be already removed?
+                node = self.nodemap[nodename]
+
+                for n in node.nextnodes:
+                    nodeset.add(n.name)
+                    nodeset.union(self.remove_subtree(n.name, nodeset))
+                return nodeset
+            return nodeset
+
+        nodeset = set()
+        nodeset.add(nodename)
+        nodeset.union(self.remove_subtree(nodename, nodeset))
+
+        for node in nodeset:
+            if node not in self.nodemap:
+                continue
+            self.remove_node(node)
 
     def skip_node(self, nodename):
         node = self.nodemap[nodename]

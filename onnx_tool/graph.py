@@ -551,6 +551,15 @@ class Graph():
                 continue
             self.remove_node(node)
 
+    def remove_dangling_nodes(self):
+        try_to_remove = True
+        while try_to_remove:
+            try_to_remove = False
+            for node in self.nodemap.keys():
+                if node in self.consumedby and len(self.consumedby[node]) == 0:
+                    self.remove_node(node)
+                    try_to_remove = True
+
     def skip_node(self, nodename):
         node = self.nodemap[nodename]
         count = 0

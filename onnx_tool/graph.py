@@ -555,10 +555,24 @@ class Graph():
         try_to_remove = True
         while try_to_remove:
             try_to_remove = False
-            for node in self.nodemap.keys():
-                if node in self.consumedby and len(self.consumedby[node]) == 0:
-                    self.remove_node(node)
-                    try_to_remove = True
+            for nodename in list(self.nodemap.keys()):
+                node = self.nodemap[nodename]
+                node_used = False
+
+                for o in node.output:
+                    if o in self.output:
+                        node_used = True
+
+                for nnode in node.nextnodes:
+                    if nnode.name in self.nodemap:
+                        node_used = True
+                        break
+
+                if node_used:
+                    continue
+
+                self.remove_node(nodename)
+                try_to_remove = True
 
     def skip_node(self, nodename):
         node = self.nodemap[nodename]

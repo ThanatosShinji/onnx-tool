@@ -521,11 +521,58 @@ class Graph():
                 self.producedby[o].remove(nodename)
                 if len(self.producedby[o]) == 0:
                     self.producedby.pop(o)
+
+                if o in self.output:
+                    self.output.remove(o)
+
         # update consumer
         for i in node.input:
             if i in self.consumedby.keys():
                 self.consumedby[i].remove(nodename)
         self.nodemap.pop(nodename)
+
+    def remove_subtree(self, nodename, nodeset=None):
+        if nodeset is not None:
+            if nodename in self.nodemap:  # may be already removed?
+                node = self.nodemap[nodename]
+
+                for n in node.nextnodes:
+                    nodeset.add(n.name)
+                    nodeset.union(self.remove_subtree(n.name, nodeset))
+                return nodeset
+            return nodeset
+
+        nodeset = set()
+        nodeset.add(nodename)
+        nodeset.union(self.remove_subtree(nodename, nodeset))
+
+        for node in nodeset:
+            if node not in self.nodemap:
+                continue
+            self.remove_node(node)
+
+    def remove_dangling_nodes(self):
+        try_to_remove = True
+        while try_to_remove:
+            try_to_remove = False
+            for nodename in list(self.nodemap.keys()):
+                node = self.nodemap[nodename]
+                node_used = False
+
+                for o in node.output:
+                    if o in self.output:
+                        node_used = True
+
+                for nnode in node.nextnodes:
+                    if nnode.name in self.nodemap:
+                        node_used = True
+                        break
+
+                if node_used:
+                    continue
+
+                self.remove_node(nodename)
+                try_to_remove = True
 
     def skip_node(self, nodename):
         node = self.nodemap[nodename]

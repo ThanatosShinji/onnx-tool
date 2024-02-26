@@ -685,7 +685,7 @@ class GemmNode(Node):
                 yshape = xshape[:-1] + [wshape[-1], ]
         else:
             # broadcast support
-            batchshape = xshape[:-2] if len(xshape) > len(wshape) else wshape[:-2]
+            batchshape = xshape[:-2] if volume(xshape[:-2]) >= volume(wshape[:-2]) else wshape[:-2]
             yshape = batchshape + [xshape[-2], wshape[-1]]
         outtensors[0].update_shape(yshape)
         outtensors[0].update_dtype(intensors[0].dtype)

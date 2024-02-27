@@ -559,7 +559,7 @@ class SumNode(PWNode):
 class NonMaxSuppressionNode(Node):
     def shape_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
         if len(intensors) >= 3:
-            max_output_boxes_per_class = int(intensors[2].get_numpy()[0])
+            max_output_boxes_per_class = int(intensors[2].get_scalar())
             outtensors[0].update_shape([max_output_boxes_per_class, 3])
             outtensors[0].update_dtype(numpy.int64)
             return

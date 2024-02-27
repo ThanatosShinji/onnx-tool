@@ -435,6 +435,11 @@ class Tensor():
         self.numpy = numpy.zeros(self.shape, dtype=self.dtype)
         return self.numpy
 
+    def get_scalar(self):
+        if len(self.shape) == 0:
+            return self.numpy
+        return self.numpy[0]
+
     def get_valueorshape(self):
         if self.numpy is not None:
             return self.numpy

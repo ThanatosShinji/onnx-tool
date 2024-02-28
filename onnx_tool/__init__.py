@@ -154,8 +154,8 @@ def model_io_modify(m, save_model: str, custom_io):
                         if nb.HasField('dim_value'):
                             nb.ClearField('dim_value')
                         nb.dim_param = shapeval
-    graph = Graph(graph)
-    graph.save_model(save_model, rawmodel=m)
+    graph = Graph(graph,utils.ModelConfig({'verbose':True}))
+    graph.save_model(save_model, rawmodel=model.mproto)
 
 
 def model_subgraph(m, in_tensor_names: [str] = None, out_tensor_names: [str] = None, nodenames: [str] = None,

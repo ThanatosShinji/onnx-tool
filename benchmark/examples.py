@@ -13,7 +13,6 @@ def parse_and_edit():
     g.skip_node('flatten_473')  # remove_node will break the input and output tensor relation
     m.save_model('resnet50-v1-7-edited.onnx')
 
-
 def profile_model():
     import onnx_tool
     modelpath = 'data/public/resnet50-v1-7.onnx'
@@ -95,7 +94,6 @@ def simple_inference():
     outputs = m.graph.value_infer(inputm)  # limited models, very slow, for debug purpose
     print(m.graph.tensormap['resnetv17_stage1_conv3_fwd'].numpy)
 
-
 def dynamic_input_shapes():
     import numpy
     import onnx_tool
@@ -109,7 +107,6 @@ def dynamic_input_shapes():
     m.graph.profile()
     m.graph.print_node_map()
     m.save_model('rvm_mobilenetv3_fp32_shapes.onnx')
-
 
 def custom_layer_register():
     import onnx_tool

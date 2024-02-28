@@ -1,5 +1,7 @@
 import numpy
 import onnx
+
+import onnx_tool
 from onnx_tool import Graph
 from onnx_tool.fusion import FusionPattern
 from onnx_tool.fusion import ConvBNFusion, Fused_Element, Conv_Res
@@ -8,8 +10,8 @@ from onnx_tool.serialization import *
 
 def resnet_compress():
     file = 'data/public/resnet50-v2-7.onnx'
-    m = onnx.load_model(file)
-    g = Graph(m.graph)
+    m = onnx_tool.Model(file)
+    g = m.graph
     max_input = {'data': numpy.zeros((1, 3, 224, 224), dtype=numpy.float32)}
     g.shape_infer(max_input)
     g.compress_memory()
@@ -34,8 +36,8 @@ def resnet_fusion_compression():
     ]
 
     file = 'data/public/resnet50-v2-7.onnx'
-    m = onnx.load_model(file)
-    g = Graph(m.graph)
+    m = onnx_tool.Model(file)
+    g = m.graph
 
     shapeengine = g.shape_regress(
         {
@@ -106,23 +108,23 @@ def bevformer():
             return [base_num * macs,0]
 
     file = 'data/public/bevformer_tiny.onnx'
-    m = onnx.load_model(file)
-    g = Graph(m.graph,constant_folding=True, verbose=True)
+    m = onnx_tool.Model(file,{'verbose':True,"constant_folding":True})
+    g = m.graph
     g.shape_infer()
     g.profile()
     g.print_node_map()
-    g.save_model('bevformer_tiny_shapes.onnx',rawmodel=m)
+    m.save_model('bevformer_tiny_shapes.onnx')
     compress_mem = g.compress_memory()
     print('compressed memory allocation: ',compress_mem[1])
     cg=g.get_compute_graph()
     cg.graph_reorder_nodes()
     cg.compress_memory()
-    cg.save_model('bevformer_tiny_cg.onnx',rawmodel=m)
+    cg.save_model('bevformer_tiny_cg.onnx',rawmodel=m.mproto)
 
 def gpt2():
     file = 'data/public/gpt2-10.onnx'
-    m = onnx.load_model(file)
-    g = Graph(m.graph,constant_folding=True,verbose=True)
+    m = onnx_tool.Model(file, {'verbose': True, "constant_folding": True})
+    g = m.graph
     shapeengine = g.shape_regress(
         {
             'input1': ['batch', 1, 'seq']
@@ -142,7 +144,7 @@ def gpt2():
     serialize_graph(cg, 'gpt2.cg')
     cg.save_model('gpt2_cg.onnx')
 
-# resnet_compress()
-# resnet_fusion_compression()
+resnet_compress()
+resnet_fusion_compression()
 bevformer()
-# gpt2()
+gpt2()

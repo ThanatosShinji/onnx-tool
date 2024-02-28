@@ -8,7 +8,7 @@ import onnx
 from .node import create_node
 from .tensor import STATIC_TENSOR, DYNAMIC_TENSOR
 from .tensor import get_attribute_data, Tensor, volume
-from .utils import VERSION, tuple2str
+from .utils import VERSION, tuple2str, ModelConfig
 
 
 def __shape_of_initializer__(initial):
@@ -31,7 +31,7 @@ _SHAPE_TENSORS = {
     'OneHot': ('1of3',),
     'TopK': ('1of2',),
     'Pad': ('1of2', '1of3',),
-    'NonMaxSuppression': ('2of5',),
+    'NonMaxSuppression': ('2of5', '2of4'),
     'Split': ('1of2',),
     'Unsqueeze': ('1of2',),
     'Squeeze': ('1of2',),
@@ -161,8 +161,8 @@ class ShapeEngine():
 
 
 class Graph():
-    def __init__(self, g: onnx.GraphProto, constant_folding: bool = True, noderename: bool = False, verbose=False):
-        self.verbose = verbose
+    def __init__(self, g: onnx.GraphProto, mcfg: ModelConfig):
+        self.cfg = mcfg
         self.nodemap = {}
         self.tensormap = {}
         self.producedby = {}
@@ -176,13 +176,17 @@ class Graph():
         self.valid_profile = False
 
         if g is not None:
-            self.__init_graph_from_onnxproto__(g, noderename)
-            self.__constant_search__(constant_folding)
-            self.__update_nodes_tensors__(constant_folding)
+            self.__init_graph_from_onnxproto__(g, self.cfg.node_rename)
+            if self.cfg.if_fixed_branch is not None:
+                self.__remove_if__()
+            if self.cfg.fixed_topk > 0:
+                self.__set_fixed_topk(self.cfg.fixed_topk)
+            self.__constant_search__(self.cfg.constant_folding)
+            self.__update_nodes_tensors__(self.cfg.constant_folding)
             self.__find_shape_tensors__()
 
     def log(self, str):
-        if self.verbose:
+        if self.cfg.verbose:
             print(str)
 
     def __update_nodes_tensors__(self, constant_folding):
@@ -317,10 +321,107 @@ class Graph():
         self.__update_consumer_producer__()
         self.dynamics = list(self.producedby.keys())
 
+    def __remove_if__(self):
+        prekeys = list(self.nodemap.keys())
+        remove_list = []
+        selected_branch = 'else_branch' if self.cfg.if_fixed_branch == 'else' else 'then_branch'
+        for n in prekeys:
+            node = self.nodemap[n]
+            if node.op_type == 'If':
+                # remove condition node chain
+                sub_input=[]
+                for node_proto in node.attr[selected_branch].node:
+                    for ipn in node_proto.input:
+                        sub_input.append(ipn)
+                node_list = [node.name]
+                while len(node_list):
+                    remove = True
+                    sname = node_list.pop(0)
+                    snode = self.nodemap[sname]
+                    for ipn in snode.input:
+                        if len(self.consumedby[ipn]) == 1 and ipn not in sub_input:  # consumed by this node
+                            node_list.append(self.producedby[ipn][0])
+                    if remove:
+                        remove_list.append(sname)
+                # add branch node
+                names = []
+                for node_proto in node.attr[selected_branch].node:
+                    self.__add_node_from_proto__(node_proto)
+                    names.append(node_proto.name)
+
+                # revise output name
+                preoutput = node.attr[selected_branch].output[0].name
+                newoutput = node.output[0]
+                for newname in names:
+                    newnode = self.nodemap[newname]
+                    for tensor in newnode.input:
+                        if tensor not in self.tensormap.keys():
+                            self.tensormap[tensor] = Tensor(tensor)
+                    for tensor in newnode.output:
+                        if tensor not in self.tensormap.keys():
+                            self.tensormap[tensor] = Tensor(tensor)
+                        if tensor in self.consumedby:
+                            for consumer in self.consumedby[tensor]:
+                                self.nodemap[newnode.name].nextnodes.append(self.nodemap[consumer])
+                    for i, v in enumerate(newnode.output):
+                        if v == preoutput:
+                            newnode.output[i] = newoutput
+        for n in remove_list:
+            self.remove_node(n)
+
+    def __set_fixed_topk(self, fixed_k):
+        prekeys = list(self.nodemap.keys())
+        fixed_k_tensor_name = 'constant_fixed_topk_k'
+        remove_list = []
+        topk_node = 0
+        for n in prekeys:
+            node = self.nodemap[n]
+            if node.op_type == 'TopK':
+                # remove condition node chain
+                node_list = []
+                ktensor = node.input[1]
+                if len(self.consumedby[ktensor]) == 1:
+                    node_list = [self.producedby[ktensor][0]]
+                while len(node_list):
+                    remove = True
+                    sname = node_list.pop(0)
+                    snode = self.nodemap[sname]
+                    for ipn in snode.input:
+                        if len(self.consumedby[ipn]) == 1:  # consumed by this node
+                            node_list.append(self.producedby[ipn][0])
+                    if remove:
+                        remove_list.append(sname)
+                topk_node += 1
+                node.input[1] = fixed_k_tensor_name
+        if topk_node > 0:
+            self.add_initial(fixed_k_tensor_name, numpy.array([fixed_k]))
+        for n in remove_list:
+            self.remove_node(n)
+
+    def __add_node_from_proto__(self, node_proto):
+        newnode = create_node(node_proto)
+        if len(newnode.name) == 0:
+            newnode.name = newnode.op_type + '_' + str(self.node_count)
+        self.node_count += 1
+        for tensor in node_proto.input:
+            if tensor in self.producedby:
+                for producer in self.producedby[tensor]:
+                    newnode.prevnodes.append(self.nodemap[producer])
+            if tensor not in self.consumedby:
+                self.consumedby[tensor] = []
+            self.consumedby[tensor].append(newnode.name)
+            newnode.input.append(tensor)
+        for tensor in node_proto.output:
+            if tensor not in self.producedby:
+                self.producedby[tensor] = []
+            self.producedby[tensor].append(newnode.name)
+            newnode.output.append(tensor)
+        self.nodemap[newnode.name] = newnode
+
     def __init_graph_from_onnxproto__(self, g, noderename):
         if g is None:
             return
-        ncount = 0
+        self.node_count = 0
         from .utils import timer
 
         tm = timer()
@@ -328,8 +429,8 @@ class Graph():
         for node in g.node:
             newnode = create_node(node)
             if noderename or len(newnode.name) == 0:
-                newnode.name = newnode.op_type + '_' + str(ncount)
-            ncount += 1
+                newnode.name = newnode.op_type + '_' + str(self.node_count)
+            self.node_count += 1
             for tensor in node.input:
                 if tensor in self.producedby:
                     for producer in self.producedby[tensor]:

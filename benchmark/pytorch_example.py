@@ -1,4 +1,3 @@
-import onnx
 import torchvision
 import onnx_tool
 import torch
@@ -28,4 +27,11 @@ def convnext_large():
         # do not use dynamic axes will simplify the process
         onnx_tool.model_profile(tmpfile, verbose=False)
 
-convnext_large()
+def ssd300_vgg16():
+    dummy_input = torch.randn(1, 3, 300, 300)
+    model = torchvision.models.detection.ssd300_vgg16(weights=torchvision.models.detection.ssd.SSD300_VGG16_Weights.DEFAULT)
+    model.eval()
+    torch.onnx.export(model, dummy_input, "ssd300_vgg16.onnx",opset_version=11)
+
+# convnext_large()
+ssd300_vgg16()

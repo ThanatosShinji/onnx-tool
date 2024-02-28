@@ -1,3 +1,4 @@
+import onnx_tool
 from onnx_tool import Graph
 from onnx_tool.utils import timer
 import onnx
@@ -14,8 +15,8 @@ def bert_base():
         'batch': (1, 4),
         'seq': (16, 384)
     }
-    model = onnx.load_model(onnxfile)
-    graph = Graph(model.graph)
+    model = onnx_tool.Model(onnxfile)
+    graph = model.graph
     shapeengine = graph.shape_regress(input_desc, input_range)
 
     # try update shape
@@ -46,8 +47,8 @@ def resnet18():
         'h': (224, 299),
         'w': (224, 299),
     }
-    model = onnx.load_model(onnxfile)
-    graph = Graph(model.graph)
+    model = onnx_tool.Model(onnxfile)
+    graph = model.graph
     shapeengine = graph.shape_regress(input_desc, input_range)
 
     # try update shape

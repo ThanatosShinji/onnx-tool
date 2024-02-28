@@ -1,6 +1,7 @@
 import transformers
 import torch
 import onnx_tool
+
 tmpfile = 'tmp.onnx'
 
 
@@ -15,7 +16,8 @@ def transfomer_llama():
     m = transformers.LlamaForCausalLM(config)
     ids = torch.zeros((1, 512), dtype=torch.long)
     torch.onnx.export(m, ids, tmpfile)
-    onnx_tool.model_profile(tmpfile,constant_folding=False, shapesonly=True, saveshapesmodel=modelname, verbose=True)
+    onnx_tool.model_profile(tmpfile, save_profile='llama-1layer.csv', mcfg={'constant_folding': True, 'verbose': True},
+                            shape_only=True, save_model=modelname)
 
 
 def transfomer_gptj():
@@ -63,20 +65,25 @@ def transfomer_gptj():
     config = transformers.PretrainedConfig(**config)
     m = transformers.GPTJForCausalLM(config)
     ids = torch.ones((1, 8), dtype=torch.long)
-    out = m(ids)
-    print(out)
-    # torch.onnx.export(m, ids, tmpfile)
-    # onnx_tool.model_profile(tmpfile,constant_folding=True, shapesonly=True, saveshapesmodel=modelname, verbose=True)
+    # out = m(ids)
+    # print(out)
+    torch.onnx.export(m, ids, tmpfile)
+    onnx_tool.model_profile(tmpfile, save_profile='gptj-1layer.csv', mcfg={'constant_folding': True, 'verbose': True},
+                            shape_only=True, save_model=modelname)
+
 
 def transformer_mpt():
     from mpt.configuration_mpt import MPTConfig
     from mpt.modeling_mpt import MPTForCausalLM
-    config = MPTConfig(n_layers=1,attn_config={'attn_impl':'torch'})
+    config = MPTConfig(n_layers=1, attn_config={'attn_impl': 'torch'})
     m = MPTForCausalLM(config)
     modelname = f"mpt_{config.d_model}_{config.n_heads}_{config.n_layers}.onnx"
     ids = torch.zeros((1, 512), dtype=torch.long)
     torch.onnx.export(m, ids, tmpfile)
-    onnx_tool.model_profile(tmpfile, constant_folding=False, shapesonly=True, saveshapesmodel=modelname, verbose=True)
+    onnx_tool.model_profile(tmpfile, save_profile='mpt'
+                                                  '-1layer.csv', mcfg={'constant_folding': True, 'verbose': True},
+                            shape_only=True, save_model=modelname)
+
 
 transfomer_llama()
 transfomer_gptj()

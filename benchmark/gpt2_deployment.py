@@ -1,4 +1,6 @@
 import onnx
+import transformers.onnx
+
 import onnx_tool
 import numpy
 from onnx_tool.fusion import layernorm_pattern, FusionPattern, createSerialPattern,removeShapeOps, create_descs_from_nodenames
@@ -138,18 +140,18 @@ MHANodeNames=['Split_60','Transpose_147','MatMul_146','Softmax_145','Sub_144','M
 GeluNodes = ['Mul_213','Pow_215','Mul_217','Add_218','Mul_220','Tanh_221','Add_223','Mul_224']
 
 def gpt2():
-    file = 'data/public/gpt2-10.onnx'
-    m = onnx.load_model(file)
-    g = onnx_tool.Graph(m.graph, constant_folding=True, verbose=True)
+    file = 'data/public/gpt2-lm-head-10.onnx'
+    m = onnx_tool.Model(file,{"constant_folding":True,"verbose":True})
+    g = m.graph
     shapeengine = g.shape_regress(
         {
             'input1': [1, 1, 'seq']
         },
         {
-            'seq': (1, 384),
+            'seq': (1, 1024),
         })
     serialize_shape_engine(shapeengine, 'gpt2.se')  # create shape engine before any fusion
-    max_shape_key = {'batch': 4, 'seq': 384}
+    max_shape_key = {'batch': 1, 'seq': 1024}
     max_shape = {'input1': numpy.zeros((max_shape_key['batch'], 1, max_shape_key['seq']))}
     g.shape_infer(max_shape)#update tensor shape with the max_shape
 
@@ -166,29 +168,116 @@ def gpt2():
     #fusion like MHA contains a lot of shape ops, remove these ops will simplify the fusion pattern
     cg = g.get_compute_graph()
     cg = removeShapeOps(cg)
-
-    pattern = FusionPattern(MHAPattern)#define your pattern
-    nodes = pattern.search_pattern(cg)
-    for names in nodes:
-        cg.fuse_subgraph_node_names(names, 'MHA', names[0])
-
-    GeluDescs = create_descs_from_nodenames(cg, GeluNodes)#create a pattern from current graph
-    pattern = FusionPattern(GeluDescs)
-    nodes = pattern.search_pattern(cg)
-    for names in nodes:
-        cg.fuse_subgraph_node_names(names, 'Gelu', names[0])
-
-    MadDescs =  create_descs_from_nodenames(cg, ['Mul_41','Add_42'])
-    pattern = FusionPattern(MadDescs)
-    nodes = pattern.search_pattern(cg)
-    for names in nodes:
-        cg.fuse_subgraph_node_names(names, 'Mad', names[0])
+    cg.save_model('tmp.onnx')
+    cg.fuse_subgraph_iotensors(inputs=['238','326'],outputs=['343'],nodeop='MHA')
+    cg.fuse_subgraph_iotensors(inputs=['409'],outputs=['428'],nodeop='Gelu')
+    cg.fuse_subgraph_iotensors(inputs=['392'],outputs=['394'],nodeop='Mad')
 
     cg.graph_reorder_nodes()#reorder to make sure the execution sequence is right
     compress_mem = cg.compress_memory()
     serialize_memory_compression(compress_mem, max_shape_key, 'gpt2.cm')
 
     serialize_graph(cg, 'gpt2.cg')
-    cg.save_model('gpt2-fused-cg.onnx', rawmodel=m)
+    cg.save_model('gpt2-fused-cg.onnx', rawmodel=m.mproto)
 
-gpt2()
+def gpt2_kvcache():
+    file = 'data/public/gpt2-lm-head-10.onnx'
+    m = onnx_tool.Model(file,{"constant_folding":True,"verbose":True})
+    g = m.graph
+    g.add_dynamic('n_past',numpy.array([0,],dtype=numpy.int64))
+    g.input.append('n_past')
+    shapeengine = g.shape_regress(
+        {
+            'input1': [1, 1, 'seq']
+        },
+        {
+            'seq': (1, 1024),
+        })
+    serialize_shape_engine(shapeengine, 'gpt2_kvcache.se')  # create shape engine before any fusion
+    max_shape_key = {'batch': 1, 'seq': 1024}
+    max_shape = {'input1': numpy.zeros((max_shape_key['batch'], 1, max_shape_key['seq']))}
+    g.shape_infer(max_shape)#update tensor shape with the max_shape
+
+    #fusion without shape ops.
+    pattern = FusionPattern(layernorm_pattern, inplace_fusion=False)
+    nodes = pattern.search_pattern(g)
+    for names in nodes:
+        g.fuse_subgraph_node_names(names, 'Layernrom', names[0])
+    RangeGatherPattern = createSerialPattern(RangeGatherOps)
+    nodes = RangeGatherPattern.search_pattern(g)
+    for names in nodes:
+        g.fuse_subgraph_node_names(names, 'RangeGather', names[0])
+
+    #fusion like MHA contains a lot of shape ops, remove these ops will simplify the fusion pattern
+    cg = g.get_compute_graph()
+    cg = removeShapeOps(cg)
+    cg.save_model('tmp.onnx')
+    cg.fuse_subgraph_iotensors(inputs=['238','326'],outputs=['343'],nodeop='MHA_KVcache')
+
+    for nname in cg.nodemap.keys():
+        node=cg.nodemap[nname]
+        if node.op_type=='MHA_KVcache':
+            KVcachetensor=node.output[0]
+            cg.tensormap[KVcachetensor].update_shape([2,1024,768])
+            node.input.append('n_past')
+        if node.op_type=='RangeGather':
+            node.input.append('n_past')
+    cg.fuse_subgraph_iotensors(inputs=['409'],outputs=['428'],nodeop='Gelu')
+    cg.fuse_subgraph_iotensors(inputs=['392'],outputs=['394'],nodeop='Mad')
+
+    cg.graph_reorder_nodes()#reorder to make sure the execution sequence is right
+    compress_mem = cg.compress_memory()
+    serialize_memory_compression(compress_mem, max_shape_key, 'gpt2_kvcache.cm')
+
+    serialize_graph(cg, 'gpt2_kvcache.cg')
+    cg.save_model('gpt2-fused-cg.onnx', rawmodel=m.mproto)
+def gpt2_hf_pipeline():
+    from transformers import pipeline, set_seed
+    from transformers import GPT2Tokenizer
+    tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
+    ids=tokenizer.encode("In this prompt, each word is represented by a unique token. Tokenization is the process of breaking down a sentence or phrase into individual tokens, which can then")
+    text=tokenizer.decode([307,875,9043,1262,262,1708,3141,25,198,198,])
+
+
+    generator = pipeline('text-generation', model='gpt2', device='cpu')
+    set_seed(42)
+    output=generator("In this prompt, each word is represented by a unique token. Tokenization is the process of breaking down a sentence or phrase into individual tokens, which can then"
+                     , max_length=64, num_return_sequences=1)
+    ids=tokenizer.encode(output[0]['generated_text'])
+
+    print(output[0]['generated_text'])
+
+def gpt2_exportonnx_hf():
+    from transformers import GPT2Tokenizer, GPT2Model
+    from transformers.models.gpt2 import GPT2Config,GPT2OnnxConfig
+    config=GPT2Config()
+    tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
+    hfmodel = GPT2Model.from_pretrained('gpt2')
+    text = "Replace me by any text you'd like."
+    encoded_input = tokenizer(text, return_tensors='pt')
+    output = hfmodel(**encoded_input)
+    onnxcfg=GPT2OnnxConfig(config)
+    from  pathlib import  Path
+    transformers.onnx.export(preprocessor=tokenizer,model=hfmodel,config=onnxcfg,opset=12,output=Path('./gpt2hf.onnx'))
+    print(output)
+
+def gpt2_exportonnx_torch():
+    from transformers import GPT2Tokenizer, GPT2Model
+    import torch
+    tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
+    hfmodel = GPT2Model.from_pretrained('gpt2')
+    text = "Replace me by any text you'd like."
+    encoded_input = tokenizer(text, return_tensors='pt')
+    inputs=[]
+    for key in encoded_input.keys():
+        inputs.append(encoded_input[key])
+    torch.onnx.export(hfmodel,inputs[0],'gpt2torch.onnx')
+    ids=torch.ones(1,8,dtype=torch.int32)
+    output = hfmodel(ids)
+    print(output)
+
+
+# gpt2()
+gpt2_kvcache()
+# gpt2_hf_pipeline()
+# gpt2_exportonnx_torch()

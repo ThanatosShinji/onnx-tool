@@ -30,30 +30,66 @@ models = [
     #     'name': 'data/public/text_encoder.onnx',
     #     'dynamic_input': None,
     # },
+    # {
+    #     'name': 'data/public/so-vits-svc.onnx',
+    #     'dynamic_input': {
+    #         'c': create_ndarray_f32((1, 10, 768)),
+    #         'f0': create_ndarray_f32((1, 10)),
+    #         'mel2ph': create_ndarray_int64((1, 10)),
+    #         'uv': create_ndarray_f32((1, 10)),
+    #         'noise': create_ndarray_f32((1, 192, 10)),
+    #         'sid': create_ndarray_int64(1),
+    #     }
+    # },
+    # {
+    #     'name': 'data/public/Inceptionv3_rerodered.onnx',
+    #     'dynamic_input':
+    #         {
+    #             'image': numpy.zeros((1, 3, 299, 299), numpy.float32)
+    #         }
+    # },
+    # {
+    #     'name': 'm2_subgraph_static_qdq_quant.onnx',
+    #     'dynamic_input':None
+    # },
+    # {
+    #     'name': 'data/public/SwiftFormer-S.onnx',
+    #     'dynamic_input':{
+    #         'input':numpy.zeros((1,3,224,224),numpy.float32)
+    #     }
+    # },
     {
-        'name': 'data/public/so-vits-svc.onnx',
-        'dynamic_input': {
-            'c': create_ndarray_f32((1, 10, 768)),
-            'f0': create_ndarray_f32((1, 10)),
-            'mel2ph': create_ndarray_int64((1, 10)),
-            'uv': create_ndarray_f32((1, 10)),
-            'noise': create_ndarray_f32((1, 192, 10)),
-            'sid': create_ndarray_int64(1),
+        'name': 'data/public/model_custom_vocabulary.onnx',
+        'dynamic_input': None,
+        'mcfg':{
+            'constant_folding':True,
+            'verbose':True,
+            'if_fixed_branch':'else',
+            'fixed_topk':1000,
         }
-    },
+    }
+    # {
+    #     'name': 'data/public/resnet50-v2-7.onnx',
+    #     'dynamic_input':
+    #         {
+    #             'data': numpy.zeros((1, 3, 224, 224), numpy.float32)
+    #         }
+    # },
     # {
     #     'name': 'data/public/unet/unet.onnx',
     #     'dynamic_input': None
     # },
 ]
 
-
 for modelinfo in models:
-    # onnx_tool.model_simplify_names(modelinfo['name'],'mobilenetv1_quanpruned_sim.onnx',node_reorder=True)
-    # onnx_tool.model_profile(modelinfo['name'], modelinfo['dynamic_input'], saveshapesmodel='debug.onnx',
-    #                         dump_outputs=['resnetv15_conv0_fwd'])
-    onnx_tool.model_profile(modelinfo['name'], modelinfo['dynamic_input'], saveshapesmodel='shape.onnx',
-                            shapesonly=True, verbose=True)
+    from pathlib import Path
+    onnx_tool.model_profile(Path(modelinfo['name']), modelinfo['dynamic_input'], save_model='shape.onnx',
+                            mcfg=modelinfo['mcfg'], shape_only=False)
+    # onnx_tool.model_constant_folding(Path(modelinfo['name']),'folded.onnx')
+    # onnx_tool.model_profile('model_custom_vocabulary.onnx', mcfg={'if_fixed_branch': 'else', 'fixed_topk': 200},
+    #                         save_model='detic.onnx')
+    # onnx_tool.model_reorder_nodes('yolox_s_lite_640x640_20220221_model.onnx','reordered.onnx')
+    # onnx_tool.model_constant_folding('yolox_s_lite_640x640_20220221_model.onnx','folded.onnx')
     # shape_engie, compute_graph = onnx_tool.model_shape_regress(modelinfo['name'], modelinfo['input_desc'],
     #                                                            modelinfo['input_range'])
     # onnx_tool.serialize_graph(compute_graph, 'resnet18.cg')

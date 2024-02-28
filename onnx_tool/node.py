@@ -1892,8 +1892,13 @@ class RoiAlignNode(Node):
 
     def shape_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
         xshape = intensors[0].get_shape()
+        rois_shape = intensors[1].get_shape()
+        num_rois = rois_shape[0]
+        assert rois_shape[1] == 4
+        batch_shape = intensors[2].get_shape()
+        assert batch_shape[0] == num_rois
         if len(xshape) == 4 and self.output_height is not None and self.output_width is not None:
-            newshape = xshape[:2] + [self.output_height, self.output_width]
+            newshape = [num_rois, xshape[1], self.output_height, self.output_width]
             outtensors[0].update_shape(newshape)
             outtensors[0].update_dtype(intensors[0].dtype)
         else:

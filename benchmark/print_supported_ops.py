@@ -1,5 +1,5 @@
 import onnx_tool
 
-print(len(onnx_tool.NODE_REGISTRY.keys()))
+print('Total OPs: ',len(onnx_tool.NODE_REGISTRY.keys()))
 for key in onnx_tool.NODE_REGISTRY.keys():
-    print(key)
+    print(key[:-4])

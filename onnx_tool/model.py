@@ -4,12 +4,13 @@ import pathlib
 import onnx
 
 from .graph import Graph
+from .utils import ModelConfig
 
 
 class Model:
-    def __init__(self, m: [str, onnx.ModelProto, pathlib.Path], verbose=False, constant_folding: bool = True,
-                 noderename: bool = False):
+    def __init__(self, m: [str, onnx.ModelProto, pathlib.Path], mcfg={}):
         self.modelname = ''
+        self.cfg = ModelConfig(mcfg)
         if isinstance(m, pathlib.Path):
             self.modelname = m.stem
             m = onnx.load_model(m)
@@ -22,7 +23,7 @@ class Model:
             return
         self.valid = True
         self.mproto = m
-        self.graph = Graph(m.graph, verbose=verbose, constant_folding=constant_folding, noderename=noderename)
+        self.graph = Graph(m.graph, self.cfg)
 
     def save_model(self, f: str, shape_only: bool = False, no_shape: bool = False):
         self.graph.save_model(f, shape_only=shape_only, rawmodel=self.mproto, no_shape=no_shape)

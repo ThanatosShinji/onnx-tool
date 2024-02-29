@@ -13,7 +13,7 @@ Supported Models:
 
 * NLP: BERT, T5, GPT, LLaMa, MPT([TransformerModel](benchmark/transfomer_models.py))
 * Diffusion: Stable Diffusion(TextEncoder, VAE, UNET)
-* CV: [BEVFormer](benchmark/compression.py), MobileNet, YOLO, ...
+* CV: [Detic](https://github.com/ThanatosShinji/onnx-tool/issues/63), [BEVFormer](benchmark/compression.py), [SSD300_VGG16](https://github.com/ThanatosShinji/onnx-tool/issues/66), ...
 * Audio: sovits, LPCNet
 
 ---

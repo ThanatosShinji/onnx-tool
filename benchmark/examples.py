@@ -229,3 +229,41 @@ def serialization():
                                                                resnetinfo['input_range'])
     onnx_tool.serialize_graph(compute_graph, 'resnet18.cg')
     onnx_tool.serialize_shape_engine(shape_engie, 'resnet18.se')
+
+def detic_profile():
+    import onnx_tool
+    minfo={
+        'name': 'data/public/model_custom_vocabulary.onnx',
+        'dynamic_input': None,
+        'mcfg':{
+            'constant_folding':False,
+            'verbose':True,
+            'if_fixed_branch':'else',
+            'fixed_topk':1000,
+        }
+    }
+    m = onnx_tool.Model(minfo['name'],minfo['mcfg'])
+    m.graph.graph_reorder_nodes()
+    m.graph.shape_infer(minfo['dynamic_input'])
+    m.graph.profile()
+    m.graph.print_node_map()
+    m.save_model('detic_shapes.onnx')
+detic_profile()
+def ssd300_vgg16():
+    import onnx_tool
+    minfo = {
+        'name': 'data/public/ssd300_vgg16.onnx',
+        'dynamic_input': None,
+        'mcfg': {
+            'constant_folding': True,
+            'verbose': True,
+            'if_fixed_branch': 'else',
+            'fixed_topk': 0
+        }
+    }
+    m = onnx_tool.Model(minfo['name'], minfo['mcfg'])
+    m.graph.graph_reorder_nodes()
+    m.graph.shape_infer(minfo['dynamic_input'])
+    m.graph.profile()
+    m.graph.print_node_map()
+    m.save_model('ssd300_shapes.onnx')

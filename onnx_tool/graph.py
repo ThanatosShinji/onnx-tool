@@ -202,9 +202,6 @@ class Graph():
             for key in rmlist:
                 self.nodemap.pop(key)
 
-        self.initials = []
-        self.dynamics = []
-
         if constant_folding:
             for name in self.nodemap.keys():
                 for tname in self.nodemap[name].input:
@@ -366,6 +363,7 @@ class Graph():
                     for i, v in enumerate(newnode.output):
                         if v == preoutput:
                             newnode.output[i] = newoutput
+                            self.producedby[newoutput].append(newname)
         for n in remove_list:
             self.remove_node(n)
 

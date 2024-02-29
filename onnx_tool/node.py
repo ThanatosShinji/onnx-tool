@@ -559,7 +559,13 @@ class SumNode(PWNode):
 class NonMaxSuppressionNode(Node):
     def shape_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
         if len(intensors) >= 3:
+            box_shape = intensors[0].get_shape()
+            score_shape = intensors[1].get_shape()
             max_output_boxes_per_class = int(intensors[2].get_scalar())
+            box_count = volume(box_shape[:-1])
+            assert box_shape[1] == score_shape[2]
+            assert box_shape[0] == score_shape[0]
+            max_output_boxes_per_class = min(max_output_boxes_per_class, box_count)
             outtensors[0].update_shape([max_output_boxes_per_class, 3])
             outtensors[0].update_dtype(numpy.int64)
             return
@@ -1600,9 +1606,10 @@ class TopKNode(Node):
         # when the input tensor only contain 1 dimension, the axis attribute (default: 0) may not appear in the node
         if len(xshape) == 1 and self.axis is None:
             self.axis = 0
+        axis = _axes_neg2pos(len(xshape), [self.axis])[0]
         newshape = []
         for i in range(len(xshape)):
-            if i == self.axis:
+            if i == axis:
                 newshape.append(k)
             else:
                 newshape.append(xshape[i])

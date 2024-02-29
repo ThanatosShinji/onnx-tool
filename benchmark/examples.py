@@ -248,7 +248,7 @@ def detic_profile():
     m.graph.profile()
     m.graph.print_node_map()
     m.save_model('detic_shapes.onnx')
-detic_profile()
+
 def ssd300_vgg16():
     import onnx_tool
     minfo = {

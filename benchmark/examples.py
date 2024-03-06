@@ -141,25 +141,23 @@ def custom_layer_register():
 
 def bert_mha_fuse():
     import onnx_tool
-    import onnx
     modelpath = 'data/public/bertsquad-12.onnx'
-    mproto = onnx.load_model(modelpath)
-    g = onnx_tool.Graph(mproto.graph)
+    m = onnx_tool.Model(modelpath,mcfg={})
+    g = m.graph
     g.graph_reorder_nodes()
 
     in_tensor_names = ['bert/encoder/Reshape_1:0']
     out_tensor_names = ['bert/encoder/layer_0/attention/output/dense/BiasAdd:0']
     g.fuse_subgraph_iotensors(inputs=in_tensor_names, outputs=out_tensor_names, name_prefix='MHA',
                               nodeop='MHA', keep_attr=True)
-    g.save_model('bertsquad_mha.onnx')
-
+    g.graph_reorder_nodes()
+    m.save_model('bertsquad_mha.onnx')
 
 def bert_mha_layernorm_fuse():
     import onnx_tool
-    import onnx
     modelpath = 'data/public/bertsquad-12.onnx'
-    mproto = onnx.load_model(modelpath)
-    g = onnx_tool.Graph(mproto.graph)
+    m = onnx_tool.Model(modelpath,mcfg={})
+    g = m.graph
     g.graph_reorder_nodes()
 
     in_tensor_names = ['bert/encoder/Reshape_1:0']
@@ -172,10 +170,10 @@ def bert_mha_layernorm_fuse():
     in_tensor_names = ['bert/encoder/layer_0/attention/output/add:0']
     out_tensor_names = ['bert/encoder/layer_0/attention/output/LayerNorm/batchnorm/add_1:0']
     g.fuse_subgraph_iotensors(inputs=in_tensor_names, outputs=out_tensor_names, name_prefix='layernrom',
-                              nodeop='layernorm',
+                              nodeop='LayerNormalization',
                               keep_attr=True)
-    g.save_model('bertsquad_mha_layernorm.onnx')
-
+    g.graph_reorder_nodes()
+    m.save_model('bertsquad_mha_layernorm.onnx')
 
 def computegraph_with_shapeengine():
     import onnx_tool
@@ -196,13 +194,13 @@ def computegraph_with_shapeengine():
             }
     }
 
-    mproto = onnx.load_model(model_config['name'])
-    g = onnx_tool.Graph(mproto.graph)
+    m = onnx_tool.Model(model_config['name'])
+    g = m.graph
     g.graph_reorder_nodes()
 
     shape_engine = g.shape_regress(model_config['input_desc'], model_config['input_range'])
     cg = g.get_compute_graph()
-    cg.save_model('compute_graph.onnx')
+    cg.save_model('compute_graph.onnx',rawmodel=m.mproto)
 
     shape_engine.update_variable('batch', 3)  # update batch size
     shape_engine.update_variable('seq', 155)  # update batch size

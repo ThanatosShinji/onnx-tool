@@ -727,7 +727,8 @@ class GemmNode(Node):
                 else:
                     macs *= weight_shape[-2]
             else:
-                macs *= weight_shape[-2]
+                if len(weight_shape) > 1:
+                    macs *= weight_shape[-2]
             if len(intensors) == 3:
                 macs += volume(yshape) * ADD_MACS
         else:

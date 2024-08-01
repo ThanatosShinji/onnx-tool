@@ -2,7 +2,7 @@
 # onnx-tool
 
 **A tool for ONNX model:**
-
+* *[Build LLM model and profile](benchmark/llm_test.py)*
 * *[Parse and edit](#basic-parse-edit): [Constant folding](data/ConstantFolding.md); [OPs fusion](data/GraphFusion.md).*
 * *[Model profiling](#shapeinfer-profile): Rapid shape inference; MACs statistics*
 * *[Compute Graph and Shape Engine](#compute_graph-header).*

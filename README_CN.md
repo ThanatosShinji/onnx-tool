@@ -1,7 +1,7 @@
 # onnx-tool
 
 **A tool for ONNX model:**
-
+* *[构建LLM模型](benchmark/llm_test.py)*
 * *解析ONNX模型并且编辑: [常量层折叠](data/ConstantFolding_CN.md), Ops fusion.*
 * *模型分析：Tensor形状推理，每个Op的MACs统计*
 * *Compute Graph 和 Shape Engine.*

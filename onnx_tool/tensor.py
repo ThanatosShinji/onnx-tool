@@ -516,3 +516,12 @@ def create_dynamic_Tensor(name: str, ndarray: numpy.ndarray):
     t.dtype = t.numpy.dtype.type
     t.proto = t.make_value_proto()
     return t
+
+def create_tensor(name: str, type, shape, dtype):
+    t = Tensor(name)
+    t.type = type
+    t.numpy = None
+    t.shape = shape
+    t.proto = t.make_value_proto()
+    t.dtype = dtype
+    return t

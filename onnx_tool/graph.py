@@ -174,6 +174,7 @@ class Graph():
         self.output = []
         self.valid_shape = False
         self.valid_profile = False
+        self.sparse_model = False
 
         if g is not None:
             self.__init_graph_from_onnxproto__(g, self.cfg.node_rename)

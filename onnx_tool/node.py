@@ -122,8 +122,15 @@ def _get_tensor(item):
         return create_ndarray_f32(item)
 
 
+class TmpNodeProto:
+    def __init__(self, name, op_type, attributes):
+        self.name = name
+        self.op_type = op_type
+        self.attribute = attributes
+
+
 class Node():
-    def __init__(self, n: onnx.NodeProto):
+    def __init__(self, n: onnx.NodeProto | TmpNodeProto):
         self.name = n.name
         self.op_type = n.op_type
         self.nextnodes = []
@@ -133,12 +140,17 @@ class Node():
         self.proto = n
         self.shape_calc = False
         self.attr = {}
-        for att in n.attribute:
-            self.attr[att.name] = onnx.helper.get_attribute_value(att)
-            self.__setattr__(att.name, get_attribute_data(att))
-            if att.name == 'axes':
-                if isinstance(self.axes, list):
-                    self.axes = tuple(self.axes)
+        if isinstance(n.attribute, dict):
+            for att in n.attribute:
+                self.attr[att] = n.attribute[att]
+                self.__setattr__(att, n.attribute[att])
+        else:
+            for att in n.attribute:
+                self.attr[att.name] = onnx.helper.get_attribute_value(att)
+                self.__setattr__(att.name, get_attribute_data(att))
+                if att.name == 'axes':
+                    if isinstance(self.axes, list):
+                        self.axes = tuple(self.axes)
 
     def set_attr(self, key, val):
         self.attr[key] = val
@@ -515,6 +527,13 @@ class ReluNode(PWNode):
     def value_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
         result = numpy.clip(intensors[0].get_numpy(), 0, None)
         outtensors[0].update_tensor(result)
+
+
+@NODE_REGISTRY.register()
+class SiluNode(PWNode):
+    def __init__(self, n):
+        super().__init__(n)
+        self.op_mac = EXP_MACS + MUL_MACS
 
 
 @NODE_REGISTRY.register()
@@ -2451,6 +2470,32 @@ class CastNode(Node):
 
     def value_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
         outtensors[0].update_tensor(intensors[0].get_numpy().astype(onnxdtype2npdtype(self.to)))
+
+
+@NODE_REGISTRY.register()
+class MHANode(Node):
+    def shape_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
+        return [intensors[0].get_shape()]
+
+    def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
+        Q = intensors[0]
+        q_shape = Q.get_shape()
+        bs = q_shape[0]
+        seq = q_shape[1]
+        QK = bs * self.head_num * seq * seq * self.head_size
+        QK_softmax = bs * self.head_num * seq * seq * (EXP_MACS + DIV_MACS)
+        QK_V = bs * self.head_num * seq * self.head_size * seq
+        return [QK + QK_softmax + QK_V, 0]
+
+
+@NODE_REGISTRY.register()
+class GQANode(MHANode):
+    pass
+
+
+@NODE_REGISTRY.register()
+class MQANode(MHANode):
+    pass
 
 
 @NODE_REGISTRY.register()

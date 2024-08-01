@@ -537,6 +537,13 @@ class SiluNode(PWNode):
 
 
 @NODE_REGISTRY.register()
+class RopeNode(PWNode):
+    def __init__(self, n):
+        super().__init__(n)
+        self.op_mac = COS_MACS + SIN_MACS + MUL_MACS * 2
+
+
+@NODE_REGISTRY.register()
 class PReluNode(PWNode):
     def __init__(self, nodeproto):
         super().__init__(nodeproto)
@@ -2474,6 +2481,9 @@ class CastNode(Node):
 
 @NODE_REGISTRY.register()
 class MHANode(Node):
+    def __init__(self, nodeproto):
+        super().__init__(nodeproto)
+
     def shape_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
         return [intensors[0].get_shape()]
 
@@ -2556,7 +2566,7 @@ class SplitNode(Node):
             outtensors[i].update_tensor(t)
 
 
-def create_node(n: onnx.NodeProto):
+def create_node(n: onnx.NodeProto | TmpNodeProto):
     node_class = NODE_REGISTRY.get(n.op_type + 'Node')
     if node_class != None:
         instance = node_class(n)

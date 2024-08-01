@@ -106,9 +106,33 @@ def transformer_llama3():
     # onnx_tool.model_profile(tmpfile, save_profile='llama-1layer.csv', mcfg={'constant_folding': True, 'verbose': True},
     #                         shape_only=True, save_model=modelname)
 
+def transformer_llama3():
+    from onnx_tool.llm import Llama3_8B
+    Llama3_8B['num_hidden_layers']=2
+    modelname = f"{Llama3_8B['model_type']}_{Llama3_8B['hidden_size']}_{Llama3_8B['num_attention_heads']}_{Llama3_8B['num_hidden_layers']}.onnx"
+    config = transformers.PretrainedConfig(**Llama3_8B)
+    m = transformers.LlamaForCausalLM(config)
+    ids = torch.zeros((1, 512), dtype=torch.long)
+    torch.onnx.export(m, ids, tmpfile)
+    # onnx_tool.model_profile(tmpfile, save_profile='llama-1layer.csv', mcfg={'constant_folding': True, 'verbose': True},
+    #                         shape_only=True, save_model=modelname)
+
+
+def transformer_phi3():
+    from onnx_tool.llm import phi3_mini
+    phi3_mini['num_hidden_layers']=2
+    modelname = f"{phi3_mini['model_type']}_{phi3_mini['hidden_size']}_{phi3_mini['num_attention_heads']}_{phi3_mini['num_hidden_layers']}.onnx"
+    config = transformers.PretrainedConfig(**phi3_mini)
+    m = transformers.Phi3ForCausalLM(config)
+    ids = torch.zeros((1, 512), dtype=torch.long)
+    torch.onnx.export(m, ids, tmpfile)
+    # onnx_tool.model_profile(tmpfile, save_profile='llama-1layer.csv', mcfg={'constant_folding': True, 'verbose': True},
+    #                         shape_only=True, save_model=modelname)
+
 
 # transfomer_llama()
 # transfomer_gptj()
 # transformer_mpt()
-transformer_llama3()
+transformer_phi3()
+# transformer_llama3()
 # transformer_qwen()

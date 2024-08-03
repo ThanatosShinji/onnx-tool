@@ -32,7 +32,7 @@ class Builder():
         for k in kwargs.keys():
             newk = k
             newv = kwargs[k]
-            print(k, kwargs[k])
+            # print(k, kwargs[k])
             if k == 'ff_intermediate_size':
                 newk = 'intermediate_size'
             if k == 'layer_norm_epsilon':
@@ -261,6 +261,7 @@ class Builder():
 
     def build_graph(self, ids_shape: List):
         self.batch, self.seq_len = ids_shape
+        self.kv_params = self.batch * self.seq_len * self.hidden_kv_size * 2 * self.num_hidden_layers
         ids = create_tensor('ids', DYNAMIC_TENSOR, [self.batch, self.seq_len], numpy.int64)
         self.graph.input.append('ids')
         self.graph.tensormap[ids.name] = ids
@@ -275,6 +276,7 @@ class Builder():
 
 
 phi3_mini = {
+    "name": 'Phi-3-mini-4k',
     "_name_or_path": "Phi-3-mini-4k-instruct",
     "architectures": [
         "Phi3ForCausalLM"
@@ -323,6 +325,7 @@ ArchMap['Phi3ForCausalLM'] = {
 }
 
 QWen_7B = {
+    "name": 'QWen-7B',
     "architectures": [
         "Qwen2ForCausalLM"
     ],
@@ -362,6 +365,7 @@ ArchMap['Qwen2ForCausalLM'] = {
 }
 
 Llama3_8B = {
+    "name": 'Llama3-8B',
     "_name_or_path": "./dpo_1_000005_07",
     "architectures": [
         "LlamaForCausalLM"
@@ -392,6 +396,7 @@ Llama3_8B = {
 }
 
 phi2 = {
+    "name": 'microsoft/phi-2',
     "_name_or_path": "microsoft/phi-2",
     "architectures": [
         "PhiForCausalLM"
@@ -434,6 +439,7 @@ ArchMap['PhiForCausalLM'] = {
 }
 
 Qwen2_72B_Instruct = {
+    "name": 'Qwen2_72B_Instruct',
     "architectures": [
         "Qwen2ForCausalLM"
     ],
@@ -462,6 +468,7 @@ Qwen2_72B_Instruct = {
 }
 
 llama_31_70B = {
+    "name": 'Llama-3.1-70B-Japanese-Instruct-2407',
     "_name_or_path": "Llama-3.1-70B-Japanese-Instruct-2407",
     "architectures": [
         "LlamaForCausalLM"
@@ -502,6 +509,7 @@ llama_31_70B = {
 }
 
 Phi_3_medium_4k_instruct = {
+    "name": "Phi-3-medium-4k-instruct",
     "_name_or_path": "Phi-3-medium-4k-instruct",
     "architectures": [
         "Phi3ForCausalLM"
@@ -539,6 +547,7 @@ Phi_3_medium_4k_instruct = {
 }
 
 Phi_3_small_8k_instruct = {
+    "name": "Phi-3-small-8k-instruct",
     "_name_or_path": "Phi-3-small-8k-instruct",
     "architectures": [
         "Phi3SmallForCausalLM"
@@ -600,6 +609,7 @@ ArchMap['Phi3SmallForCausalLM'] = {
 }
 
 gptj_6b = {
+    'name': "gpt-j-6b",
     "activation_function": "gelu_new",
     "architectures": [
         "GPTJForCausalLM"
@@ -651,31 +661,32 @@ ArchMap['GPTJForCausalLM'] = {
     "lm_head_bias": False,
 }
 
-yi_34B={
-  "architectures": [
-    "LlamaForCausalLM"
-  ],
-  "attention_bias": false,
-  "attention_dropout": 0.0,
-  "bos_token_id": 1,
-  "eos_token_id": 2,
-  "hidden_act": "silu",
-  "hidden_size": 7168,
-  "initializer_range": 0.02,
-  "intermediate_size": 20480,
-  "max_position_embeddings": 4096,
-  "model_type": "llama",
-  "num_attention_heads": 56,
-  "num_hidden_layers": 60,
-  "num_key_value_heads": 8,
-  "pad_token_id": 0,
-  "pretraining_tp": 1,
-  "rms_norm_eps": 1e-06,
-  "rope_scaling": null,
-  "rope_theta": 5000000.0,
-  "tie_word_embeddings": false,
-  "torch_dtype": "bfloat16",
-  "transformers_version": "4.40.0",
-  "use_cache": false,
-  "vocab_size": 64000
+yi_34B = {
+    'name': "yi-1.5-34B",
+    "architectures": [
+        "LlamaForCausalLM"
+    ],
+    "attention_bias": false,
+    "attention_dropout": 0.0,
+    "bos_token_id": 1,
+    "eos_token_id": 2,
+    "hidden_act": "silu",
+    "hidden_size": 7168,
+    "initializer_range": 0.02,
+    "intermediate_size": 20480,
+    "max_position_embeddings": 4096,
+    "model_type": "llama",
+    "num_attention_heads": 56,
+    "num_hidden_layers": 60,
+    "num_key_value_heads": 8,
+    "pad_token_id": 0,
+    "pretraining_tp": 1,
+    "rms_norm_eps": 1e-06,
+    "rope_scaling": null,
+    "rope_theta": 5000000.0,
+    "tie_word_embeddings": false,
+    "torch_dtype": "bfloat16",
+    "transformers_version": "4.40.0",
+    "use_cache": false,
+    "vocab_size": 64000
 }

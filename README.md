@@ -2,7 +2,7 @@
 # onnx-tool
 
 **A tool for ONNX model:**
-* *[Build LLM model and profile](benchmark/llm_test.py)*
+* *[Build LLM model and profile](#build-profile)*
 * *[Parse and edit](#basic-parse-edit): [Constant folding](data/ConstantFolding.md); [OPs fusion](data/GraphFusion.md).*
 * *[Model profiling](#shapeinfer-profile): Rapid shape inference; MACs statistics*
 * *[Compute Graph and Shape Engine](#compute_graph-header).*
@@ -18,7 +18,29 @@ Supported Models:
 
 ---
 
+## Build LLM model and profile
+<a id="build-profile"></a>
+Profile 10 hugging face models within one second. Save the ONNX models as simple as llama.cpp's.
+[code ref](benchmark/llm_test.py)
+
+model name                           |            MACs |   Parameters |   KV Cache
+------------------------------------ | --------------- | ------------ | ----------
+gpt-j-6b                             |  28200879476736 |   6050488320 |  939524096
+yi-1.5-34B                           | 155795460935680 |  34388917248 |  503316480
+microsoft/phi-2                      |  14318369624064 |   2779438080 |  671088640
+Phi-3-mini-4k                        |  19271345623040 |   3821079936 |  805306368
+Phi-3-small-8k-instruct              |  35413741129728 |   7801672064 |  268435456
+Phi-3-medium-4k-instruct             |  64542609690624 |  13960238560 |  419430400
+Llama3-8B                            |  35881892564992 |   8030261248 |  268435456
+Llama-3.1-70B-Japanese-Instruct-2407 | 310365865103360 |  70553706496 |  671088640
+QWen-7B                              |  32919330967552 |   7615616512 |  117440512
+Qwen2_72B_Instruct                   | 318393611964416 |  72706203648 |  671088640
+
+
+---
+
 ## Basic Parse and Edit
+
 <a id="basic-parse-edit"></a>
 You can load any onnx file by onnx_tool.Model:  
 Change graph structure with onnx_tool.Graph;  

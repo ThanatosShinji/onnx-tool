@@ -558,6 +558,7 @@ class Graph():
             self.tensormap[name] = create_initial_Tensor(name, data)
         else:
             raise NotImplementedError('unsupported data type')
+        return self.tensormap[name]
 
     def add_dynamic(self, name, data):
         from .tensor import create_dynamic_Tensor
@@ -566,6 +567,7 @@ class Graph():
             self.tensormap[name] = create_dynamic_Tensor(name, data)
         else:
             raise NotImplementedError('unsupported data type')
+        return self.tensormap[name]
 
     def get_subgraph(self, inputs: [], outputs: []):
         graph_level0, graph_level1, graph_level2 = self.__get_subnodes_byio__(inputs, outputs)

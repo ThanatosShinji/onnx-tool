@@ -537,6 +537,26 @@ class SiluNode(PWNode):
 
 
 @NODE_REGISTRY.register()
+class GeluNode(PWNode):
+    def __init__(self, n):
+        super().__init__(n)
+        self.op_mac = EXP_MACS + MUL_MACS * 2
+
+@NODE_REGISTRY.register()
+class GeGeluNode(PWNode):
+    def __init__(self, n):
+        super().__init__(n)
+        self.op_mac = EXP_MACS + MUL_MACS * 2
+
+    def shape_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
+        ishape = intensors[0].get_shape()
+        ishape[-1] = ishape[-1] // 2
+        outtensors[0].update_shape(ishape)
+        outtensors[0].update_dtype(intensors[0].dtype)
+
+
+
+@NODE_REGISTRY.register()
 class RopeNode(PWNode):
     def __init__(self, n):
         super().__init__(n)

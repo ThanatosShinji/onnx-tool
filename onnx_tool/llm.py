@@ -23,6 +23,7 @@ ArchMap = {
         "o_bias": False,
         "mlp_bias": False,
         "lm_head_bias": False,
+        "post_mlp_norm": False
     }
 }
 
@@ -181,9 +182,11 @@ class Builder():
         return o
 
     def add_mha(self, inps):
-        nod = create_node(TmpNodeProto(self.get_node_name(), 'MHA',
-                                       {'head_num': self.num_attention_heads, "head_size": self.head_size,
-                                        "kv_head_num": self.num_key_value_heads}))
+        attrs = {'head_num': self.num_attention_heads, "head_size": self.head_size,
+                 "kv_head_num": self.num_key_value_heads}
+        if getattr(self, 'attn_logit_softcapping', None) is not None:
+            attrs['attn_logit_softcapping'] = self.attn_logit_softcapping
+        nod = create_node(TmpNodeProto(self.get_node_name(), 'MHA', attrs))
         nod.input = [inp.name for inp in inps]
         o = create_tensor(self.get_dynamic_tensor_name(), DYNAMIC_TENSOR, [self.batch, self.seq_len, self.hidden_size],
                           numpy.float32)
@@ -256,8 +259,21 @@ class Builder():
             inp = cur
             cur = self.add_layernorm(cur)
             cur = self.add_mlp(cur)
+            if self.arch_config.get('post_mlp_norm', False):
+                cur = self.add_layernorm(cur)
             inp = self.add_eltop(inp, cur, 'Add')
         return inp
+
+    def add_softcapping(self, inp, value):
+        b = self.graph.add_initial(self.get_init_tensor_name(), numpy.array(value, dtype=numpy.float32))
+        nod = create_node(TmpNodeProto(self.get_node_name(), 'LogitSoftCapping', {}))
+        nod.input = [inp.name, b.name]
+        o = create_tensor(self.get_dynamic_tensor_name(), DYNAMIC_TENSOR, inp.get_shape(),
+                          numpy.float32)
+        nod.output = [o.name]
+        self.graph.tensormap[o.name] = o
+        self.graph.nodemap[f'Node_{self.node_count}'] = nod
+        return o
 
     def build_graph(self, ids_shape: List):
         self.batch, self.seq_len = ids_shape
@@ -268,6 +284,8 @@ class Builder():
         cur = self.add_embedding(ids)
         cur = self.add_layers(cur)
         cur = self.add_lm_head(cur)
+        if getattr(self, 'final_logit_softcapping', None) is not None:
+            cur = self.add_softcapping(cur, self.final_logit_softcapping)
         self.graph.output.append(cur.name)
 
     def save_graph(self, path):

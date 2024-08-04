@@ -1,6 +1,70 @@
 from onnx_tool.llm import *
 
+# Add one new model from hugging face
+def add_hugging_face_model():
+    # get transformer config.json from hugging face
+    # copy https://huggingface.co/google/gemma-2-2b-it/blob/main/config.json here
+    gemma2b = {
+        "architectures": [
+            "Gemma2ForCausalLM"
+        ],
+        "attention_bias": false,
+        "attention_dropout": 0.0,
+        "attn_logit_softcapping": 50.0,
+        "bos_token_id": 2,
+        "cache_implementation": "hybrid",
+        "eos_token_id": [
+            1,
+            107
+        ],
+        "final_logit_softcapping": 30.0,
+        "head_dim": 256,
+        "hidden_act": "gelu_pytorch_tanh",
+        "hidden_activation": "gelu_pytorch_tanh",
+        "hidden_size": 2304,
+        "initializer_range": 0.02,
+        "intermediate_size": 9216,
+        "max_position_embeddings": 8192,
+        "model_type": "gemma2",
+        "num_attention_heads": 8,
+        "num_hidden_layers": 26,
+        "num_key_value_heads": 4,
+        "pad_token_id": 0,
+        "query_pre_attn_scalar": 256,
+        "rms_norm_eps": 1e-06,
+        "rope_theta": 10000.0,
+        "sliding_window": 4096,
+        "torch_dtype": "bfloat16",
+        "transformers_version": "4.42.4",
+        "use_cache": true,
+        "vocab_size": 256000
+    }
 
+    # ref the modeling file, add model arch config
+    # code: transformers/src/transformers/models/gemma2/modeling_gemma2.py
+    ArchMap['Gemma2ForCausalLM'] = {
+        "ffn_num_mm": 3,
+        "norm_scale": True,
+        "norm_bias": False,
+        "fuse_qkv": False,
+        "qkv_bias": False,
+        "o_bias": False,
+        "mlp_bias": False,
+        "lm_head_bias": False,
+        'post_mlp_norm': True
+    }
+    ActMap['gelu_pytorch_tanh'] = 'Gelu' # map new activation name to op_type
+    bs = 1
+    seq_len = 2048
+    ids_shape = [bs, seq_len]
+    builder = Builder(**gemma2b)
+    builder.build_graph(ids_shape)
+    builder.save_graph('gemma2b.onnx')
+    builder.graph.valid_shape = True
+    builder.graph.profile()
+    builder.graph.print_node_map()
+
+# build these hugging face models to ONNX file, and do profiling.
 def build_onnx_models():
     bs = 1
     seq_len = 128
@@ -75,7 +139,7 @@ def build_onnx_models():
     builder.graph.profile()
     builder.graph.print_node_map()
 
-
+# generate summary table of these models
 def profile_models():
     import tabulate
     bs = 1
@@ -95,4 +159,6 @@ def profile_models():
 
 
 if __name__ == '__main__':
+    add_hugging_face_model()
+    build_onnx_models()
     profile_models()

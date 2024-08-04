@@ -543,6 +543,12 @@ class GeluNode(PWNode):
         self.op_mac = EXP_MACS + MUL_MACS * 2
 
 @NODE_REGISTRY.register()
+class LogitSoftCappingNode(PWNode):
+    def __init__(self, n):
+        super().__init__(n)
+        self.op_mac = TANH_MACS + MUL_MACS + DIV_MACS
+
+@NODE_REGISTRY.register()
 class GeGeluNode(PWNode):
     def __init__(self, n):
         super().__init__(n)

@@ -1,5 +1,20 @@
 from onnx_tool.llm import *
 
+# Export the model with pytorch tensor names
+# Not necessary to convert safetensors to ONNX format
+def export_with_pytorch_weight_name():
+    bs = 1
+    seq_len = 4096
+    ids_shape = [bs, seq_len]
+    builder = Builder(**phi3_mini)
+    builder.build_graph(ids_shape, WeightMap)
+    builder.save_graph('phi3_mini.onnx')
+    for name in builder.graph.initials:
+        print(name)
+    # each name response the same tensor in this file:
+    # https://huggingface.co/microsoft/Phi-3-mini-128k-instruct/blob/main/model.safetensors.index.json
+
+
 # Add one new model from hugging face
 def add_hugging_face_model():
     # get transformer config.json from hugging face
@@ -43,7 +58,7 @@ def add_hugging_face_model():
     # ref the modeling file, add model arch config
     # code: transformers/src/transformers/models/gemma2/modeling_gemma2.py
     ArchMap['Gemma2ForCausalLM'] = {
-        "ffn_num_mm": 3,
+        "mlp_gate": True,
         "norm_scale": True,
         "norm_bias": False,
         "fuse_qkv": False,
@@ -51,18 +66,24 @@ def add_hugging_face_model():
         "o_bias": False,
         "mlp_bias": False,
         "lm_head_bias": False,
-        'post_mlp_norm': True
+        'post_mlp_norm': True,
+        'post_attn_norm': True,
     }
-    ActMap['gelu_pytorch_tanh'] = 'Gelu' # map new activation name to op_type
+    ActMap['gelu_pytorch_tanh'] = 'Gelu'  # map new activation name to op_type
+
+    # Gemma2ForCausalLM redefines this name
+    WeightMap['mlp']['input_norm'] = 'pre_feedforward_layernorm'
+
     bs = 1
     seq_len = 2048
     ids_shape = [bs, seq_len]
     builder = Builder(**gemma2b)
-    builder.build_graph(ids_shape)
+    builder.build_graph(ids_shape, WeightMap)
     builder.save_graph('gemma2b.onnx')
     builder.graph.valid_shape = True
     builder.graph.profile()
     builder.graph.print_node_map()
+
 
 # build these hugging face models to ONNX file, and do profiling.
 def build_onnx_models():
@@ -139,6 +160,7 @@ def build_onnx_models():
     builder.graph.profile()
     builder.graph.print_node_map()
 
+
 # generate summary table of these models
 def profile_models():
     import tabulate
@@ -158,7 +180,9 @@ def profile_models():
     print(tabulate.tabulate(rows, headers=header))
 
 
+
 if __name__ == '__main__':
+    export_with_pytorch_weight_name()
     add_hugging_face_model()
     build_onnx_models()
     profile_models()

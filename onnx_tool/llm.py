@@ -15,7 +15,7 @@ ActMap = {
 
 ArchMap = {
     'LlamaForCausalLM': {
-        "ffn_num_mm": 3,
+        "mlp_gate": 3,
         "norm_scale": True,
         "norm_bias": False,
         "fuse_qkv": False,
@@ -23,7 +23,36 @@ ArchMap = {
         "o_bias": False,
         "mlp_bias": False,
         "lm_head_bias": False,
-        "post_mlp_norm": False
+        "post_mlp_norm": False,
+        "post_attn_norm": False
+    }
+}
+
+WeightMap = {
+    'embedding': {
+        'embed': 'model.embed_tokens'
+    },
+    'layer_prefix': 'model.layers.',
+    'attention': {
+        'input_norm': 'input_layernorm',
+        'qkv': 'self_attn.qkv_proj',
+        'q': 'self_attn.q_proj',
+        'k': 'self_attn.k_proj',
+        'v': 'self_attn.v_proj',
+        'o': 'self_attn.o_proj',
+        'output_norm': 'post_attention_layernorm'
+    },
+    'mlp': {
+        'input_norm': 'post_attention_layernorm',
+        'gate': 'mlp.gate_proj',
+        'up': 'mlp.up_proj',
+        'down': 'mlp.down_proj',
+        'gate_up': 'mlp.gate_up_proj',
+        'output_norm': 'post_feedforward_layernorm',
+    },
+    'lm_head': {
+        'input_norm': 'model.norm',
+        'lm': 'lm_head'
     }
 }
 
@@ -66,231 +95,235 @@ class Builder():
         self.head_size = self.hidden_size // self.num_attention_heads
         self.hidden_kv_size = self.head_size * self.num_key_value_heads
 
-    def get_init_tensor_name(self):
-        name = f'InitTensor_{self.tensor_count}'
-        self.tensor_count += 1
-        self.graph.initials.append(name)
-        return name
-
-    def get_dynamic_tensor_name(self):
-        name = f'DynaTensor_{self.tensor_count}'
-        self.tensor_count += 1
-        self.graph.dynamics.append(name)
-        return name
-
-    def get_node_name(self):
-        name = f'Node_{self.node_count}'
-        self.node_count += 1
-        return name
-
-    def add_embedding(self, inp):
-        emd = create_node(TmpNodeProto(self.get_node_name(), 'Gather', {'axis': 0}))
-        w = create_tensor(self.get_init_tensor_name(), STATIC_TENSOR, [self.vocab_size, self.hidden_size],
+    def add_embedding(self, inp, name):
+        emd = create_node(TmpNodeProto(name, 'Gather', {'axis': 0}))
+        w = create_tensor(name + '.weight', STATIC_TENSOR, [self.vocab_size, self.hidden_size],
                           numpy.float32)
+        self.graph.initials.append(w.name)
         emd.input = [w.name, inp.name]
-        o = create_tensor(self.get_dynamic_tensor_name(), DYNAMIC_TENSOR, [self.batch, self.seq_len, self.hidden_size],
+        o = create_tensor(name + '.output', DYNAMIC_TENSOR, [self.batch, self.seq_len, self.hidden_size],
                           numpy.float32)
         emd.output = [o.name]
         self.graph.tensormap[o.name] = o
         self.graph.tensormap[w.name] = w
-        self.graph.nodemap[f'Node_{self.node_count}'] = emd
+        self.graph.nodemap[emd.name] = emd
         return o
 
-    def add_layernorm(self, inp):
+    def add_layernorm(self, inp, name):
         if hasattr(self, 'rms_norm_eps'):
-            nod = create_node(TmpNodeProto(self.get_node_name(), 'LayerNormalization',
-                                           {'epsilon': self.rms_norm_eps, 'typoe': 'rms'}))
+            attrs = {'epsilon': self.rms_norm_eps, 'type': 'rms'}
         elif hasattr(self, 'layer_norm_eps'):
-            nod = create_node(
-                TmpNodeProto(self.get_node_name(), 'LayerNormalization', {'epsilon': self.layer_norm_eps}))
+            attrs = {'epsilon': self.layer_norm_eps}
         else:
             assert 0
+        nod = create_node(TmpNodeProto(name, 'LayerNormalization', attrs))
         nod.input = [inp.name]
         if self.arch_config['norm_scale']:
-            s = create_tensor(self.get_init_tensor_name(), STATIC_TENSOR, [self.hidden_size],
+            s = create_tensor(name + '.weight', STATIC_TENSOR, [self.hidden_size],
                               numpy.float32)
+            self.graph.initials.append(s.name)
             nod.input.append(s.name)
             self.graph.tensormap[s.name] = s
             if self.arch_config['norm_bias']:
-                b = create_tensor(self.get_init_tensor_name(), STATIC_TENSOR, [self.hidden_size],
+                b = create_tensor(name + '.bias', STATIC_TENSOR, [self.hidden_size],
                                   numpy.float32)
                 nod.input.append(b.name)
+                self.graph.initials.append(b.name)
                 self.graph.tensormap[b.name] = b
 
-        o = create_tensor(self.get_dynamic_tensor_name(), DYNAMIC_TENSOR, inp.get_shape(),
+        o = create_tensor(name + '.output', DYNAMIC_TENSOR, inp.get_shape(),
                           numpy.float32)
         nod.output = [o.name]
         self.graph.tensormap[o.name] = o
-        self.graph.nodemap[f'Node_{self.node_count}'] = nod
+        self.graph.nodemap[nod.name] = nod
         return o
 
-    def add_act(self, inp, act):
-        nod = create_node(TmpNodeProto(self.get_node_name(), ActMap[act], {}))
+    def add_act(self, inp, act, name):
+        nod = create_node(TmpNodeProto(name, ActMap[act], {}))
         nod.input = [inp.name]
-        o = create_tensor(self.get_dynamic_tensor_name(), DYNAMIC_TENSOR, inp.get_shape(),
+        o = create_tensor(name + '.output', DYNAMIC_TENSOR, inp.get_shape(),
                           numpy.float32)
         nod.output = [o.name]
         self.graph.tensormap[o.name] = o
-        self.graph.nodemap[f'Node_{self.node_count}'] = nod
+        self.graph.nodemap[nod.name] = nod
         return o
 
-    def add_rope(self, inp):
-        nod = create_node(TmpNodeProto(self.get_node_name(), 'Rope',
+    def add_rope(self, inp, name):
+        nod = create_node(TmpNodeProto(name, 'Rope',
                                        {'rope_theta': self.rope_theta if hasattr(self,
                                                                                  'rope_theta') and self.rope_theta is not None else 0,
                                         'rope_scaling': self.rope_scaling if hasattr(self,
                                                                                      'rope_scaling') and self.rope_scaling is not None else 0}))
         nod.input = [inp.name]
-        o = create_tensor(self.get_dynamic_tensor_name(), DYNAMIC_TENSOR, inp.get_shape(),
+        o = create_tensor(name + '.output', DYNAMIC_TENSOR, inp.get_shape(),
                           numpy.float32)
         nod.output = [o.name]
         self.graph.tensormap[o.name] = o
-        self.graph.nodemap[f'Node_{self.node_count}'] = nod
+        self.graph.nodemap[nod.name] = nod
         return o
 
-    def add_eltop(self, inp, inp1, op):
-        nod = create_node(TmpNodeProto(self.get_node_name(), op, {}))
+    def add_eltop(self, inp, inp1, op, name):
+        nod = create_node(TmpNodeProto(name, op, {}))
         nod.input = [inp.name, inp1.name]
         s = inp.get_shape()
         s1 = inp1.get_shape()
         s = _max_shape([s, s1])
-        o = create_tensor(self.get_dynamic_tensor_name(), DYNAMIC_TENSOR, s,
+        o = create_tensor(name + '.output', DYNAMIC_TENSOR, s,
                           numpy.float32)
         nod.output = [o.name]
         self.graph.tensormap[o.name] = o
-        self.graph.nodemap[f'Node_{self.node_count}'] = nod
+        self.graph.nodemap[nod.name] = nod
         return o
 
-    def add_mm(self, inp, fin, fout, bias):
-        nod = create_node(TmpNodeProto(self.get_node_name(), 'MatMul', {}))
-        w = create_tensor(self.get_init_tensor_name(), STATIC_TENSOR, [fin, fout],
+    def add_mm(self, inp, fin, fout, bias, name):
+        nod = create_node(TmpNodeProto(name, 'MatMul', {}))
+        w = create_tensor(name + '.weight', STATIC_TENSOR, [fin, fout],
                           numpy.float32)
+        self.graph.initials.append(w.name)
         nod.input = [inp.name, w.name]
 
         if bias:
-            b = create_tensor(self.get_init_tensor_name(), STATIC_TENSOR, [fout],
+            b = create_tensor(name + '.bias', STATIC_TENSOR, [fout],
                               numpy.float32)
             nod.input.append(b.name)
+            self.graph.initials.append(b.name)
             self.graph.tensormap[b.name] = b
 
-        o = create_tensor(self.get_dynamic_tensor_name(), DYNAMIC_TENSOR, [self.batch, self.seq_len, fout],
+        o = create_tensor(name + '.output', DYNAMIC_TENSOR, [self.batch, self.seq_len, fout],
                           numpy.float32)
         nod.output = [o.name]
         self.graph.tensormap[o.name] = o
         self.graph.tensormap[w.name] = w
-        self.graph.nodemap[f'Node_{self.node_count}'] = nod
+        self.graph.nodemap[nod.name] = nod
         return o
 
-    def add_mha(self, inps):
+    def add_mha(self, inps, name):
         attrs = {'head_num': self.num_attention_heads, "head_size": self.head_size,
                  "kv_head_num": self.num_key_value_heads}
         if getattr(self, 'attn_logit_softcapping', None) is not None:
             attrs['attn_logit_softcapping'] = self.attn_logit_softcapping
-        nod = create_node(TmpNodeProto(self.get_node_name(), 'MHA', attrs))
+        nod = create_node(TmpNodeProto(name, 'MHA', attrs))
         nod.input = [inp.name for inp in inps]
-        o = create_tensor(self.get_dynamic_tensor_name(), DYNAMIC_TENSOR, [self.batch, self.seq_len, self.hidden_size],
+        o = create_tensor(name + '.output', DYNAMIC_TENSOR, [self.batch, self.seq_len, self.hidden_size],
                           numpy.float32)
         nod.output = [o.name]
         self.graph.tensormap[o.name] = o
-        self.graph.nodemap[f'Node_{self.node_count}'] = nod
+        self.graph.nodemap[nod.name] = nod
         return o
 
-    def add_slice(self, inp, axis, off, size, step):
-        nod = create_node(TmpNodeProto(self.get_node_name(), 'Slice', {}))
-        tstart = self.graph.add_initial(self.get_init_tensor_name(), numpy.array([off], dtype=numpy.int64))
-        tend = self.graph.add_initial(self.get_init_tensor_name(), numpy.array([off + size], dtype=numpy.int64))
-        taxis = self.graph.add_initial(self.get_init_tensor_name(), numpy.array([axis], dtype=numpy.int64))
-        tstep = self.graph.add_initial(self.get_init_tensor_name(), numpy.array([step], dtype=numpy.int64))
+    def add_slice(self, inp, axis, off, size, step, name):
+        nod = create_node(TmpNodeProto(name, 'Slice', {}))
+        tstart = self.graph.add_initial(name + '.start', numpy.array([off], dtype=numpy.int64))
+        tend = self.graph.add_initial(name + '.end', numpy.array([off + size], dtype=numpy.int64))
+        taxis = self.graph.add_initial(name + '.axis', numpy.array([axis], dtype=numpy.int64))
+        tstep = self.graph.add_initial(name + '.step', numpy.array([step], dtype=numpy.int64))
         nod.input = [inp.name, tstart.name, tend.name, taxis.name, tstep.name]
         s = inp.get_shape()
         s[axis] = size
-        o = create_tensor(self.get_dynamic_tensor_name(), DYNAMIC_TENSOR, s, numpy.float32)
+        o = create_tensor(name + '.output', DYNAMIC_TENSOR, s, numpy.float32)
         nod.output = [o.name]
         self.graph.tensormap[o.name] = o
-        self.graph.nodemap[f'Node_{self.node_count}'] = nod
+        self.graph.nodemap[nod.name] = nod
         return o
 
     def add_qkv(self, inp):
         bias = self.arch_config['qkv_bias']
         if self.arch_config['fuse_qkv']:
-            qkv = self.add_mm(inp, self.hidden_size, self.hidden_size + self.hidden_kv_size * 2, bias)
-            q = self.add_slice(qkv, 2, 0, self.hidden_size, 1)
-            k = self.add_slice(qkv, 2, self.hidden_size, self.hidden_kv_size, 1)
-            v = self.add_slice(qkv, 2, self.hidden_size + self.hidden_kv_size, self.hidden_kv_size, 1)
+            qkv = self.add_mm(inp, self.hidden_size, self.hidden_size + self.hidden_kv_size * 2, bias,
+                              self.layer_prefix + self.w_map['attention']['qkv'])
+            q = self.add_slice(qkv, 2, 0, self.hidden_size, 1, self.layer_prefix + 'q.slice')
+            k = self.add_slice(qkv, 2, self.hidden_size, self.hidden_kv_size, 1, self.layer_prefix + 'k.slice')
+            v = self.add_slice(qkv, 2, self.hidden_size + self.hidden_kv_size, self.hidden_kv_size, 1,
+                               self.layer_prefix + 'v.slice')
         else:
-            q = self.add_mm(inp, self.hidden_size, self.hidden_size, bias)
-            k = self.add_mm(inp, self.hidden_size, self.hidden_kv_size, bias)
-            v = self.add_mm(inp, self.hidden_size, self.hidden_kv_size, bias)
+            nameq = self.layer_prefix + self.w_map['attention']['q']
+            namek = self.layer_prefix + self.w_map['attention']['k']
+            namev = self.layer_prefix + self.w_map['attention']['v']
+            q = self.add_mm(inp, self.hidden_size, self.hidden_size, bias, nameq)
+            k = self.add_mm(inp, self.hidden_size, self.hidden_kv_size, bias, namek)
+            v = self.add_mm(inp, self.hidden_size, self.hidden_kv_size, bias, namev)
         return [q, k, v]
 
     def add_mlp(self, inp):
         bias = self.arch_config['mlp_bias']
+        mlp_gate = self.arch_config['mlp_gate']
+        nameup = self.layer_prefix + self.w_map['mlp']['up']
+        namedown = self.layer_prefix + self.w_map['mlp']['down']
+        if mlp_gate:
+            namegate = self.layer_prefix + self.w_map['mlp']['gate']
         if self.model_type == 'phi3' or self.model_type == 'phi3small':
-            o0 = self.add_mm(inp, self.hidden_size, self.intermediate_size * 2, bias)
-            o0 = self.add_act(o0, 'gegelu')
+            name_gu = self.layer_prefix + self.w_map['mlp']['gate_up']
+            o0 = self.add_mm(inp, self.hidden_size, self.intermediate_size * 2, bias, name_gu)
+            o0 = self.add_act(o0, 'gegelu', self.layer_prefix + 'mlp.activation')
             s = o0.get_shape()
             s[-1] = s[-1] // 2
             o0.update_shape(s)
-            o2 = self.add_mm(o0, self.intermediate_size, self.hidden_size, bias)
+            o2 = self.add_mm(o0, self.intermediate_size, self.hidden_size, bias, namedown)
         else:
-            o0 = self.add_mm(inp, self.hidden_size, self.intermediate_size, bias)
-            o0 = self.add_act(o0, self.hidden_act)
-            if self.arch_config['ffn_num_mm'] == 3:
-                o1 = self.add_mm(inp, self.hidden_size, self.intermediate_size, bias)
-                o0 = self.add_eltop(o0, o1, 'Mul')
-            o2 = self.add_mm(o0, self.intermediate_size, self.hidden_size, bias)
+            o0 = self.add_mm(inp, self.hidden_size, self.intermediate_size, bias, nameup)
+            o0 = self.add_act(o0, self.hidden_act, self.layer_prefix + 'mlp.activation')
+            if mlp_gate:
+                o1 = self.add_mm(inp, self.hidden_size, self.intermediate_size, bias, namegate)
+                o0 = self.add_eltop(o0, o1, 'Mul', self.layer_prefix + 'mlp.gate_mul')
+            o2 = self.add_mm(o0, self.intermediate_size, self.hidden_size, bias, namedown)
         return o2
 
     def add_lm_head(self, inp):
-        cur = self.add_layernorm(inp)
-        cur = self.add_mm(cur, self.hidden_size, self.vocab_size, self.arch_config['lm_head_bias'])
+        cur = self.add_layernorm(inp, self.w_map['lm_head']['input_norm'])
+        cur = self.add_mm(cur, self.hidden_size, self.vocab_size, self.arch_config['lm_head_bias'],
+                          self.w_map['lm_head']['lm'])
         return cur
 
     def add_layers(self, inp):
         for i in range(self.num_hidden_layers):
+            self.layer_i = i
+            self.layer_prefix = self.w_map['layer_prefix'] + str(self.layer_i) + '.'
             cur = inp
-            cur = self.add_layernorm(cur)
+            cur = self.add_layernorm(cur, self.layer_prefix + self.w_map['attention']['input_norm'])
             q, k, v = self.add_qkv(cur)
-            q = self.add_rope(q)
-            k = self.add_rope(k)
-            cur = self.add_mha([q, k, v])
-            cur = self.add_mm(cur, self.hidden_size, self.hidden_size, self.arch_config['o_bias'])
-            cur = self.add_eltop(inp, cur, 'Add')
+            q = self.add_rope(q, self.layer_prefix + 'rope_q')
+            k = self.add_rope(k, self.layer_prefix + 'rope_k')
+            cur = self.add_mha([q, k, v], self.layer_prefix + 'mha')
+            cur = self.add_mm(cur, self.hidden_size, self.hidden_size, self.arch_config['o_bias'],
+                              self.layer_prefix + self.w_map['attention']['o'])
+            if self.arch_config.get('post_attn_norm', False):
+                cur = self.add_layernorm(cur, self.layer_prefix + self.w_map['attention']['output_norm'])
+            cur = self.add_eltop(inp, cur, 'Add', self.layer_prefix + 'attention_add')
             inp = cur
-            cur = self.add_layernorm(cur)
+            cur = self.add_layernorm(cur, self.layer_prefix + self.w_map['mlp']['input_norm'])
             cur = self.add_mlp(cur)
             if self.arch_config.get('post_mlp_norm', False):
-                cur = self.add_layernorm(cur)
-            inp = self.add_eltop(inp, cur, 'Add')
+                cur = self.add_layernorm(cur, self.layer_prefix + self.w_map['mlp']['output_norm'])
+            inp = self.add_eltop(inp, cur, 'Add', self.layer_prefix + 'mlp_add')
         return inp
 
-    def add_softcapping(self, inp, value):
-        b = self.graph.add_initial(self.get_init_tensor_name(), numpy.array(value, dtype=numpy.float32))
-        nod = create_node(TmpNodeProto(self.get_node_name(), 'LogitSoftCapping', {}))
+    def add_softcapping(self, inp, value, name):
+        b = self.graph.add_initial(name + '.weight', numpy.array(value, dtype=numpy.float32))
+        nod = create_node(TmpNodeProto(name, 'LogitSoftCapping', {}))
         nod.input = [inp.name, b.name]
-        o = create_tensor(self.get_dynamic_tensor_name(), DYNAMIC_TENSOR, inp.get_shape(),
-                          numpy.float32)
+        o = create_tensor(name + '.output', DYNAMIC_TENSOR, inp.get_shape(), numpy.float32)
         nod.output = [o.name]
         self.graph.tensormap[o.name] = o
-        self.graph.nodemap[f'Node_{self.node_count}'] = nod
+        self.graph.nodemap[nod.name] = nod
         return o
 
-    def build_graph(self, ids_shape: List):
+    def build_graph(self, ids_shape: List, weight_map: {} = None):
         self.batch, self.seq_len = ids_shape
+        self.w_map = weight_map if weight_map is not None else WeightMap
         self.kv_params = self.batch * self.seq_len * self.hidden_kv_size * 2 * self.num_hidden_layers
         ids = create_tensor('ids', DYNAMIC_TENSOR, [self.batch, self.seq_len], numpy.int64)
         self.graph.input.append('ids')
         self.graph.tensormap[ids.name] = ids
-        cur = self.add_embedding(ids)
+        cur = self.add_embedding(ids, self.w_map['embedding']['embed'])
         cur = self.add_layers(cur)
         cur = self.add_lm_head(cur)
         if getattr(self, 'final_logit_softcapping', None) is not None:
-            cur = self.add_softcapping(cur, self.final_logit_softcapping)
+            cur = self.add_softcapping(cur, self.final_logit_softcapping, 'models.final_logit_softcapping')
         self.graph.output.append(cur.name)
 
     def save_graph(self, path):
         self.graph.graph_reorder_nodes()
-        self.graph.save_model(path, shape_only=True)
+        self.graph.save_model(path, shape_only=False)
 
 
 phi3_mini = {
@@ -332,7 +365,7 @@ phi3_mini = {
 }
 
 ArchMap['Phi3ForCausalLM'] = {
-    "ffn_num_mm": 2,
+    "mlp_gate": False,
     "norm_scale": True,
     "norm_bias": False,
     "fuse_qkv": True,
@@ -372,7 +405,7 @@ QWen_7B = {
 }
 
 ArchMap['Qwen2ForCausalLM'] = {
-    "ffn_num_mm": 3,
+    "mlp_gate": True,
     "norm_scale": True,
     "norm_bias": False,
     "fuse_qkv": False,
@@ -446,7 +479,7 @@ phi2 = {
 }
 
 ArchMap['PhiForCausalLM'] = {
-    "ffn_num_mm": 2,
+    "mlp_gate": False,
     "norm_scale": True,
     "norm_bias": True,
     "fuse_qkv": False,
@@ -616,7 +649,7 @@ Phi_3_small_8k_instruct = {
 }
 
 ArchMap['Phi3SmallForCausalLM'] = {
-    "ffn_num_mm": 2,
+    "mlp_gate": False,
     "norm_scale": True,
     "norm_bias": False,
     "fuse_qkv": True,
@@ -669,7 +702,7 @@ gptj_6b = {
 }
 
 ArchMap['GPTJForCausalLM'] = {
-    "ffn_num_mm": 2,
+    "mlp_gate": False,
     "norm_scale": True,
     "norm_bias": True,
     "fuse_qkv": False,

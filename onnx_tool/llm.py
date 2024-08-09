@@ -351,6 +351,9 @@ class Builder():
 
         self.MACs = [MM_MACs, MHA_MACs, Other_MACs]
         self.MemNum = [MM_weight_mem, MHA_KV_mem, Act_mm]
+        self.MemSizes = [self.MemNum[0] * cfg['Bits']['MM'] / 8, self.MemNum[1] * cfg['Bits']['MHA'] / 8,
+                         self.MemNum[2] * cfg['Bits']['Others'] / 8]
+        self.MemSizes.append(self.MemSizes[0] + self.MemSizes[1])
         if Device is not None:
             cc = Device.get(cfg['Compute']['MM'], Device['FP32'])
             t_mm = self.MACs[0] * 2 / cc / 1e9
@@ -360,8 +363,6 @@ class Builder():
             t_others = self.MACs[2] * 2 / cc / 1e9
             self.ctimes = [t_mm, t_mha, t_others, t_mm + t_mha + t_others]
             mem_speed = Device['Bandwidth']
-            self.MemSizes = [self.MemNum[0] * cfg['Bits']['MM'] / 8, self.MemNum[1] * cfg['Bits']['MHA'] / 8,
-                             self.MemNum[2] * cfg['Bits']['Others'] / 8]
             self.ltimes = [self.MemSizes[0] / mem_speed / 1e9, self.MemSizes[1] / mem_speed / 1e9,
                            self.MemSizes[2] / mem_speed / 1e9]
             self.ltimes.append(self.ltimes[0] + self.ltimes[1] + self.ltimes[2])

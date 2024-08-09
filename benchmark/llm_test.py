@@ -196,7 +196,7 @@ def profile_models():
 
     # estimate latencies from hardware specs in onnx_tool.device
     from onnx_tool.device import Devices
-    header = ['model_type']
+    header = ['model_type', 'memory_size']
     rows = []
     dkeys = Devices.keys()
     for key in dkeys:
@@ -206,8 +206,8 @@ def profile_models():
         builder = Builder(**model)
         builder.build_graph(ids_shape)
         builder.graph.valid_shape = True
-        builder.graph.profile()
-        row = [builder.name]
+        builder.profile(RuntimeCfg, None)
+        row = [builder.name, builder.MemSizes[3] / 1e9]
         for key in dkeys:
             builder.profile(RuntimeCfg, Devices[key])
             row.append(builder.first_latency)

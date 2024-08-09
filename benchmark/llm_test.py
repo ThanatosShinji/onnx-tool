@@ -183,14 +183,14 @@ def profile_models():
               llama_31_70B, QWen_7B, Qwen2_72B_Instruct]
 
     # export model profile
-    header = ['model_type', 'MACs', 'Parameters', 'KV Cache']
+    header = ['model_type', 'MACs(G)', 'Parameters(G)', 'KV Cache(G)']
     rows = []
     for model in models:
         builder = Builder(**model)
         builder.build_graph(ids_shape)
         builder.graph.valid_shape = True
         builder.graph.profile()
-        row = [builder.name, int(builder.graph.macs[0]), builder.graph.params, builder.kv_params]
+        row = [builder.name, int(builder.graph.macs[0]/1e9), builder.graph.params/1e9, builder.kv_params/1e9]
         rows.append(row)
     print(tabulate.tabulate(rows, headers=header))
 
@@ -218,7 +218,7 @@ def profile_models():
 
 
 if __name__ == '__main__':
-    export_with_pytorch_weight_name()
-    add_hugging_face_model()
-    build_onnx_models()
+    # export_with_pytorch_weight_name()
+    # add_hugging_face_model()
+    # build_onnx_models()
     profile_models()

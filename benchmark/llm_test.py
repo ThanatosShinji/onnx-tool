@@ -1,14 +1,14 @@
 from onnx_tool.llm import *
 
+
 # Export the model with pytorch tensor names
 # Not necessary to convert safetensors to ONNX format
 def export_with_pytorch_weight_name():
     bs = 1
-    seq_len = 4096
+    seq_len = 1024
     ids_shape = [bs, seq_len]
-    builder = Builder(**phi3_mini)
+    builder = Builder(**QWen_7B)
     builder.build_graph(ids_shape, WeightMap)
-    builder.save_graph('phi3_mini.onnx')
     for name in builder.graph.initials:
         print(name)
     # each name response the same tensor in this file:
@@ -164,11 +164,25 @@ def build_onnx_models():
 # generate summary table of these models
 def profile_models():
     import tabulate
+    RuntimeCfg = {
+        'Compute': {
+            'MM': 'INT8',
+            'MHA': 'FP16',
+            'Others': 'FP16',
+        },
+        'Bits': {
+            'MM': 4.5,
+            'MHA': 16,
+            'Others': 32,
+        }
+    }
     bs = 1
-    seq_len = 4096
+    seq_len = 1024
     ids_shape = [bs, seq_len]
     models = [gptj_6b, yi_34B, phi2, phi3_mini, Phi_3_small_8k_instruct, Phi_3_medium_4k_instruct, Llama3_8B,
               llama_31_70B, QWen_7B, Qwen2_72B_Instruct]
+
+    # export model profile
     header = ['model_type', 'MACs', 'Parameters', 'KV Cache']
     rows = []
     for model in models:
@@ -176,9 +190,31 @@ def profile_models():
         builder.build_graph(ids_shape)
         builder.graph.valid_shape = True
         builder.graph.profile()
-        rows.append([builder.name, int(builder.graph.macs[0]), builder.graph.params, builder.kv_params])
+        row = [builder.name, int(builder.graph.macs[0]), builder.graph.params, builder.kv_params]
+        rows.append(row)
     print(tabulate.tabulate(rows, headers=header))
 
+    # estimate latencies from hardware specs in onnx_tool.device
+    from onnx_tool.device import Devices
+    header = ['model_type']
+    rows = []
+    dkeys = Devices.keys()
+    for key in dkeys:
+        header.append(key + '_first_latency')
+        header.append(key + '_next_latency')
+    for model in models:
+        builder = Builder(**model)
+        builder.build_graph(ids_shape)
+        builder.graph.valid_shape = True
+        builder.graph.profile()
+        row = [builder.name]
+        for key in dkeys:
+            builder.profile(RuntimeCfg, Devices[key])
+            row.append(builder.first_latency)
+            row.append(builder.next_latency)
+        rows.append(row)
+
+    print(tabulate.tabulate(rows, headers=header))
 
 
 if __name__ == '__main__':

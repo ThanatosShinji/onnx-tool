@@ -1340,6 +1340,7 @@ class Graph():
             _memory = 0
             max_sparsity = 0
             block_sparsity = {'blocksize': (1, 1), 'blockratio': 0, 'ratio': 0}
+
             for input in node.input:
                 tensor = self.tensormap[input]
                 itensors.append(tensor)
@@ -1368,7 +1369,6 @@ class Graph():
             if len(node.input) > 0:
                 inshape = self.tensormap[node.input[0]].get_shape()
                 inshape = (0,) if len(inshape) == 0 else inshape
-
             node.macs = macs
             node.inshape = inshape
             node.outshape = outshape

@@ -307,6 +307,67 @@ class Builder():
         self.graph.nodemap[nod.name] = nod
         return o
 
+    DefaultCfg = {
+        'Compute': {
+            'MM': 'FP32',
+            'MHA': 'FP32',
+            'Others': 'FP32',
+        },
+        'Bits': {
+            'MM': 4.5,
+            'MHA': 16,
+            'Others': 32,
+        }
+    }
+
+    def profile(self, Config: {} = None, Device: {} = None):
+        self.graph.valid_shape = True
+        self.graph.profile()
+        cfg = Config if Config is not None else self.DefaultCfg
+        MM_MACs = 0
+        MHA_MACs = 0
+        Other_MACs = 0
+        MM_weight_mem = 0
+        MHA_KV_mem = 0
+        Act_mm = 0
+        for n in self.graph.nodemap.keys():
+            node = self.graph.nodemap[n]
+            if node.op_type == 'MatMul':
+                MM_MACs += node.macs[0]
+                Act_mm += volume(self.graph.tensormap[node.input[0]].get_shape())
+                Act_mm += volume(self.graph.tensormap[node.output[0]].get_shape())
+                MM_weight_mem += volume(self.graph.tensormap[node.input[1]].get_shape())
+            elif node.op_type == 'MHA':
+                Act_mm += volume(self.graph.tensormap[node.input[0]].get_shape())
+                Act_mm += volume(self.graph.tensormap[node.output[0]].get_shape())
+                MHA_KV_mem += volume(self.graph.tensormap[node.input[1]].get_shape())
+                MHA_KV_mem += volume(self.graph.tensormap[node.input[2]].get_shape())
+                MHA_MACs += node.macs[0]
+            else:
+                for inp in node.input:
+                    Act_mm += volume(self.graph.tensormap[inp].get_shape())
+                Act_mm += volume(self.graph.tensormap[node.output[0]].get_shape())
+                Other_MACs += node.macs[0]
+
+        self.MACs = [MM_MACs, MHA_MACs, Other_MACs]
+        self.MemNum = [MM_weight_mem, MHA_KV_mem, Act_mm]
+        if Device is not None:
+            cc = Device.get(cfg['Compute']['MM'], Device['FP32'])
+            t_mm = self.MACs[0] * 2 / cc / 1e9
+            cc = Device.get(cfg['Compute']['MHA'], Device['FP32'])
+            t_mha = self.MACs[1] * 2 / cc / 1e9
+            cc = Device.get(cfg['Compute']['Others'], Device['FP32'])
+            t_others = self.MACs[2] * 2 / cc / 1e9
+            self.ctimes = [t_mm, t_mha, t_others, t_mm + t_mha + t_others]
+            mem_speed = Device['Bandwidth']
+            self.MemSizes = [self.MemNum[0] * cfg['Bits']['MM'] / 8, self.MemNum[1] * cfg['Bits']['MHA'] / 8,
+                             self.MemNum[2] * cfg['Bits']['Others'] / 8]
+            self.ltimes = [self.MemSizes[0] / mem_speed / 1e9, self.MemSizes[1] / mem_speed / 1e9,
+                           self.MemSizes[2] / mem_speed / 1e9]
+            self.ltimes.append(self.ltimes[0] + self.ltimes[1] + self.ltimes[2])
+            self.first_latency = self.ctimes[3] + self.ltimes[3]
+            self.next_latency = self.ltimes[0] + self.ltimes[1]
+
     def build_graph(self, ids_shape: List, weight_map: {} = None):
         self.batch, self.seq_len = ids_shape
         self.w_map = weight_map if weight_map is not None else WeightMap

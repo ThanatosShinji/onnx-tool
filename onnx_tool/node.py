@@ -907,7 +907,7 @@ class GridSampleNode(Node):
 
     def shape_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
         r = intensors[1].shape[-1]
-        out_shape = intensors[0].shape[:2] + intensors[1].shape[1:1 + r]
+        out_shape = list(intensors[0].shape[:2]) + list(intensors[1].shape[1:1+r])
         outtensors[0].update_shape(out_shape)
         outtensors[0].update_dtype(intensors[0].dtype)
 

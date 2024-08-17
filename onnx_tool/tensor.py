@@ -382,7 +382,8 @@ class Tensor():
             self.name = t.name
             self.proto = t
             self.numpy = tensorproto2ndarray(t)
-            self.shape = self.numpy.shape
+            # NOTE: The shape of the tensor should be a list.
+            self.shape = list(self.numpy.shape)
             self.type = STATIC_TENSOR
             self.dtype = self.numpy.dtype.type
         else:

@@ -343,6 +343,10 @@ class FusionPattern():
                                         break
                                 else:
                                     invalid = True
+                            else:
+                                invalid = False
+                        else:
+                            invalid = False
             elif inidx < len(node.input):
                 tname = node.input[inidx]
                 producer_node = graph.producedby[tname]
@@ -357,6 +361,10 @@ class FusionPattern():
                                     break
                             else:
                                 invalid = True
+                        else:
+                            invalid = False
+                    else:
+                        invalid = False
 
         if not invalid:
             searched.remove(curnodename)

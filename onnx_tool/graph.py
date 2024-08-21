@@ -186,6 +186,15 @@ class Graph():
             self.__update_nodes_tensors__(self.cfg.constant_folding)
             self.__find_shape_tensors__()
 
+    def update_graph(self):
+        if self.cfg.if_fixed_branch is not None:
+            self.__remove_if__()
+        if self.cfg.fixed_topk > 0:
+            self.__set_fixed_topk(self.cfg.fixed_topk)
+        self.__constant_search__(self.cfg.constant_folding)
+        self.__update_nodes_tensors__(self.cfg.constant_folding)
+        self.__find_shape_tensors__()
+
     def log(self, str):
         if self.cfg.verbose:
             print(str)
@@ -238,17 +247,19 @@ class Graph():
             self.tensormap.pop(tname)
 
         self.input = []
-        self.output = []
+        if not self.cfg.remove_dangling:
+            self.output = []
         for name in self.nodemap.keys():
             node = self.nodemap[name]
             for tensor in node.input:
                 if tensor not in self.producedby and tensor in self.dynamics:
                     if tensor not in self.input:
                         self.input.append(tensor)
-            for tensor in node.output:
-                if tensor not in self.consumedby or len(self.consumedby[tensor]) == 0:
-                    if tensor not in self.output:
-                        self.output.append(tensor)
+            if not self.cfg.remove_dangling:
+                for tensor in node.output:
+                    if tensor not in self.consumedby or len(self.consumedby[tensor]) == 0:
+                        if tensor not in self.output:
+                            self.output.append(tensor)
         self.__update_consumer_producer__()
         self.log(f'Update Nodes Tensors  Time Elapsed {tm.stop()}')
 
@@ -327,7 +338,7 @@ class Graph():
             node = self.nodemap[n]
             if node.op_type == 'If':
                 # remove condition node chain
-                sub_input=[]
+                sub_input = []
                 for node_proto in node.attr[selected_branch].node:
                     for ipn in node_proto.input:
                         sub_input.append(ipn)
@@ -461,7 +472,10 @@ class Graph():
         for output in g.output:
             if output.name not in self.tensormap.keys():
                 self.tensormap[output.name] = Tensor(output)
-
+        if self.cfg.remove_dangling:
+            self.output = []
+            for o in g.output:
+                self.output.append(o.name)
         # init dynamic tensor info
         for valinfo in g.value_info:
             if valinfo.name not in self.tensormap.keys():
@@ -494,6 +508,7 @@ class Graph():
     def __find_shape_tensors__(self):
         self.shape_tensors = []
         for n in self.nodemap.keys():
+            self.nodemap[n].shape_calc = False
             shape_tensors = _contains_shape_tensor(self.nodemap[n])
             for st in shape_tensors:
                 self.shape_tensors.append(st)
@@ -615,7 +630,9 @@ class Graph():
                     enqueued.append(input)
         return initializer
 
-    def remove_node(self, nodename):
+    def remove_node(self, nodename, recursive=False):
+        if nodename not in self.nodemap:
+            return
         node = self.nodemap[nodename]
         # update producer
         for o in node.output:
@@ -627,11 +644,29 @@ class Graph():
                 if o in self.output:
                     self.output.remove(o)
 
+        newnodes = []
         # update consumer
         for i in node.input:
             if i in self.consumedby.keys():
+                if len(self.consumedby[i]) == 1 and i in self.producedby:
+                    pnode = self.producedby[i][0]
+                    assert (len(self.producedby[i]) == 1)
+                    dangle_node = True
+                    for o in self.nodemap[pnode].output:
+                        if o == i:
+                            continue
+                        if o in self.consumedby.keys() or o in self.output:
+                            dangle_node = False
+                            break
+                    if dangle_node:
+                        newnodes.append(pnode)
                 self.consumedby[i].remove(nodename)
+                if len(self.consumedby[i]) == 0:
+                    self.consumedby.pop(i)
         self.nodemap.pop(nodename)
+        if recursive:
+            for node in newnodes:
+                self.remove_node(node)
 
     def remove_subtree(self, nodename, nodeset=None):
         if nodeset is not None:
@@ -660,7 +695,6 @@ class Graph():
             for nodename in list(self.nodemap.keys()):
                 node = self.nodemap[nodename]
                 node_used = False
-
                 for o in node.output:
                     if o in self.output:
                         node_used = True
@@ -673,7 +707,7 @@ class Graph():
                 if node_used:
                     continue
 
-                self.remove_node(nodename)
+                self.remove_node(nodename, recursive=True)
                 try_to_remove = True
 
     def skip_node(self, nodename):
@@ -702,7 +736,7 @@ class Graph():
 
     def fuse_subgraph_node_names(self, nodes: [str], nodeop: str, nodename: str, keep_attr=True):
         _inputs, _outputs = self.get_iotensors(nodes, remove_initials=False)
-        newnode = onnx.helper.make_node(nodeop, _inputs, _outputs, name=nodename)
+        newnode_prot = onnx.helper.make_node(nodeop, _inputs, _outputs, name=nodename)
         count = 0
         if keep_attr:
             for node in nodes:
@@ -710,16 +744,19 @@ class Graph():
                     attr = onnx.helper.make_attribute(
                         self.nodemap[node].proto.op_type + str(count) + '_' + attribute.name,
                         get_attribute_data(attribute))
-                    newnode.attribute.append(attr)
+                    newnode_prot.attribute.append(attr)
                 count += 1
-        from .node import Node
+        from .node import create_node
         for name in nodes:
             self.remove_node(name)
-        newnode = Node(newnode)
+        newnode = create_node(newnode_prot)
         newnode.input = _inputs
         newnode.output = _outputs
         for i in _inputs:
-            self.consumedby[i].append(nodename)
+            if i in self.consumedby:
+                self.consumedby[i].append(nodename)
+            else:
+                self.consumedby[i] = [nodename]
             if i in self.producedby.keys():
                 newnode.prevnodes.append(self.producedby[i])
         for o in _outputs:

@@ -1,4 +1,8 @@
+from typing import List
+
 import numpy
+
+from onnx_tool.tensor import Tensor
 
 
 def parse_and_edit():
@@ -12,6 +16,7 @@ def parse_and_edit():
     g.tensormap['resnetv17_batchnorm0_gamma'].numpy = raw.astype(numpy.float16)  # convert weight tensor to float16
     g.skip_node('flatten_473')  # remove_node will break the input and output tensor relation
     m.save_model('resnet50-v1-7-edited.onnx')
+
 
 def profile_model():
     import onnx_tool
@@ -94,6 +99,7 @@ def simple_inference():
     outputs = m.graph.value_infer(inputm)  # limited models, very slow, for debug purpose
     print(m.graph.tensormap['resnetv17_stage1_conv3_fwd'].numpy)
 
+
 def dynamic_input_shapes():
     import numpy
     import onnx_tool
@@ -107,6 +113,7 @@ def dynamic_input_shapes():
     m.graph.profile()
     m.graph.print_node_map()
     m.save_model('rvm_mobilenetv3_fp32_shapes.onnx')
+
 
 def custom_layer_register():
     import onnx_tool
@@ -142,7 +149,7 @@ def custom_layer_register():
 def bert_mha_fuse():
     import onnx_tool
     modelpath = 'data/public/bertsquad-12.onnx'
-    m = onnx_tool.Model(modelpath,mcfg={})
+    m = onnx_tool.Model(modelpath, mcfg={})
     g = m.graph
     g.graph_reorder_nodes()
 
@@ -153,10 +160,11 @@ def bert_mha_fuse():
     g.graph_reorder_nodes()
     m.save_model('bertsquad_mha.onnx')
 
+
 def bert_mha_layernorm_fuse():
     import onnx_tool
     modelpath = 'data/public/bertsquad-12.onnx'
-    m = onnx_tool.Model(modelpath,mcfg={})
+    m = onnx_tool.Model(modelpath, mcfg={})
     g = m.graph
     g.graph_reorder_nodes()
 
@@ -174,6 +182,7 @@ def bert_mha_layernorm_fuse():
                               keep_attr=True)
     g.graph_reorder_nodes()
     m.save_model('bertsquad_mha_layernorm.onnx')
+
 
 def computegraph_with_shapeengine():
     import onnx_tool
@@ -200,7 +209,7 @@ def computegraph_with_shapeengine():
 
     shape_engine = g.shape_regress(model_config['input_desc'], model_config['input_range'])
     cg = g.get_compute_graph()
-    cg.save_model('compute_graph.onnx',rawmodel=m.mproto)
+    cg.save_model('compute_graph.onnx', rawmodel=m.mproto)
 
     shape_engine.update_variable('batch', 3)  # update batch size
     shape_engine.update_variable('seq', 155)  # update batch size
@@ -228,24 +237,26 @@ def serialization():
     onnx_tool.serialize_graph(compute_graph, 'resnet18.cg')
     onnx_tool.serialize_shape_engine(shape_engie, 'resnet18.se')
 
+
 def detic_profile():
     import onnx_tool
-    minfo={
+    minfo = {
         'name': 'data/public/model_custom_vocabulary.onnx',
         'dynamic_input': None,
-        'mcfg':{
-            'constant_folding':False,
-            'verbose':True,
-            'if_fixed_branch':'else',
-            'fixed_topk':1000,
+        'mcfg': {
+            'constant_folding': False,
+            'verbose': True,
+            'if_fixed_branch': 'else',
+            'fixed_topk': 1000,
         }
     }
-    m = onnx_tool.Model(minfo['name'],minfo['mcfg'])
+    m = onnx_tool.Model(minfo['name'], minfo['mcfg'])
     m.graph.graph_reorder_nodes()
     m.graph.shape_infer(minfo['dynamic_input'])
     m.graph.profile()
     m.graph.print_node_map()
     m.save_model('detic_shapes.onnx')
+
 
 def ssd300_vgg16():
     import onnx_tool
@@ -265,3 +276,56 @@ def ssd300_vgg16():
     m.graph.profile()
     m.graph.print_node_map()
     m.save_model('ssd300_shapes.onnx')
+
+
+def paraformer_profile():
+    import onnx_tool
+    from onnx_tool.node import NODE_REGISTRY
+    batch = 4
+    len = 100
+    hidden_size = 512
+    minfo = {
+        'name': './data/public/paraformer.onnx',
+        'dynamic_input': {
+            'speech': numpy.zeros((batch, len, 560), dtype=numpy.float32),
+            'speech_lengths': numpy.array((len,) * batch, dtype=numpy.int32)
+        },
+        'mcfg': {
+            'constant_folding': True,
+            'verbose': True,
+            'remove_dangling': True
+        }
+    }
+
+    @NODE_REGISTRY.register()
+    class SequenceMaskNode(onnx_tool.Node):
+        def shape_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
+            shape = intensors[0].get_shape()
+            outtensors[0].update_shape(shape + [len, ])
+
+    @NODE_REGISTRY.register()
+    class cif_searchNode(onnx_tool.Node):
+        def shape_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
+            outtensors[0].update_shape([batch, hidden_size])
+
+    m = onnx_tool.Model(minfo['name'], minfo['mcfg'])
+    m.graph.remove_dangling_nodes()
+    in_tensor_names = ['onnx::ReduceMax_7938']
+    out_tensor_names = ['tgt_mask']
+
+    m.graph.fuse_subgraph_iotensors(inputs=in_tensor_names, outputs=out_tensor_names, name_prefix='SequenceMask',
+                                    nodeop='SequenceMask', keep_attr=False)
+    m.graph.fuse_subgraph_iotensors(inputs=['onnx::Unsqueeze_7851'], outputs=['onnx::ReduceMean_7914'],
+                                    name_prefix='cif_search',
+                                    nodeop='cif_search', keep_attr=False)
+    m.graph.update_graph()
+    m.graph.graph_reorder_nodes()
+    # m.save_model('para_new.onnx')
+
+    m.graph.shape_infer(minfo['dynamic_input'])
+    m.graph.profile()
+    m.graph.print_node_map()
+    m.save_model('paraformer_shapes.onnx', shape_only=True)
+
+
+paraformer_profile()

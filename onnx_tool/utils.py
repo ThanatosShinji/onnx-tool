@@ -11,6 +11,7 @@ class ModelConfig():
         self.__add_attr__('if_fixed_branch',None)
         self.__add_attr__('fixed_topk',0)
         self.__add_attr__('verbose',False)
+        self.__add_attr__('remove_dangling',True)
 
     def __add_attr__(self, attr_name, defaultV):
         self.__setattr__(attr_name, defaultV if not self.cfg.__contains__(attr_name) else self.cfg[attr_name])

@@ -122,6 +122,24 @@ def _get_tensor(item):
         return create_ndarray_f32(item)
 
 
+def _broadcast_shape(shapes: []):
+    maxlen = 0
+    for shape in shapes:
+        maxlen = max(len(shape), maxlen)
+    newshapes = []
+    for shape in shapes:
+        if len(shape) < maxlen:
+            gap = maxlen - len(shape)
+            newshape = [1] * gap + shape
+        else:
+            newshape = shape
+        newshapes.append(newshape)
+    outshape = newshapes[0]
+    for i in range(len(newshapes) - 1):
+        outshape = [max(a, b) for a, b in zip(newshapes[i + 1], outshape)]
+    return outshape
+
+
 class TmpNodeProto:
     def __init__(self, name, op_type, attributes):
         self.name = name
@@ -469,6 +487,13 @@ class TanhNode(PWNode):
         result = numpy.tanh(intensors[0].get_numpy())
         outtensors[0].update_tensor(result)
 
+@NODE_REGISTRY.register()
+class LogSoftmaxNode(PWNode):
+    def __init__(self, n):
+        super().__init__(n)
+        self.op_mac = EXP_MACS + DIV_MACS + ADD_MACS + LOG_MACS
+        self.ratio = 1
+
 
 @NODE_REGISTRY.register()
 class AtanNode(TanhNode):
@@ -542,11 +567,13 @@ class GeluNode(PWNode):
         super().__init__(n)
         self.op_mac = EXP_MACS + MUL_MACS * 2
 
+
 @NODE_REGISTRY.register()
 class LogitSoftCappingNode(PWNode):
     def __init__(self, n):
         super().__init__(n)
         self.op_mac = TANH_MACS + MUL_MACS + DIV_MACS
+
 
 @NODE_REGISTRY.register()
 class GeGeluNode(PWNode):
@@ -559,7 +586,6 @@ class GeGeluNode(PWNode):
         ishape[-1] = ishape[-1] // 2
         outtensors[0].update_shape(ishape)
         outtensors[0].update_dtype(intensors[0].dtype)
-
 
 
 @NODE_REGISTRY.register()
@@ -640,7 +666,9 @@ class LRNNode(PWNode):
 @NODE_REGISTRY.register()
 class LessNode(Node):
     def shape_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
-        outtensors[0].update_shape(intensors[0].get_shape())
+        shapes = [t.get_shape() for t in intensors]
+        oshape = _broadcast_shape(shapes)
+        outtensors[0].update_shape(oshape)
         outtensors[0].update_dtype(numpy.bool_)
 
     def value_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
@@ -651,12 +679,18 @@ class LessNode(Node):
         return [volume(outtensors[0].get_shape()) * CMP_MACS, 0]
 
 
+
 @NODE_REGISTRY.register()
 class LessOrEqualNode(LessNode):
     def value_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
         result = numpy.less_equal(intensors[0].get_numpy(), intensors[1].get_numpy())
         outtensors[0].update_tensor(result)
 
+@NODE_REGISTRY.register()
+class RoundNode(LessNode):
+    def value_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
+        result = numpy.round(intensors[0].get_numpy())
+        outtensors[0].update_tensor(result)
 
 @NODE_REGISTRY.register()
 class NotNode(LessNode):

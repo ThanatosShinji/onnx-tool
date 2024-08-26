@@ -233,9 +233,54 @@ def add_kv_cache():
     builder.graph.print_node_map()
 
 
+def gpt2_kv_cache():
+    bs = 1
+    seq_len = 128
+    ids_shape = [bs, seq_len]
+    past_sequence = 0  # past length of KV cache
+    context_length = 8096  # total length of KV cache
+    builder = Builder(**gpt2)
+    WeightMap = {
+        'embedding': {
+            'embed': 'wte',
+            'pos': 'wpe'
+        },
+        'layer_prefix': 'h.',
+        'attention': {
+            'input_norm': 'ln_1',
+            'qkv': 'attn.c_attn',
+            'q': 'attn.q_proj',
+            'k': 'attn.k_proj',
+            'v': 'attn.v_proj',
+            'o': 'attn.c_proj',
+            'output_norm': 'post_attention_layernorm'
+        },
+        'mlp': {
+            'input_norm': 'ln_2',
+            'gate': 'mlp.gate_proj',
+            'up': 'mlp.c_fc',
+            'down': 'mlp.c_proj',
+            'gate_up': 'mlp.gate_up_proj',
+            'output_norm': 'post_feedforward_layernorm',
+        },
+        'lm_head': {
+            'input_norm': 'model.norm',
+            'lm': 'lm_head'
+        }
+    }
+
+    builder.build_graph(ids_shape, WeightMap)
+    builder.add_kv_cache(context_length, past_sequence)
+    builder.save_graph('gpt2.onnx')
+    builder.graph.valid_shape = True
+    builder.graph.profile()
+    builder.graph.print_node_map()
+
+
 if __name__ == '__main__':
-    # export_with_pytorch_weight_name()
-    # add_hugging_face_model()
-    # build_onnx_models()
-    # profile_models()
+    export_with_pytorch_weight_name()
+    add_hugging_face_model()
+    build_onnx_models()
+    profile_models()
     add_kv_cache()
+    gpt2_kv_cache()

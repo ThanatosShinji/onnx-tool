@@ -82,6 +82,11 @@ class Builder():
             if k == 'activation_function':
                 newk = 'hidden_act'
             setattr(self, newk, newv)
+        if kwargs['architectures'][0] == 'GPT2LMHeadModel':
+            if not hasattr(self, 'intermediate_size'):
+                setattr(self, 'intermediate_size', self.hidden_size * 4)
+            if not hasattr(self, 'n_positions'):
+                setattr(self, 'n_positions', 1024)
         if ArchMap.__contains__(self.architectures[0]):
             self.arch_config = ArchMap[self.architectures[0]]
         else:
@@ -97,9 +102,9 @@ class Builder():
         self.head_size = self.hidden_size // self.num_attention_heads
         self.hidden_kv_size = self.head_size * self.num_key_value_heads
 
-    def add_embedding(self, inp, name):
+    def add_embedding(self, inp, insize, name):
         emd = create_node(TmpNodeProto(name, 'Gather', {'axis': 0}))
-        w = create_tensor(name + '.weight', STATIC_TENSOR, [self.vocab_size, self.hidden_size],
+        w = create_tensor(name + '.weight', STATIC_TENSOR, [insize, self.hidden_size],
                           numpy.float32)
         self.graph.initials.append(w.name)
         emd.input = [w.name, inp.name]
@@ -284,8 +289,9 @@ class Builder():
             cur = inp
             cur = self.add_layernorm(cur, self.layer_prefix + self.w_map['attention']['input_norm'])
             q, k, v = self.add_qkv(cur)
-            q = self.add_rope(q, self.layer_prefix + 'rope_q')
-            k = self.add_rope(k, self.layer_prefix + 'rope_k')
+            if self.arch_config.get('qk_rope', True):
+                q = self.add_rope(q, self.layer_prefix + 'rope_q')
+                k = self.add_rope(k, self.layer_prefix + 'rope_k')
             cur = self.add_mha([q, k, v], self.layer_prefix + 'mha')
             cur = self.add_mm(cur, self.hidden_size, self.hidden_size, self.arch_config['o_bias'],
                               self.layer_prefix + self.w_map['attention']['o'])
@@ -379,7 +385,15 @@ class Builder():
         ids = create_tensor('ids', DYNAMIC_TENSOR, [self.batch, self.seq_len], numpy.int64)
         self.graph.input.append('ids')
         self.graph.tensormap[ids.name] = ids
-        cur = self.add_embedding(ids, self.w_map['embedding']['embed'])
+
+        cur = self.add_embedding(ids, self.vocab_size, self.w_map['embedding']['embed'])
+        if self.arch_config.get('pos_embedding', False):
+            pos = create_tensor('position', DYNAMIC_TENSOR, [self.batch, self.seq_len], numpy.int64)
+            self.graph.input.append('position')
+            self.graph.tensormap[pos.name] = pos
+            pos_out = self.add_embedding(pos, self.n_positions, self.w_map['embedding']['pos'])
+            cur = self.add_eltop(pos_out, cur, 'Add', 'embedding_pos_add')
+
         cur = self.add_layers(cur)
         cur = self.add_lm_head(cur)
         if getattr(self, 'final_logit_softcapping', None) is not None:
@@ -392,7 +406,8 @@ class Builder():
         self.graph.input.append('n_past')
         self.graph.tensormap[t_n_past.name] = t_n_past
         self.kv_params = self.batch * (self.seq_len + n_past) * self.hidden_kv_size * 2 * self.num_hidden_layers
-        kv_cache = create_tensor('kv_cache', DYNAMIC_TENSOR, [self.batch, n_context, self.hidden_kv_size],
+        kv_cache = create_tensor('kv_cache', DYNAMIC_TENSOR,
+                                 [self.batch, self.num_hidden_layers, n_context, self.hidden_kv_size],
                                  numpy.float32)
         self.graph.input.append('kv_cache')
         self.graph.tensormap[kv_cache.name] = kv_cache
@@ -820,4 +835,49 @@ yi_34B = {
     "transformers_version": "4.40.0",
     "use_cache": false,
     "vocab_size": 64000
+}
+
+gpt2 = {
+    "activation_function": "gelu_new",
+    "architectures": [
+        "GPT2LMHeadModel"
+    ],
+    "attn_pdrop": 0.1,
+    "bos_token_id": 50256,
+    "embd_pdrop": 0.1,
+    "eos_token_id": 50256,
+    "initializer_range": 0.02,
+    "layer_norm_epsilon": 1e-05,
+    "model_type": "gpt2",
+    "n_ctx": 1024,
+    "n_embd": 768,
+    "n_head": 12,
+    "n_layer": 12,
+    "n_positions": 1024,
+    "resid_pdrop": 0.1,
+    "summary_activation": null,
+    "summary_first_dropout": 0.1,
+    "summary_proj_to_labels": true,
+    "summary_type": "cls_index",
+    "summary_use_proj": true,
+    "task_specific_params": {
+        "text-generation": {
+            "do_sample": true,
+            "max_length": 50
+        }
+    },
+    "vocab_size": 50257
+}
+
+ArchMap['GPT2LMHeadModel'] = {
+    "mlp_gate": False,
+    "norm_scale": True,
+    "norm_bias": True,
+    "fuse_qkv": True,
+    "qkv_bias": True,
+    "o_bias": True,
+    "mlp_bias": True,
+    "lm_head_bias": False,
+    'qk_rope': False,
+    'pos_embedding': True
 }

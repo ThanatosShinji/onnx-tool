@@ -2558,7 +2558,7 @@ class MHANode(Node):
             t_n_past = intensors[3]
             t_kv_cache = intensors[4]
             max_past = t_n_past.numpy.max()
-            n_conxt = t_kv_cache.get_shape()[1]
+            n_conxt = t_kv_cache.get_shape()[2]
             assert (max_past + seq <= n_conxt)
             seq_all = max_past + seq
             QK = bs * self.head_num * seq * seq_all * self.head_size

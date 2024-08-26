@@ -1,3 +1,5 @@
+import numpy
+
 from .graph import Graph
 from .node import *
 from .node import _max_shape
@@ -200,6 +202,7 @@ class Builder():
     def add_mha(self, inps, name):
         attrs = {'head_num': self.num_attention_heads, "head_size": self.head_size,
                  "kv_head_num": self.num_key_value_heads}
+        attrs['layer_i'] = self.layer_i
         if getattr(self, 'attn_logit_softcapping', None) is not None:
             attrs['attn_logit_softcapping'] = self.attn_logit_softcapping
         nod = create_node(TmpNodeProto(name, 'MHA', attrs))
@@ -382,6 +385,21 @@ class Builder():
         if getattr(self, 'final_logit_softcapping', None) is not None:
             cur = self.add_softcapping(cur, self.final_logit_softcapping, 'models.final_logit_softcapping')
         self.graph.output.append(cur.name)
+
+    def add_kv_cache(self, n_context, n_past):
+        t_n_past = create_tensor('n_past', DYNAMIC_TENSOR, [self.batch], numpy.int64)
+        t_n_past.update_tensor(numpy.array(n_past, dtype=numpy.int64))
+        self.graph.input.append('n_past')
+        self.graph.tensormap[t_n_past.name] = t_n_past
+        self.kv_params = self.batch * (self.seq_len + n_past) * self.hidden_kv_size * 2 * self.num_hidden_layers
+        kv_cache = create_tensor('kv_cache', DYNAMIC_TENSOR, [self.batch, n_context, self.hidden_kv_size],
+                                 numpy.float32)
+        self.graph.input.append('kv_cache')
+        self.graph.tensormap[kv_cache.name] = kv_cache
+        for n in self.graph.nodemap:
+            if self.graph.nodemap[n].op_type == 'MHA':
+                self.graph.nodemap[n].input.append('n_past')
+                self.graph.nodemap[n].input.append('kv_cache')
 
     def save_graph(self, path):
         self.graph.graph_reorder_nodes()

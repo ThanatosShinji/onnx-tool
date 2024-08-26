@@ -487,6 +487,7 @@ class TanhNode(PWNode):
         result = numpy.tanh(intensors[0].get_numpy())
         outtensors[0].update_tensor(result)
 
+
 @NODE_REGISTRY.register()
 class LogSoftmaxNode(PWNode):
     def __init__(self, n):
@@ -679,18 +680,19 @@ class LessNode(Node):
         return [volume(outtensors[0].get_shape()) * CMP_MACS, 0]
 
 
-
 @NODE_REGISTRY.register()
 class LessOrEqualNode(LessNode):
     def value_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
         result = numpy.less_equal(intensors[0].get_numpy(), intensors[1].get_numpy())
         outtensors[0].update_tensor(result)
 
+
 @NODE_REGISTRY.register()
 class RoundNode(LessNode):
     def value_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
         result = numpy.round(intensors[0].get_numpy())
         outtensors[0].update_tensor(result)
+
 
 @NODE_REGISTRY.register()
 class NotNode(LessNode):
@@ -2552,9 +2554,20 @@ class MHANode(Node):
         q_shape = Q.get_shape()
         bs = q_shape[0]
         seq = q_shape[1]
-        QK = bs * self.head_num * seq * seq * self.head_size
-        QK_softmax = bs * self.head_num * seq * seq * (EXP_MACS + DIV_MACS)
-        QK_V = bs * self.head_num * seq * self.head_size * seq
+        if len(intensors) >= 5:  # with KV cache
+            t_n_past = intensors[3]
+            t_kv_cache = intensors[4]
+            max_past = t_n_past.numpy.max()
+            n_conxt = t_kv_cache.get_shape()[1]
+            assert (max_past + seq <= n_conxt)
+            seq_all = max_past + seq
+            QK = bs * self.head_num * seq * seq_all * self.head_size
+            QK_softmax = bs * self.head_num * seq * seq_all * (EXP_MACS + DIV_MACS)
+            QK_V = bs * self.head_num * seq * self.head_size * seq_all
+        else:
+            QK = bs * self.head_num * seq * seq * self.head_size
+            QK_softmax = bs * self.head_num * seq * seq * (EXP_MACS + DIV_MACS)
+            QK_V = bs * self.head_num * seq * self.head_size * seq
         return [QK + QK_softmax + QK_V, 0]
 
 

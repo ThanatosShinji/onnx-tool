@@ -191,7 +191,7 @@ def profile_models():
         builder.build_graph(ids_shape)
         builder.graph.valid_shape = True
         builder.graph.profile()
-        row = [builder.name, int(builder.graph.macs[0]/1e9), builder.graph.params/1e9, builder.kv_params/1e9]
+        row = [builder.name, int(builder.graph.macs[0] / 1e9), builder.graph.params / 1e9, builder.kv_params / 1e9]
         rows.append(row)
     print(tabulate.tabulate(rows, headers=header))
 
@@ -218,8 +218,24 @@ def profile_models():
     print(tabulate.tabulate(rows, headers=header))
 
 
+def add_kv_cache():
+    bs = 1
+    seq_len = 128
+    ids_shape = [bs, seq_len]
+    past_sequence = 1024  # past length of KV cache
+    context_length = 8096  # total length of KV cache
+    builder = Builder(**Llama3_8B)
+    builder.build_graph(ids_shape)
+    builder.add_kv_cache(context_length, past_sequence)
+    builder.save_graph('Llama3_8B.onnx')
+    builder.graph.valid_shape = True
+    builder.graph.profile()
+    builder.graph.print_node_map()
+
+
 if __name__ == '__main__':
-    export_with_pytorch_weight_name()
+    # export_with_pytorch_weight_name()
     # add_hugging_face_model()
     # build_onnx_models()
     # profile_models()
+    add_kv_cache()

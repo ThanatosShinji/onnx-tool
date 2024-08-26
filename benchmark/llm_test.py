@@ -7,10 +7,11 @@ def export_with_pytorch_weight_name():
     bs = 1
     seq_len = 1024
     ids_shape = [bs, seq_len]
-    builder = Builder(**QWen_7B)
+    builder = Builder(**phi3_mini)
     builder.build_graph(ids_shape, WeightMap)
     for name in builder.graph.initials:
         print(name)
+    builder.save_graph('phi3.onnx')
     # each name response the same tensor in this file:
     # https://huggingface.co/microsoft/Phi-3-mini-128k-instruct/blob/main/model.safetensors.index.json
 
@@ -218,7 +219,7 @@ def profile_models():
 
 
 if __name__ == '__main__':
-    # export_with_pytorch_weight_name()
+    export_with_pytorch_weight_name()
     # add_hugging_face_model()
     # build_onnx_models()
-    profile_models()
+    # profile_models()

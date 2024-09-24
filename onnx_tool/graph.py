@@ -8,7 +8,7 @@ import onnx
 from .node import create_node
 from .tensor import STATIC_TENSOR, DYNAMIC_TENSOR
 from .tensor import get_attribute_data, Tensor, volume
-from .utils import VERSION, tuple2str, ModelConfig
+from .utils import VERSION, tuple2str, ModelConfig, print_table, num2str
 
 
 def __shape_of_initializer__(initial):
@@ -1423,14 +1423,11 @@ class Graph():
         if not self.valid_profile:
             warnings.warn('Please perform a valid profile() before print_node_map().')
             return
-        from tabulate import tabulate
         assert (metric in ['MACs', 'FLOPs'])
         print_sparse_table = self.sparse_model
-        saveformat = 'txt'
         splitch = 'x'
 
         if f is not None and '.csv' in f:
-            saveformat = 'csv'
             csvformat = True
         else:
             csvformat = False
@@ -1467,12 +1464,6 @@ class Graph():
         factor = 1
         if metric == 'FLOPs':
             factor = 2
-
-        def num2str(num, csv=False):
-            if csv:
-                return '{}'.format(num)
-            else:
-                return '{:,}'.format(num)
 
         params += 1e-18
         forward_macs += 1e-18
@@ -1532,27 +1523,4 @@ class Graph():
             ['Memory', 'MPercent', 'Params',
              'PPercent', 'InShape',
              'OutShape'])
-
-        if f is None:
-            print(tabulate(ptable, headers=header))
-        else:
-            fp = open(f, 'w')
-            if saveformat == 'csv':
-                headerstr = ''
-                for i, item in enumerate(header):
-                    headerstr += item
-                    if i < len(header) - 1:
-                        headerstr += ','
-                headerstr += '\n'
-                fp.write(headerstr)
-                for row in ptable:
-                    str = ''
-                    for i, ele in enumerate(row):
-                        str += ele
-                        if i != len(row) - 1:
-                            str += ','
-                    str += '\n'
-                    fp.write(str)
-            else:
-                fp.write(tabulate(ptable, headers=header))
-            fp.close()
+        print_table(ptable,header,f)

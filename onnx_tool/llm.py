@@ -81,6 +81,8 @@ class Builder():
                 newk = 'intermediate_size'
             if k == 'activation_function':
                 newk = 'hidden_act'
+            if k == '_name_or_path':
+                newk = 'name'
             setattr(self, newk, newv)
         if kwargs['architectures'][0] == 'GPT2LMHeadModel':
             if not hasattr(self, 'intermediate_size'):
@@ -101,6 +103,11 @@ class Builder():
         self.tensor_count = 0
         self.head_size = self.hidden_size // self.num_attention_heads
         self.hidden_kv_size = self.head_size * self.num_key_value_heads
+
+    def get_filename(self):
+        name = self.name
+        name = name.replace('/','_')
+        return name
 
     def add_embedding(self, inp, insize, name):
         emd = create_node(TmpNodeProto(name, 'Gather', {'axis': 0}))
@@ -329,7 +336,7 @@ class Builder():
         }
     }
 
-    def profile(self, Config: {} = None, Device: {} = None, f=None):
+    def profile(self, Config: {} = None, Device: {} = None):
         self.graph.valid_shape = True
         self.graph.profile()
         cfg = Config if Config is not None else self.DefaultCfg
@@ -338,11 +345,10 @@ class Builder():
             c_mha = Device.get(cfg['Compute']['MHA'], Device['FP32']) * 1e6
             c_others = Device.get(cfg['Compute']['Others'], Device['FP32'])* 1e6
             mw = Device.get('Bandwidth') * 1e6
-        self.graph.Devices = Device
+        self.graph.Device = Device
         sum = [0, 0, 0]
         for n in self.graph.nodemap.keys():
             node = self.graph.nodemap[n]
-
             flops = node.macs[0] * 2
             mem = 0
             c_latency = 0
@@ -391,18 +397,10 @@ class Builder():
         self.graph.llm_profile = sum
 
     def print_profile(self, f=None):
-        from .utils import tuple2str
-        from tabulate import tabulate
-        def num2str(num, csv=False):
-            if csv:
-                return '{}'.format(num)
-            else:
-                return '{:,}'.format(num)
+        from .utils import tuple2str, print_table, num2str
 
         metric = 'FLOPs'
         splitch = 'x'
-        saveformat = 'csv'
-
         if f is not None and '.csv' in f:
             csvformat = True
         else:
@@ -424,7 +422,7 @@ class Builder():
         row = ['Total', '_']
         row.append(num2str(self.graph.llm_profile[0], csvformat))
         row.append(num2str(self.graph.llm_profile[1], csvformat))
-        if self.graph.Devices is not None:
+        if self.graph.Device is not None:
             row.append(num2str(self.graph.llm_profile[2], csvformat))
             row.append('_')
         row.append('_')
@@ -433,35 +431,13 @@ class Builder():
         header = ['Name', 'Type']
         header.extend(
             ['Forward_' + metric, 'Memory Bytes'])
-        if self.graph.Devices is not None:
+        if self.graph.Device is not None:
             header.extend(['Latency(ms)', 'Bottleneck'])
         header.extend(
             ['InShape',
              'OutShape'])
+        print_table(ptable,header,f)
 
-        if f is None:
-            print(tabulate(ptable, headers=header))
-        else:
-            fp = open(f, 'w')
-            if saveformat == 'csv':
-                headerstr = ''
-                for i, item in enumerate(header):
-                    headerstr += item
-                    if i < len(header) - 1:
-                        headerstr += ','
-                headerstr += '\n'
-                fp.write(headerstr)
-                for row in ptable:
-                    str = ''
-                    for i, ele in enumerate(row):
-                        str += ele
-                        if i != len(row) - 1:
-                            str += ','
-                    str += '\n'
-                    fp.write(str)
-            else:
-                fp.write(tabulate(ptable, headers=header))
-            fp.close()
 
     def build_graph(self, ids_shape: List, weight_map: {} = None):
         self.batch, self.seq_len = ids_shape
@@ -966,3 +942,29 @@ ArchMap['GPT2LMHeadModel'] = {
     'qk_rope': False,
     'pos_embedding': True
 }
+
+llama2_7b={
+      "_name_or_path": "meta-llama/Llama-2-7b-chat-hf",
+      "architectures": [
+        "LlamaForCausalLM"
+      ],
+      "bos_token_id": 1,
+      "eos_token_id": 2,
+      "hidden_act": "silu",
+      "hidden_size": 4096,
+      "initializer_range": 0.02,
+      "intermediate_size": 11008,
+      "max_position_embeddings": 4096,
+      "model_type": "llama",
+      "num_attention_heads": 32,
+      "num_hidden_layers": 32,
+      "num_key_value_heads": 32,
+      "pretraining_tp": 1,
+      "rms_norm_eps": 1e-06,
+      "rope_scaling": null,
+      "tie_word_embeddings": false,
+      "torch_dtype": "float16",
+      "transformers_version": "4.32.0.dev0",
+      "use_cache": true,
+      "vocab_size": 32000
+    }

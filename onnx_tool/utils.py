@@ -37,6 +37,41 @@ def tuple2str(t: tuple, splitch=','):
             s += splitch
     return s
 
+def num2str(num, csv=False):
+    if csv:
+        return '{}'.format(num)
+    else:
+        return '{:,}'.format(num)
+
+def print_table(ptable, header, f):
+    import tabulate
+    saveformat = 'txt'
+    if f is not None and '.csv' in f:
+        saveformat = 'csv'
+
+    if f is None:
+        print(tabulate(ptable, headers=header))
+    else:
+        fp = open(f, 'w')
+        if saveformat == 'csv':
+            headerstr = ''
+            for i, item in enumerate(header):
+                headerstr += item
+                if i < len(header) - 1:
+                    headerstr += ','
+            headerstr += '\n'
+            fp.write(headerstr)
+            for row in ptable:
+                str = ''
+                for i, ele in enumerate(row):
+                    str += ele
+                    if i != len(row) - 1:
+                        str += ','
+                str += '\n'
+                fp.write(str)
+        else:
+            fp.write(tabulate(ptable, headers=header))
+        fp.close()
 
 # modify from https://github.com/XPixelGroup/BasicSR/blob/master/basicsr/utils/registry.py # noqa: E501
 class Registry():

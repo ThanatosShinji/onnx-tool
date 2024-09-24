@@ -329,54 +329,139 @@ class Builder():
         }
     }
 
-    def profile(self, Config: {} = None, Device: {} = None):
+    def profile(self, Config: {} = None, Device: {} = None, f=None):
         self.graph.valid_shape = True
         self.graph.profile()
         cfg = Config if Config is not None else self.DefaultCfg
-        MM_MACs = 0
-        MHA_MACs = 0
-        Other_MACs = 0
-        MM_weight_mem = 0
-        MHA_KV_mem = 0
-        Act_mm = 0
+        if Device is not None:
+            c_mm = Device.get(cfg['Compute']['MM'], Device['FP32']) * 1e6
+            c_mha = Device.get(cfg['Compute']['MHA'], Device['FP32']) * 1e6
+            c_others = Device.get(cfg['Compute']['Others'], Device['FP32'])* 1e6
+            mw = Device.get('Bandwidth') * 1e6
+        self.graph.Devices = Device
+        sum = [0, 0, 0]
         for n in self.graph.nodemap.keys():
             node = self.graph.nodemap[n]
-            if node.op_type == 'MatMul':
-                MM_MACs += node.macs[0]
-                Act_mm += volume(self.graph.tensormap[node.input[0]].get_shape())
-                Act_mm += volume(self.graph.tensormap[node.output[0]].get_shape())
-                MM_weight_mem += volume(self.graph.tensormap[node.input[1]].get_shape())
-            elif node.op_type == 'MHA':
-                Act_mm += volume(self.graph.tensormap[node.input[0]].get_shape())
-                Act_mm += volume(self.graph.tensormap[node.output[0]].get_shape())
-                MHA_KV_mem += volume(self.graph.tensormap[node.input[1]].get_shape())
-                MHA_KV_mem += volume(self.graph.tensormap[node.input[2]].get_shape())
-                MHA_MACs += node.macs[0]
-            else:
-                for inp in node.input:
-                    Act_mm += volume(self.graph.tensormap[inp].get_shape())
-                Act_mm += volume(self.graph.tensormap[node.output[0]].get_shape())
-                Other_MACs += node.macs[0]
 
-        self.MACs = [MM_MACs, MHA_MACs, Other_MACs]
-        self.MemNum = [MM_weight_mem, MHA_KV_mem, Act_mm]
-        self.MemSizes = [self.MemNum[0] * cfg['Bits']['MM'] / 8, self.MemNum[1] * cfg['Bits']['MHA'] / 8,
-                         self.MemNum[2] * cfg['Bits']['Others'] / 8]
-        self.MemSizes.append(self.MemSizes[0] + self.MemSizes[1])
-        if Device is not None:
-            cc = Device.get(cfg['Compute']['MM'], Device['FP32'])
-            t_mm = self.MACs[0] * 2 / cc / 1e9
-            cc = Device.get(cfg['Compute']['MHA'], Device['FP32'])
-            t_mha = self.MACs[1] * 2 / cc / 1e9
-            cc = Device.get(cfg['Compute']['Others'], Device['FP32'])
-            t_others = self.MACs[2] * 2 / cc / 1e9
-            self.ctimes = [t_mm, t_mha, t_others, t_mm + t_mha + t_others]
-            mem_speed = Device['Bandwidth']
-            self.ltimes = [self.MemSizes[0] / mem_speed / 1e9, self.MemSizes[1] / mem_speed / 1e9,
-                           self.MemSizes[2] / mem_speed / 1e9]
-            self.ltimes.append(self.ltimes[0] + self.ltimes[1] + self.ltimes[2])
-            self.first_latency = self.ctimes[3] + self.ltimes[3]
-            self.next_latency = self.ltimes[0] + self.ltimes[1]
+            flops = node.macs[0] * 2
+            mem = 0
+            c_latency = 0
+            l_latency = 0
+            if node.op_type == 'MatMul':
+                mem += volume(self.graph.tensormap[node.input[0]].get_shape())
+                mem += volume(self.graph.tensormap[node.output[0]].get_shape())
+                mem = mem * cfg['Bits']['Others'] / 8
+                mem += volume(self.graph.tensormap[node.input[1]].get_shape()) * cfg['Bits']['MM'] / 8
+                if Device is not None:
+                    c_latency = flops / c_mm
+                    l_latency = mem / mw
+            elif node.op_type == 'MHA':
+                mem += volume(self.graph.tensormap[node.input[0]].get_shape())
+                mem += volume(self.graph.tensormap[node.output[0]].get_shape())
+                mem = mem * cfg['Bits']['Others'] / 8
+                mem += volume(self.graph.tensormap[node.input[1]].get_shape()) * cfg['Bits']['MHA'] / 8
+                mem += volume(self.graph.tensormap[node.input[2]].get_shape()) * cfg['Bits']['MHA'] / 8
+                if Device is not None:
+                    c_latency = flops / c_mha
+                    l_latency = mem / mw
+            else:
+                if node.op_type == 'Gather':
+                    mem = 0
+                else:
+                    for inp in node.input:
+                        mem += volume(self.graph.tensormap[inp].get_shape())
+                mem += volume(self.graph.tensormap[node.output[0]].get_shape())
+                mem = mem * cfg['Bits']['Others'] / 8
+                if Device is not None:
+                    c_latency = flops / c_others
+                    l_latency = mem / mw
+            sum[0] += flops
+            sum[1] += mem
+            llm_profile = {}
+            llm_profile['FLOPs']=flops
+            llm_profile['Memory']=mem
+            llm_profile['Device']=None
+            if Device is not None:
+                n_latency = max(c_latency, l_latency)
+                bottle = 'Compute' if c_latency > l_latency else 'Memory'
+                sum[2] += n_latency
+                llm_profile['Device'] = {'latency':[c_latency, l_latency, n_latency],'Bottleneck':bottle}
+            node.llm_profile = llm_profile
+
+        self.graph.llm_profile = sum
+
+    def print_profile(self, f=None):
+        from .utils import tuple2str
+        from tabulate import tabulate
+        def num2str(num, csv=False):
+            if csv:
+                return '{}'.format(num)
+            else:
+                return '{:,}'.format(num)
+
+        metric = 'FLOPs'
+        splitch = 'x'
+        saveformat = 'csv'
+
+        if f is not None and '.csv' in f:
+            csvformat = True
+        else:
+            csvformat = False
+        ptable = []
+        for n in self.graph.nodemap.keys():
+            node = self.graph.nodemap[n]
+            row = [n, node.op_type]
+            row.append(num2str(int(node.llm_profile['FLOPs']), csvformat))
+            row.append(num2str(int(node.llm_profile['Memory']), csvformat))
+            Device = node.llm_profile['Device']
+            if Device is not None:
+                row.append('{:.5f}'.format(Device['latency'][2]))
+                row.append(Device['Bottleneck'])
+            row.append(tuple2str(node.inshape, splitch))
+            row.append(tuple2str(node.outshape, splitch))
+            ptable.append(row)
+
+        row = ['Total', '_']
+        row.append(num2str(self.graph.llm_profile[0], csvformat))
+        row.append(num2str(self.graph.llm_profile[1], csvformat))
+        if self.graph.Devices is not None:
+            row.append(num2str(self.graph.llm_profile[2], csvformat))
+            row.append('_')
+        row.append('_')
+        row.append('_')
+        ptable.append(row)
+        header = ['Name', 'Type']
+        header.extend(
+            ['Forward_' + metric, 'Memory Bytes'])
+        if self.graph.Devices is not None:
+            header.extend(['Latency(ms)', 'Bottleneck'])
+        header.extend(
+            ['InShape',
+             'OutShape'])
+
+        if f is None:
+            print(tabulate(ptable, headers=header))
+        else:
+            fp = open(f, 'w')
+            if saveformat == 'csv':
+                headerstr = ''
+                for i, item in enumerate(header):
+                    headerstr += item
+                    if i < len(header) - 1:
+                        headerstr += ','
+                headerstr += '\n'
+                fp.write(headerstr)
+                for row in ptable:
+                    str = ''
+                    for i, ele in enumerate(row):
+                        str += ele
+                        if i != len(row) - 1:
+                            str += ','
+                    str += '\n'
+                    fp.write(str)
+            else:
+                fp.write(tabulate(ptable, headers=header))
+            fp.close()
 
     def build_graph(self, ids_shape: List, weight_map: {} = None):
         self.batch, self.seq_len = ids_shape

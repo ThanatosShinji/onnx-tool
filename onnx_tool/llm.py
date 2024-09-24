@@ -4,7 +4,7 @@ from .graph import Graph
 from .node import *
 from .node import _max_shape
 from .tensor import *
-from .utils import ModelConfig
+from .utils import ModelConfig, tuple2str, print_table, num2str
 
 false = False
 true = True
@@ -82,7 +82,7 @@ class Builder():
                 newk = 'intermediate_size'
             if k == 'activation_function':
                 newk = 'hidden_act'
-            if k == '_name_or_path':
+            if k == '_name_or_path' and not hasattr(self, 'name'):
                 newk = 'name'
             setattr(self, newk, newv)
         if kwargs['architectures'][0] == 'GPT2LMHeadModel':
@@ -104,6 +104,7 @@ class Builder():
         self.tensor_count = 0
         self.head_size = self.hidden_size // self.num_attention_heads
         self.hidden_kv_size = self.head_size * self.num_key_value_heads
+        self.device_perf = []
 
     def get_filename(self):
         name = self.name
@@ -346,8 +347,10 @@ class Builder():
             c_mha = Device.get(cfg['Compute']['MHA'], Device['FP32']) * 1e6
             c_others = Device.get(cfg['Compute']['Others'], Device['FP32']) * 1e6
             mw = Device.get('Bandwidth') * 1e6
-        self.graph.Device = Device
         sum = [0, 0, 0]
+        MM_mem = 0
+        Other_mem = 0
+        MHA_mem = 0
         for n in self.graph.nodemap.keys():
             node = self.graph.nodemap[n]
             flops = node.macs[0] * 2
@@ -358,7 +361,9 @@ class Builder():
                 mem += volume(self.graph.tensormap[node.input[0]].get_shape())
                 mem += volume(self.graph.tensormap[node.output[0]].get_shape())
                 mem = mem * cfg['Bits']['Others'] / 8
-                mem += volume(self.graph.tensormap[node.input[1]].get_shape()) * cfg['Bits']['MM'] / 8
+                w_mem = volume(self.graph.tensormap[node.input[1]].get_shape()) * cfg['Bits']['MM'] / 8
+                mem += w_mem
+                MM_mem += w_mem
                 if Device is not None:
                     c_latency = flops / c_mm
                     l_latency = mem / mw
@@ -366,12 +371,18 @@ class Builder():
                 mem += volume(self.graph.tensormap[node.input[0]].get_shape())
                 mem += volume(self.graph.tensormap[node.output[0]].get_shape())
                 mem = mem * cfg['Bits']['Others'] / 8
-                mem += volume(self.graph.tensormap[node.input[1]].get_shape()) * cfg['Bits']['MHA'] / 8
-                mem += volume(self.graph.tensormap[node.input[2]].get_shape()) * cfg['Bits']['MHA'] / 8
+                kv_mem = node.kv_size * cfg['Bits']['MHA'] / 8
+                mem += kv_mem
+                MHA_mem += kv_mem
                 if Device is not None:
                     c_latency = flops / c_mha
                     l_latency = mem / mw
             else:
+                tmp_sum = 0
+                for inp in node.input:
+                    if self.graph.tensormap[inp].type == STATIC_TENSOR:
+                        tmp_sum += volume(self.graph.tensormap[inp].get_shape())
+                Other_mem += tmp_sum * cfg['Bits']['Others'] / 8
                 if node.op_type == 'Gather':
                     mem = 0
                 else:
@@ -384,22 +395,17 @@ class Builder():
                     l_latency = mem / mw
             sum[0] += flops
             sum[1] += mem
-            llm_profile = {}
-            llm_profile['FLOPs'] = flops
-            llm_profile['Memory'] = mem
-            llm_profile['Device'] = None
+            llm_profile = {'FLOPs': flops, 'Memory': mem, 'Device': None}
             if Device is not None:
                 n_latency = max(c_latency, l_latency)
                 bottle = 'Compute' if c_latency > l_latency else 'Memory'
                 sum[2] += n_latency
                 llm_profile['Device'] = {'latency': [c_latency, l_latency, n_latency], 'Bottleneck': bottle}
             node.llm_profile = llm_profile
-
-        self.graph.llm_profile = sum
+        self.llm_profile = sum
+        self.context_mem = [MM_mem, MHA_mem, Other_mem, MM_mem + MHA_mem + Other_mem]
 
     def print_profile(self, f=None):
-        from .utils import tuple2str, print_table, num2str
-
         metric = 'FLOPs'
         splitch = 'x'
         if f is not None and '.csv' in f:
@@ -413,7 +419,7 @@ class Builder():
             row.append(num2str(int(node.llm_profile['FLOPs']), csvformat))
             row.append(num2str(int(node.llm_profile['Memory']), csvformat))
             Device = node.llm_profile['Device']
-            if Device is not None:
+            if self.llm_profile[2] > 0:
                 row.append('{:.5f}'.format(Device['latency'][2]))
                 row.append(Device['Bottleneck'])
             row.append(tuple2str(node.inshape, splitch))
@@ -421,19 +427,19 @@ class Builder():
             ptable.append(row)
 
         row = ['Total', '_']
-        row.append(num2str(self.graph.llm_profile[0], csvformat))
-        row.append(num2str(self.graph.llm_profile[1], csvformat))
-        if self.graph.Device is not None:
-            row.append(num2str(self.graph.llm_profile[2], csvformat))
+        row.append(num2str(self.llm_profile[0], csvformat))
+        row.append(num2str(self.llm_profile[1], csvformat))
+        if self.llm_profile[2] > 0:
+            row.append(num2str(self.llm_profile[2], csvformat))
             row.append('_')
         row.append('_')
         row.append('_')
         ptable.append(row)
         header = ['Name', 'Type']
         header.extend(
-            ['Forward_' + metric, 'Memory Bytes'])
-        if self.graph.Device is not None:
-            header.extend(['Latency(ms)', 'Bottleneck'])
+            [metric, 'Memory(bytes)'])
+        if self.llm_profile[2] > 0:
+            header.extend(['Projected Latency(ms)', 'Bottleneck'])
         header.extend(
             ['InShape',
              'OutShape'])
@@ -460,6 +466,9 @@ class Builder():
         if getattr(self, 'final_logit_softcapping', None) is not None:
             cur = self.add_softcapping(cur, self.final_logit_softcapping, 'models.final_logit_softcapping')
         self.graph.output.append(cur.name)
+
+    def set_past_kv_length(self, n_past):
+        self.graph.tensormap['n_past'].update_tensor(numpy.array(n_past, dtype=numpy.int64))
 
     def add_kv_cache(self, n_context, n_past):
         t_n_past = create_tensor('n_past', DYNAMIC_TENSOR, [self.batch], numpy.int64)

@@ -1,5 +1,6 @@
 import time
 import warnings
+from tabulate import tabulate
 
 VERSION = "0.9.0"
 
@@ -44,7 +45,6 @@ def num2str(num, csv=False):
         return '{:,}'.format(num)
 
 def print_table(ptable, header, f):
-    import tabulate
     saveformat = 'txt'
     if f is not None and '.csv' in f:
         saveformat = 'csv'

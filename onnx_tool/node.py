@@ -2565,10 +2565,13 @@ class MHANode(Node):
             QK = bs * self.head_num * seq * seq_all * self.head_size
             QK_softmax = bs * self.head_num * seq * seq_all * (EXP_MACS + DIV_MACS)
             QK_V = bs * self.head_num * seq * self.head_size * seq_all
+            self.kv_size = bs * self.kv_head_num * seq_all * self.head_size * 2
         else:
             QK = bs * self.head_num * seq * seq * self.head_size
             QK_softmax = bs * self.head_num * seq * seq * (EXP_MACS + DIV_MACS)
             QK_V = bs * self.head_num * seq * self.head_size * seq
+            self.kv_size = bs * self.kv_head_num * seq * self.head_size * 2
+
         return [QK + QK_softmax + QK_V, 0]
 
 

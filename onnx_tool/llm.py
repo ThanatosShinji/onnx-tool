@@ -4,6 +4,7 @@ from .graph import Graph
 from .node import *
 from .node import _max_shape
 from .tensor import *
+from .utils import ModelConfig
 
 false = False
 true = True
@@ -98,7 +99,7 @@ class Builder():
         if hasattr(self, 'attention_bias'):
             self.arch_config['qkv_bias'] = self.attention_bias
             self.arch_config['o_bias'] = self.attention_bias
-        self.graph = Graph(None, None)
+        self.graph = Graph(None, ModelConfig())
         self.node_count = 0
         self.tensor_count = 0
         self.head_size = self.hidden_size // self.num_attention_heads
@@ -106,7 +107,7 @@ class Builder():
 
     def get_filename(self):
         name = self.name
-        name = name.replace('/','_')
+        name = name.replace('/', '_')
         return name
 
     def add_embedding(self, inp, insize, name):
@@ -343,7 +344,7 @@ class Builder():
         if Device is not None:
             c_mm = Device.get(cfg['Compute']['MM'], Device['FP32']) * 1e6
             c_mha = Device.get(cfg['Compute']['MHA'], Device['FP32']) * 1e6
-            c_others = Device.get(cfg['Compute']['Others'], Device['FP32'])* 1e6
+            c_others = Device.get(cfg['Compute']['Others'], Device['FP32']) * 1e6
             mw = Device.get('Bandwidth') * 1e6
         self.graph.Device = Device
         sum = [0, 0, 0]
@@ -384,14 +385,14 @@ class Builder():
             sum[0] += flops
             sum[1] += mem
             llm_profile = {}
-            llm_profile['FLOPs']=flops
-            llm_profile['Memory']=mem
-            llm_profile['Device']=None
+            llm_profile['FLOPs'] = flops
+            llm_profile['Memory'] = mem
+            llm_profile['Device'] = None
             if Device is not None:
                 n_latency = max(c_latency, l_latency)
                 bottle = 'Compute' if c_latency > l_latency else 'Memory'
                 sum[2] += n_latency
-                llm_profile['Device'] = {'latency':[c_latency, l_latency, n_latency],'Bottleneck':bottle}
+                llm_profile['Device'] = {'latency': [c_latency, l_latency, n_latency], 'Bottleneck': bottle}
             node.llm_profile = llm_profile
 
         self.graph.llm_profile = sum
@@ -436,8 +437,7 @@ class Builder():
         header.extend(
             ['InShape',
              'OutShape'])
-        print_table(ptable,header,f)
-
+        print_table(ptable, header, f)
 
     def build_graph(self, ids_shape: List, weight_map: {} = None):
         self.batch, self.seq_len = ids_shape
@@ -468,7 +468,7 @@ class Builder():
         self.graph.tensormap[t_n_past.name] = t_n_past
         self.kv_params = self.batch * (self.seq_len + n_past) * self.hidden_kv_size * 2 * self.num_hidden_layers
         kv_cache = create_tensor('kv_cache', DYNAMIC_TENSOR,
-                                 [self.batch, self.num_hidden_layers, n_context, self.hidden_kv_size],
+                                 [self.batch, self.num_hidden_layers * 2, n_context, self.hidden_kv_size],
                                  numpy.float32)
         self.graph.input.append('kv_cache')
         self.graph.tensormap[kv_cache.name] = kv_cache
@@ -943,28 +943,28 @@ ArchMap['GPT2LMHeadModel'] = {
     'pos_embedding': True
 }
 
-llama2_7b={
-      "_name_or_path": "meta-llama/Llama-2-7b-chat-hf",
-      "architectures": [
+llama2_7b = {
+    "_name_or_path": "meta-llama/Llama-2-7b-chat-hf",
+    "architectures": [
         "LlamaForCausalLM"
-      ],
-      "bos_token_id": 1,
-      "eos_token_id": 2,
-      "hidden_act": "silu",
-      "hidden_size": 4096,
-      "initializer_range": 0.02,
-      "intermediate_size": 11008,
-      "max_position_embeddings": 4096,
-      "model_type": "llama",
-      "num_attention_heads": 32,
-      "num_hidden_layers": 32,
-      "num_key_value_heads": 32,
-      "pretraining_tp": 1,
-      "rms_norm_eps": 1e-06,
-      "rope_scaling": null,
-      "tie_word_embeddings": false,
-      "torch_dtype": "float16",
-      "transformers_version": "4.32.0.dev0",
-      "use_cache": true,
-      "vocab_size": 32000
-    }
+    ],
+    "bos_token_id": 1,
+    "eos_token_id": 2,
+    "hidden_act": "silu",
+    "hidden_size": 4096,
+    "initializer_range": 0.02,
+    "intermediate_size": 11008,
+    "max_position_embeddings": 4096,
+    "model_type": "llama",
+    "num_attention_heads": 32,
+    "num_hidden_layers": 32,
+    "num_key_value_heads": 32,
+    "pretraining_tp": 1,
+    "rms_norm_eps": 1e-06,
+    "rope_scaling": null,
+    "tie_word_embeddings": false,
+    "torch_dtype": "float16",
+    "transformers_version": "4.32.0.dev0",
+    "use_cache": true,
+    "vocab_size": 32000
+}

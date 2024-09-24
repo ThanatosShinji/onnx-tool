@@ -2547,7 +2547,8 @@ class MHANode(Node):
         super().__init__(nodeproto)
 
     def shape_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
-        return [intensors[0].get_shape()]
+        outtensors[0].update_shape(intensors[0].get_shape())
+        outtensors[0].update_dtype(intensors[0].dtype)
 
     def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
         Q = intensors[0]

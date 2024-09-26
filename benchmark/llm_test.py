@@ -199,7 +199,7 @@ def add_kv_cache():
     builder.graph.print_node_map()
 
 
-def model_projection():
+def profile_model_with_devices():
     RuntimeCfg = {
         'Compute': {
             'MM': 'FP16',
@@ -330,7 +330,7 @@ def profile_model():
         model_name = builder.get_filename()
         for key in device_names:
             builder.profile(RuntimeCfg, Devices[key])
-            file = None # print
+            file = None  # print
             # file = f'{model_name}_{key}_prefill.csv' # save file
             builder.print_profile(file)
 
@@ -345,8 +345,60 @@ def profile_model():
             builder.print_profile(file)
 
 
+# generate summary table of these models
+def profile_model_multicards():
+    from onnx_tool.device import Devices
+    RuntimeCfg = {
+        'Compute': {
+            'MM': 'FP16',
+            'MHA': 'FP16',
+            'Others': 'FP16',
+        },
+        'Bits': {
+            'MM': 16,
+            'MHA': 16,
+            'Others': 16,
+        }
+    }
+    bs = 1
+    prefill_length = 1024
+    context_length = 4096
+    ids_shape = [bs, prefill_length]
+    models = [Llama3_8B]
+
+    device_name = 'Gaudi2H'
+    device = {
+        'FP32': 11000,
+        'FP16': 428000, # benchmark number
+        'INT8': 848000, # benchmark number
+        'Bandwidth': 2230, # benchmark number
+        'LinkBandwidth': 525,
+        'Number': 4,
+    }
+
+    for model in models:
+        builder = Builder(**model)
+        # set prefill shape
+        builder.build_graph(ids_shape)
+        builder.add_kv_cache(context_length, 0)
+        builder.graph.valid_shape = True
+        model_name = builder.get_filename()
+        builder.profile(RuntimeCfg, device)
+        file = None  # print
+        # file = f'{model_name}_{device_name}_prefill.csv' # save file
+        builder.print_profile(file)
+
+        # change to decode shape
+        builder.set_past_kv_length(prefill_length)
+        builder.graph.shape_infer(inputs={'ids': create_ndarray_int64([bs, 1])})
+        builder.graph.profile()
+        builder.profile(RuntimeCfg, device)
+        file = None  # print
+        # file = f'{model_name}_{device_name}_decode.csv' # save file
+        builder.print_profile(file)
+
+
 if __name__ == '__main__':
-    model_projection()
     export_with_pytorch_weight_name()
     add_hugging_face_model()
     build_onnx_models()
@@ -354,3 +406,5 @@ if __name__ == '__main__':
     add_kv_cache()
     gpt2_kv_cache()
     profile_model()
+    profile_model_with_devices()
+    profile_model_multicards()

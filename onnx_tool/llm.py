@@ -343,6 +343,8 @@ class Builder():
         self.graph.profile()
         cfg = Config if Config is not None else self.DefaultCfg
         if Device is not None:
+            link_bw = Device.get('LinkBandwidth', 0) * 1e6
+            d_num = 1 if link_bw == 0 else Device.get('Number', 1)
             c_mm = Device.get(cfg['Compute']['MM'], Device['FP32']) * 1e6
             c_mha = Device.get(cfg['Compute']['MHA'], Device['FP32']) * 1e6
             c_others = Device.get(cfg['Compute']['Others'], Device['FP32']) * 1e6
@@ -357,26 +359,29 @@ class Builder():
             mem = 0
             c_latency = 0
             l_latency = 0
+            comm_mem = 0  # TP for MatMul and MHA only, column split
             if node.op_type == 'MatMul':
                 mem += volume(self.graph.tensormap[node.input[0]].get_shape())
                 mem += volume(self.graph.tensormap[node.output[0]].get_shape())
                 mem = mem * cfg['Bits']['Others'] / 8
+                comm_mem += mem
                 w_mem = volume(self.graph.tensormap[node.input[1]].get_shape()) * cfg['Bits']['MM'] / 8
                 mem += w_mem
                 MM_mem += w_mem
                 if Device is not None:
-                    c_latency = flops / c_mm
-                    l_latency = mem / mw
+                    c_latency = flops / c_mm / d_num
+                    l_latency = mem / mw / d_num
             elif node.op_type == 'MHA':
                 mem += volume(self.graph.tensormap[node.input[0]].get_shape())
                 mem += volume(self.graph.tensormap[node.output[0]].get_shape())
                 mem = mem * cfg['Bits']['Others'] / 8
+                comm_mem += mem
                 kv_mem = node.kv_size * cfg['Bits']['MHA'] / 8
                 mem += kv_mem
                 MHA_mem += kv_mem
                 if Device is not None:
-                    c_latency = flops / c_mha
-                    l_latency = mem / mw
+                    c_latency = flops / c_mha / d_num
+                    l_latency = mem / mw / d_num
             else:
                 tmp_sum = 0
                 for inp in node.input:
@@ -397,10 +402,14 @@ class Builder():
             sum[1] += mem
             llm_profile = {'FLOPs': flops, 'Memory': mem, 'Device': None}
             if Device is not None:
-                n_latency = max(c_latency, l_latency)
+                if d_num > 1:
+                    sync_latency = comm_mem / link_bw
+                else:
+                    sync_latency = 0
+                n_latency = max(c_latency, l_latency) + sync_latency
                 bottle = 'Compute' if c_latency > l_latency else 'Memory'
                 sum[2] += n_latency
-                llm_profile['Device'] = {'latency': [c_latency, l_latency, n_latency], 'Bottleneck': bottle}
+                llm_profile['Device'] = {'latency': [c_latency, l_latency, n_latency, sync_latency], 'Bottleneck': bottle}
             node.llm_profile = llm_profile
         self.llm_profile = sum
         self.context_mem = [MM_mem, MHA_mem, Other_mem, MM_mem + MHA_mem + Other_mem]

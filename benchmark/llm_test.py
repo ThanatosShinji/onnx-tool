@@ -1,4 +1,5 @@
 from onnx_tool.llm import *
+import tabulate
 
 
 # Export the model with pytorch tensor names
@@ -164,19 +165,6 @@ def build_onnx_models():
 
 # generate summary table of these models
 def profile_models():
-    import tabulate
-    RuntimeCfg = {
-        'Compute': {
-            'MM': 'INT8',
-            'MHA': 'FP16',
-            'Others': 'FP16',
-        },
-        'Bits': {
-            'MM': 4.5,
-            'MHA': 16,
-            'Others': 32,
-        }
-    }
     bs = 1
     seq_len = 1024
     ids_shape = [bs, seq_len]
@@ -184,7 +172,7 @@ def profile_models():
               llama_31_70B, QWen_7B, Qwen2_72B_Instruct]
 
     # export model profile
-    header = ['model_type', 'MACs(G)', 'Parameters(G)', 'KV Cache(G)']
+    header = ['model_type', 'MACs(G)', 'Parameters(G)', 'KV Cache(G)']  # number not memory bytes
     rows = []
     for model in models:
         builder = Builder(**model)
@@ -193,28 +181,6 @@ def profile_models():
         builder.graph.profile()
         row = [builder.name, int(builder.graph.macs[0] / 1e9), builder.graph.params / 1e9, builder.kv_params / 1e9]
         rows.append(row)
-    print(tabulate.tabulate(rows, headers=header))
-
-    # estimate latencies from hardware specs in onnx_tool.device
-    from onnx_tool.device import Devices
-    header = ['model_type', 'memory_size']
-    rows = []
-    dkeys = Devices.keys()
-    for key in dkeys:
-        header.append(key + '_first_latency')
-        header.append(key + '_next_latency')
-    for model in models:
-        builder = Builder(**model)
-        builder.build_graph(ids_shape)
-        builder.graph.valid_shape = True
-        builder.profile(RuntimeCfg, None)
-        row = [builder.name, builder.MemSizes[3] / 1e9]
-        for key in dkeys:
-            builder.profile(RuntimeCfg, Devices[key])
-            row.append(builder.first_latency)
-            row.append(builder.next_latency)
-        rows.append(row)
-
     print(tabulate.tabulate(rows, headers=header))
 
 
@@ -231,6 +197,61 @@ def add_kv_cache():
     builder.graph.valid_shape = True
     builder.graph.profile()
     builder.graph.print_node_map()
+
+
+def profile_model_with_devices():
+    RuntimeCfg = {
+        'Compute': {
+            'MM': 'FP16',
+            'MHA': 'FP16',
+            'Others': 'FP16',
+        },
+        'Bits': {
+            'MM': 16,
+            'MHA': 16,
+            'Others': 16,
+        }
+    }
+
+    bs = 1
+    prefill_length = 1024
+    context_length = 4096
+
+    models = [gptj_6b, yi_34B, phi2, phi3_mini, Phi_3_small_8k_instruct, Phi_3_medium_4k_instruct, llama2_7b, Llama3_8B,
+              llama_31_70B, QWen_7B, Qwen2_72B_Instruct]
+
+    # estimate latencies from hardware specs in onnx_tool.device
+    from onnx_tool.device import Devices
+    header = ['Model', 'Memory(G bytes)']
+    rows = []
+    device_names = ['Gaudi2H', 'H20']
+    for key in device_names:
+        header.append(key + '_prefill_latency')
+    for key in device_names:
+        header.append(key + '_decode_latency')
+    for model in models:
+        builder = Builder(**model)
+        ids_shape = [bs, prefill_length]
+        builder.build_graph(ids_shape)
+        past_kv_length = 0
+        builder.add_kv_cache(context_length, past_kv_length)
+        builder.graph.valid_shape = True
+        builder.profile(RuntimeCfg, None)
+        row = [builder.name, builder.context_mem[3] / 1e9]
+        for key in device_names:
+            builder.profile(RuntimeCfg, Devices[key])
+            row.append(builder.llm_profile[2])
+
+        # change to decode shape
+        builder.set_past_kv_length(prefill_length)
+        builder.graph.shape_infer(inputs={'ids': create_ndarray_int64([bs, 1])})
+        builder.graph.profile()
+        for key in device_names:
+            builder.profile(RuntimeCfg, Devices[key])
+            row.append(builder.llm_profile[2])
+        rows.append(row)
+
+    print(tabulate.tabulate(rows, headers=header))
 
 
 def gpt2_kv_cache():
@@ -277,6 +298,106 @@ def gpt2_kv_cache():
     builder.graph.print_node_map()
 
 
+# generate summary table of these models
+def profile_model():
+    from onnx_tool.device import Devices
+    RuntimeCfg = {
+        'Compute': {
+            'MM': 'FP16',
+            'MHA': 'FP16',
+            'Others': 'FP16',
+        },
+        'Bits': {
+            'MM': 16,
+            'MHA': 16,
+            'Others': 16,
+        }
+    }
+    bs = 1
+    prefill_length = 1024
+    context_length = 4096
+    ids_shape = [bs, prefill_length]
+    models = [llama2_7b, Llama3_8B]
+
+    device_names = ['Gaudi2H']
+
+    for model in models:
+        builder = Builder(**model)
+        # set prefill shape
+        builder.build_graph(ids_shape)
+        builder.add_kv_cache(context_length, 0)
+        builder.graph.valid_shape = True
+        model_name = builder.get_filename()
+        for key in device_names:
+            builder.profile(RuntimeCfg, Devices[key])
+            file = None  # print
+            # file = f'{model_name}_{key}_prefill.csv' # save file
+            builder.print_profile(file)
+
+        # change to decode shape
+        builder.set_past_kv_length(prefill_length)
+        builder.graph.shape_infer(inputs={'ids': create_ndarray_int64([bs, 1])})
+        builder.graph.profile()
+        for key in device_names:
+            builder.profile(RuntimeCfg, Devices[key])
+            file = None  # print
+            # file = f'{model_name}_{key}_decode.csv' # save file
+            builder.print_profile(file)
+
+
+# generate summary table of these models
+def profile_model_multicards():
+    from onnx_tool.device import Devices
+    RuntimeCfg = {
+        'Compute': {
+            'MM': 'FP16',
+            'MHA': 'FP16',
+            'Others': 'FP16',
+        },
+        'Bits': {
+            'MM': 16,
+            'MHA': 16,
+            'Others': 16,
+        }
+    }
+    bs = 1
+    prefill_length = 1024
+    context_length = 4096
+    ids_shape = [bs, prefill_length]
+    models = [Llama3_8B]
+
+    device_name = 'Gaudi2H'
+    device = {
+        'FP32': 11000,
+        'FP16': 428000, # benchmark number
+        'INT8': 848000, # benchmark number
+        'Bandwidth': 2230, # benchmark number
+        'LinkBandwidth': 525,
+        'Number': 4,
+    }
+
+    for model in models:
+        builder = Builder(**model)
+        # set prefill shape
+        builder.build_graph(ids_shape)
+        builder.add_kv_cache(context_length, 0)
+        builder.graph.valid_shape = True
+        model_name = builder.get_filename()
+        builder.profile(RuntimeCfg, device)
+        file = None  # print
+        # file = f'{model_name}_{device_name}_prefill.csv' # save file
+        builder.print_profile(file)
+
+        # change to decode shape
+        builder.set_past_kv_length(prefill_length)
+        builder.graph.shape_infer(inputs={'ids': create_ndarray_int64([bs, 1])})
+        builder.graph.profile()
+        builder.profile(RuntimeCfg, device)
+        file = None  # print
+        # file = f'{model_name}_{device_name}_decode.csv' # save file
+        builder.print_profile(file)
+
+
 if __name__ == '__main__':
     export_with_pytorch_weight_name()
     add_hugging_face_model()
@@ -284,3 +405,6 @@ if __name__ == '__main__':
     profile_models()
     add_kv_cache()
     gpt2_kv_cache()
+    profile_model()
+    profile_model_with_devices()
+    profile_model_multicards()

@@ -4,6 +4,7 @@ from .graph import Graph
 from .node import *
 from .node import _max_shape
 from .tensor import *
+from .utils import ModelConfig, tuple2str, print_table, num2str
 
 false = False
 true = True
@@ -81,6 +82,8 @@ class Builder():
                 newk = 'intermediate_size'
             if k == 'activation_function':
                 newk = 'hidden_act'
+            if k == '_name_or_path' and not hasattr(self, 'name'):
+                newk = 'name'
             setattr(self, newk, newv)
         if kwargs['architectures'][0] == 'GPT2LMHeadModel':
             if not hasattr(self, 'intermediate_size'):
@@ -96,11 +99,17 @@ class Builder():
         if hasattr(self, 'attention_bias'):
             self.arch_config['qkv_bias'] = self.attention_bias
             self.arch_config['o_bias'] = self.attention_bias
-        self.graph = Graph(None, None)
+        self.graph = Graph(None, ModelConfig())
         self.node_count = 0
         self.tensor_count = 0
         self.head_size = self.hidden_size // self.num_attention_heads
         self.hidden_kv_size = self.head_size * self.num_key_value_heads
+        self.device_perf = []
+
+    def get_filename(self):
+        name = self.name
+        name = name.replace('/', '_')
+        return name
 
     def add_embedding(self, inp, insize, name):
         emd = create_node(TmpNodeProto(name, 'Gather', {'axis': 0}))
@@ -333,50 +342,117 @@ class Builder():
         self.graph.valid_shape = True
         self.graph.profile()
         cfg = Config if Config is not None else self.DefaultCfg
-        MM_MACs = 0
-        MHA_MACs = 0
-        Other_MACs = 0
-        MM_weight_mem = 0
-        MHA_KV_mem = 0
-        Act_mm = 0
+        if Device is not None:
+            link_bw = Device.get('LinkBandwidth', 0) * 1e6
+            d_num = 1 if link_bw == 0 else Device.get('Number', 1)
+            c_mm = Device.get(cfg['Compute']['MM'], Device['FP32']) * 1e6
+            c_mha = Device.get(cfg['Compute']['MHA'], Device['FP32']) * 1e6
+            c_others = Device.get(cfg['Compute']['Others'], Device['FP32']) * 1e6
+            mw = Device.get('Bandwidth') * 1e6
+        sum = [0, 0, 0]
+        MM_mem = 0
+        Other_mem = 0
+        MHA_mem = 0
         for n in self.graph.nodemap.keys():
             node = self.graph.nodemap[n]
+            flops = node.macs[0] * 2
+            mem = 0
+            c_latency = 0
+            l_latency = 0
+            comm_mem = 0  # TP for MatMul and MHA only, column split
             if node.op_type == 'MatMul':
-                MM_MACs += node.macs[0]
-                Act_mm += volume(self.graph.tensormap[node.input[0]].get_shape())
-                Act_mm += volume(self.graph.tensormap[node.output[0]].get_shape())
-                MM_weight_mem += volume(self.graph.tensormap[node.input[1]].get_shape())
+                mem += volume(self.graph.tensormap[node.input[0]].get_shape())
+                mem += volume(self.graph.tensormap[node.output[0]].get_shape())
+                mem = mem * cfg['Bits']['Others'] / 8
+                comm_mem += mem
+                w_mem = volume(self.graph.tensormap[node.input[1]].get_shape()) * cfg['Bits']['MM'] / 8
+                mem += w_mem
+                MM_mem += w_mem
+                if Device is not None:
+                    c_latency = flops / c_mm / d_num
+                    l_latency = mem / mw / d_num
             elif node.op_type == 'MHA':
-                Act_mm += volume(self.graph.tensormap[node.input[0]].get_shape())
-                Act_mm += volume(self.graph.tensormap[node.output[0]].get_shape())
-                MHA_KV_mem += volume(self.graph.tensormap[node.input[1]].get_shape())
-                MHA_KV_mem += volume(self.graph.tensormap[node.input[2]].get_shape())
-                MHA_MACs += node.macs[0]
+                mem += volume(self.graph.tensormap[node.input[0]].get_shape())
+                mem += volume(self.graph.tensormap[node.output[0]].get_shape())
+                mem = mem * cfg['Bits']['Others'] / 8
+                comm_mem += mem
+                kv_mem = node.kv_size * cfg['Bits']['MHA'] / 8
+                mem += kv_mem
+                MHA_mem += kv_mem
+                if Device is not None:
+                    c_latency = flops / c_mha / d_num
+                    l_latency = mem / mw / d_num
             else:
+                tmp_sum = 0
                 for inp in node.input:
-                    Act_mm += volume(self.graph.tensormap[inp].get_shape())
-                Act_mm += volume(self.graph.tensormap[node.output[0]].get_shape())
-                Other_MACs += node.macs[0]
+                    if self.graph.tensormap[inp].type == STATIC_TENSOR:
+                        tmp_sum += volume(self.graph.tensormap[inp].get_shape())
+                Other_mem += tmp_sum * cfg['Bits']['Others'] / 8
+                if node.op_type == 'Gather':
+                    mem = 0
+                else:
+                    for inp in node.input:
+                        mem += volume(self.graph.tensormap[inp].get_shape())
+                mem += volume(self.graph.tensormap[node.output[0]].get_shape())
+                mem = mem * cfg['Bits']['Others'] / 8
+                if Device is not None:
+                    c_latency = flops / c_others
+                    l_latency = mem / mw
+            sum[0] += flops
+            sum[1] += mem
+            llm_profile = {'FLOPs': flops, 'Memory': mem, 'Device': None}
+            if Device is not None:
+                if d_num > 1:
+                    sync_latency = comm_mem / link_bw
+                else:
+                    sync_latency = 0
+                n_latency = max(c_latency, l_latency) + sync_latency
+                bottle = 'Compute' if c_latency > l_latency else 'Memory'
+                sum[2] += n_latency
+                llm_profile['Device'] = {'latency': [c_latency, l_latency, n_latency, sync_latency], 'Bottleneck': bottle}
+            node.llm_profile = llm_profile
+        self.llm_profile = sum
+        self.context_mem = [MM_mem, MHA_mem, Other_mem, MM_mem + MHA_mem + Other_mem]
 
-        self.MACs = [MM_MACs, MHA_MACs, Other_MACs]
-        self.MemNum = [MM_weight_mem, MHA_KV_mem, Act_mm]
-        self.MemSizes = [self.MemNum[0] * cfg['Bits']['MM'] / 8, self.MemNum[1] * cfg['Bits']['MHA'] / 8,
-                         self.MemNum[2] * cfg['Bits']['Others'] / 8]
-        self.MemSizes.append(self.MemSizes[0] + self.MemSizes[1])
-        if Device is not None:
-            cc = Device.get(cfg['Compute']['MM'], Device['FP32'])
-            t_mm = self.MACs[0] * 2 / cc / 1e9
-            cc = Device.get(cfg['Compute']['MHA'], Device['FP32'])
-            t_mha = self.MACs[1] * 2 / cc / 1e9
-            cc = Device.get(cfg['Compute']['Others'], Device['FP32'])
-            t_others = self.MACs[2] * 2 / cc / 1e9
-            self.ctimes = [t_mm, t_mha, t_others, t_mm + t_mha + t_others]
-            mem_speed = Device['Bandwidth']
-            self.ltimes = [self.MemSizes[0] / mem_speed / 1e9, self.MemSizes[1] / mem_speed / 1e9,
-                           self.MemSizes[2] / mem_speed / 1e9]
-            self.ltimes.append(self.ltimes[0] + self.ltimes[1] + self.ltimes[2])
-            self.first_latency = self.ctimes[3] + self.ltimes[3]
-            self.next_latency = self.ltimes[0] + self.ltimes[1]
+    def print_profile(self, f=None):
+        metric = 'FLOPs'
+        splitch = 'x'
+        if f is not None and '.csv' in f:
+            csvformat = True
+        else:
+            csvformat = False
+        ptable = []
+        for n in self.graph.nodemap.keys():
+            node = self.graph.nodemap[n]
+            row = [n, node.op_type]
+            row.append(num2str(int(node.llm_profile['FLOPs']), csvformat))
+            row.append(num2str(int(node.llm_profile['Memory']), csvformat))
+            Device = node.llm_profile['Device']
+            if self.llm_profile[2] > 0:
+                row.append('{:.5f}'.format(Device['latency'][2]))
+                row.append(Device['Bottleneck'])
+            row.append(tuple2str(node.inshape, splitch))
+            row.append(tuple2str(node.outshape, splitch))
+            ptable.append(row)
+
+        row = ['Total', '_']
+        row.append(num2str(self.llm_profile[0], csvformat))
+        row.append(num2str(self.llm_profile[1], csvformat))
+        if self.llm_profile[2] > 0:
+            row.append(num2str(self.llm_profile[2], csvformat))
+            row.append('_')
+        row.append('_')
+        row.append('_')
+        ptable.append(row)
+        header = ['Name', 'Type']
+        header.extend(
+            [metric, 'Memory(bytes)'])
+        if self.llm_profile[2] > 0:
+            header.extend(['Projected Latency(ms)', 'Bottleneck'])
+        header.extend(
+            ['InShape',
+             'OutShape'])
+        print_table(ptable, header, f)
 
     def build_graph(self, ids_shape: List, weight_map: {} = None):
         self.batch, self.seq_len = ids_shape
@@ -400,6 +476,9 @@ class Builder():
             cur = self.add_softcapping(cur, self.final_logit_softcapping, 'models.final_logit_softcapping')
         self.graph.output.append(cur.name)
 
+    def set_past_kv_length(self, n_past):
+        self.graph.tensormap['n_past'].update_tensor(numpy.array(n_past, dtype=numpy.int64))
+
     def add_kv_cache(self, n_context, n_past):
         t_n_past = create_tensor('n_past', DYNAMIC_TENSOR, [self.batch], numpy.int64)
         t_n_past.update_tensor(numpy.array(n_past, dtype=numpy.int64))
@@ -407,7 +486,7 @@ class Builder():
         self.graph.tensormap[t_n_past.name] = t_n_past
         self.kv_params = self.batch * (self.seq_len + n_past) * self.hidden_kv_size * 2 * self.num_hidden_layers
         kv_cache = create_tensor('kv_cache', DYNAMIC_TENSOR,
-                                 [self.batch, self.num_hidden_layers, n_context, self.hidden_kv_size],
+                                 [self.batch, self.num_hidden_layers * 2, n_context, self.hidden_kv_size],
                                  numpy.float32)
         self.graph.input.append('kv_cache')
         self.graph.tensormap[kv_cache.name] = kv_cache
@@ -880,4 +959,30 @@ ArchMap['GPT2LMHeadModel'] = {
     "lm_head_bias": False,
     'qk_rope': False,
     'pos_embedding': True
+}
+
+llama2_7b = {
+    "_name_or_path": "meta-llama/Llama-2-7b-chat-hf",
+    "architectures": [
+        "LlamaForCausalLM"
+    ],
+    "bos_token_id": 1,
+    "eos_token_id": 2,
+    "hidden_act": "silu",
+    "hidden_size": 4096,
+    "initializer_range": 0.02,
+    "intermediate_size": 11008,
+    "max_position_embeddings": 4096,
+    "model_type": "llama",
+    "num_attention_heads": 32,
+    "num_hidden_layers": 32,
+    "num_key_value_heads": 32,
+    "pretraining_tp": 1,
+    "rms_norm_eps": 1e-06,
+    "rope_scaling": null,
+    "tie_word_embeddings": false,
+    "torch_dtype": "float16",
+    "transformers_version": "4.32.0.dev0",
+    "use_cache": true,
+    "vocab_size": 32000
 }

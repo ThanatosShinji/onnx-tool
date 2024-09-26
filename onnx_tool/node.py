@@ -2547,7 +2547,8 @@ class MHANode(Node):
         super().__init__(nodeproto)
 
     def shape_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
-        return [intensors[0].get_shape()]
+        outtensors[0].update_shape(intensors[0].get_shape())
+        outtensors[0].update_dtype(intensors[0].dtype)
 
     def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
         Q = intensors[0]
@@ -2564,10 +2565,13 @@ class MHANode(Node):
             QK = bs * self.head_num * seq * seq_all * self.head_size
             QK_softmax = bs * self.head_num * seq * seq_all * (EXP_MACS + DIV_MACS)
             QK_V = bs * self.head_num * seq * self.head_size * seq_all
+            self.kv_size = bs * self.kv_head_num * seq_all * self.head_size * 2
         else:
             QK = bs * self.head_num * seq * seq * self.head_size
             QK_softmax = bs * self.head_num * seq * seq * (EXP_MACS + DIV_MACS)
             QK_V = bs * self.head_num * seq * self.head_size * seq
+            self.kv_size = bs * self.kv_head_num * seq * self.head_size * 2
+
         return [QK + QK_softmax + QK_V, 0]
 
 

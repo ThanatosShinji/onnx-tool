@@ -1,4 +1,6 @@
-<a href="README_CN.md">简体中文</a>
+<a href="README_CN.md">简体中文</a>  
+_New project_: [AI-Enhancement-Filter](https://github.com/ThanatosShinji/AI-Enhancement-Filter) powered by onnx-tool
+
 # onnx-tool
 
 **A tool for ONNX model:**
@@ -10,7 +12,6 @@
 * *[Quantized models and sparse models](#models) are supported.*
 
 Supported Models:
-
 * NLP: BERT, T5, GPT, LLaMa, MPT([TransformerModel](benchmark/transfomer_models.py))
 * Diffusion: Stable Diffusion(TextEncoder, VAE, UNET)
 * CV: [Detic](https://github.com/ThanatosShinji/onnx-tool/issues/63), [BEVFormer](benchmark/compression.py), [SSD300_VGG16](https://github.com/ThanatosShinji/onnx-tool/issues/66), ...

@@ -2174,6 +2174,11 @@ class GreaterNode(Node):
         outshape = outtensors[0].get_shape()
         return [volume(outshape) * CMP_MACS, 0]
 
+@NODE_REGISTRY.register()
+class GreaterOrEqualNode(GreaterNode):
+    def value_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
+        result = numpy.greater_equal(intensors[0].get_numpy(), intensors[1].get_numpy())
+        outtensors[0].update_tensor(result)
 
 @NODE_REGISTRY.register()
 class DequantizeLinearNode(PWNode):

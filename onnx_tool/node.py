@@ -412,6 +412,13 @@ class InstanceNormalizationNode(PWNode):
 
 
 @NODE_REGISTRY.register()
+class LpNormalizationNode(PWNode):
+    def __init__(self, node_proto):
+        super().__init__(node_proto)
+        self.op_mac = EXP_MACS + ADD_MACS
+
+
+@NODE_REGISTRY.register()
 class SqrtNode(PWNode):
     def __init__(self, node_proto):
         super().__init__(node_proto)

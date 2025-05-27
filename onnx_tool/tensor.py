@@ -50,6 +50,8 @@ def onnxdtype2npdtype(data_type):
         return numpy.int8
     if data_type == onnx.TensorProto.UINT8:
         return numpy.uint8
+    if data_type == onnx.TensorProto.UINT16:
+        return numpy.uint16
     if data_type == onnx.TensorProto.BOOL:
         return numpy.bool_
     if data_type == onnx.TensorProto.STRING:
@@ -77,6 +79,8 @@ def npdtype2onnxdtype(npdtype):
         return onnx.TensorProto.INT8
     if npdtype == numpy.uint8:
         return onnx.TensorProto.UINT8
+    if npdtype == numpy.uint16:
+        return onnx.TensorProto.UINT16
     if npdtype == numpy.bool_:
         return onnx.TensorProto.BOOL
     if npdtype == numpy.bytes_:

@@ -2611,7 +2611,13 @@ class SplitNode(Node):
             if len(intensors) == 2:
                 split = intensors[1].get_numpy()
             else:
-                split = [inshape[self.axis] // 2] * 2
+                if inshape[self.axis] % len(outtensors) == 0:
+                    div = inshape[self.axis] // len(outtensors)
+                    split = [div] * len(outtensors)
+                else:
+                    div = inshape[self.axis] // len(outtensors) + 1
+                    split = [div] * len(outtensors)
+                    split[-1] += inshape[self.axis] - sum(split) 
         else:
             split = self.split
         axis = _axes_neg2pos(len(inshape), [self.axis])[0]
@@ -2640,7 +2646,13 @@ class SplitNode(Node):
             if len(intensors) == 2:
                 split = intensors[1].get_numpy()
             else:
-                split = [inshape[self.axis] // 2]
+                if inshape[self.axis] % len(outtensors) == 0:
+                    div = inshape[self.axis] // len(outtensors)
+                    split = [div] * len(outtensors)
+                else:
+                    div = inshape[self.axis] // len(outtensors) + 1
+                    split = [div] * len(outtensors)
+                    split[-1] += inshape[self.axis] - sum(split) 
         else:
             split = self.split
 

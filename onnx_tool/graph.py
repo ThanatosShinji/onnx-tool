@@ -1358,7 +1358,7 @@ class Graph():
 
         return cg
 
-    def profile(self):
+    def profile(self, exclude_ops = None):
         self.valid_profile = False
         if not self.valid_shape:
             warnings.warn('Please perform a valid shape_infer() before profile().')
@@ -1370,7 +1370,8 @@ class Graph():
         self.macs = [0.0, 0.0]
         self.params = 0
         self.memory = 0
-        for key in self.nodemap.keys():
+        ops_to_cover = {k for k, v in self.nodemap.items() if v.op_type not in exclude_ops}
+        for key in ops_to_cover:
             node = self.nodemap[key]
             itensors = []
             _params = 0
@@ -1468,10 +1469,9 @@ class Graph():
         params += 1e-18
         forward_macs += 1e-18
         backward_macs += 1e-18
-        for key in self.nodemap.keys():
+        ops_to_cover = {k for k, v in self.nodemap.items() if v.op_type not in exclude_ops}
+        for key in ops_to_cover:
             node = self.nodemap[key]
-            if exclude_ops is not None and node.op_type in exclude_ops:
-                continue
             row = [key, self.nodemap[key].op_type]
             if print_sparse_table:
                 sparsity = node.sparsity

@@ -4,6 +4,8 @@ import warnings
 import numpy
 import onnx
 
+from onnx.defs import get_all_schemas
+
 from .graph import Graph
 from .model import Model
 from .node import NODE_REGISTRY, Node
@@ -67,24 +69,29 @@ DefaultFilter = (
 )
 
 # These ops have no computation
-NoMacsOps = (
+NoMacsOps = {
     'Identity', 'Constant', 'Shape', 'Squeeze', 'Unsqueeze', 'Reshape', 'ConstantOfShape', 'Cast', 'Pad', 'Concat',
     'Slice', 'Gather'
-)
+}
 
 
 def model_profile(m, dynamic_shapes: {str: tuple} = None,
-                  hidden_ops: [str] = NoMacsOps, mcfg={'verbose': False}, save_profile: str = None,
+                  exclude_ops = None, hidden_ops: [str] = NoMacsOps, mcfg={'verbose': False}, save_profile: str = None,
                   save_model: str = None, shape_only:bool=False, no_shape:bool=False) -> None:
     model = loadmodel(m, mcfg)
     g = model.graph
     gtmr = timer()
     g.graph_reorder_nodes()
+    if exclude_ops:
+        all_ops = {op.name for op in get_all_schemas()}
+        for item in exclude_ops:
+            assert item in all_ops, f"Provided exclude op is not a valid onnx op: {item}"
+        hidden_ops.update(exclude_ops)
     gtmr.start()
     g.shape_infer(dynamic_shapes)
     g.log(f'infered all tensor shapes, time cost {gtmr.stop():.3f} s')
     gtmr.start()
-    g.profile()
+    g.profile(exclude_ops=hidden_ops)
     g.log(f'profile all nodes, time cost {gtmr.stop():.3f} s')
     g.print_node_map(save_profile, exclude_ops=hidden_ops)
     if save_model is not None:

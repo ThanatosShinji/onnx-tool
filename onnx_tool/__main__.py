@@ -28,6 +28,12 @@ def get_parser():
         help='tensor names as: --names 410 420'
     )
     parser.add_argument(
+        '-e',
+        '--exclude-ops',
+        default=None,
+        help="comma seperated list of onnx op types to exclude when profiling: --exclude-ops QuantizeLinear,DequantizeLinear"
+    )
+    parser.add_argument(
         '-d', '--dynamic_shapes',
         nargs='+',
         default=None,
@@ -90,7 +96,8 @@ if args.mode == 'profile':
         dynamic = __args2dynamicshapes__(args.dynamic_shapes)
     else:
         dynamic = None
-    onnx_tool.model_profile(args.in_, dynamic, save_profile=args.file, save_model=args.out)
+    exclude_ops = set(args.exclude_ops.split(",")) if args.exclude_ops else None
+    onnx_tool.model_profile(args.in_, dynamic, exclude_ops=exclude_ops, save_profile=args.file, save_model=args.out)
 elif args.mode == 'export_tensors':
     onnx_tool.model_export_tensors_numpy(args.in_, tensornames=args.names, savefolder=args.out, fp16=args.fp16)
 elif args.mode == 'constant_folding':

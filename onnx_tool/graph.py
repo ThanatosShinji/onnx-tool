@@ -1370,7 +1370,7 @@ class Graph():
         self.macs = [0.0, 0.0]
         self.params = 0
         self.memory = 0
-        ops_to_cover = {k for k, v in self.nodemap.items() if v.op_type not in exclude_ops}
+        ops_to_cover = {k for k, v in self.nodemap.items() if v.op_type not in exclude_ops} if exclude_ops else self.nodemap.keys()
         for key in ops_to_cover:
             node = self.nodemap[key]
             itensors = []
@@ -1469,7 +1469,7 @@ class Graph():
         params += 1e-18
         forward_macs += 1e-18
         backward_macs += 1e-18
-        ops_to_cover = {k for k, v in self.nodemap.items() if v.op_type not in exclude_ops}
+        ops_to_cover = {k for k, v in self.nodemap.items() if v.op_type not in exclude_ops} if exclude_ops else self.nodemap.keys()
         for key in ops_to_cover:
             node = self.nodemap[key]
             row = [key, self.nodemap[key].op_type]

@@ -383,6 +383,20 @@ class SoftmaxNode(ExpNode):
         result = xexp / numpy.sum(xexp, axis=self.axis, keepdims=True)
         outtensors[0].update_tensor(result)
 
+@NODE_REGISTRY.register()
+class SoftplusNode(ExpNode):
+    def __init__(self, node_proto):
+        super().__init__(node_proto)
+        # Softmax(x) = ln(1 + exp(x))
+        # so one exp, one plus and one log
+        self.op_mac = EXP_MACS + ADD_MACS + LOG_MACS
+        self.ratio = 1
+
+    def value_infer(self, intensors: list[Tensor], outtensors: list[Tensor]):
+        # Can overflow to inf if intensor is too large,
+        # but we don't need precise inference anyway so maybe its good enough.
+        result = numpy.log1p(numpy.exp(intensors[0].get_numpy()))
+        outtensors[0].update_tensor(result)
 
 @NODE_REGISTRY.register()
 class LogNode(PWNode):

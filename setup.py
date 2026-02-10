@@ -3,7 +3,7 @@
 from setuptools import setup, find_packages
 
 readme = open("README.md", encoding="utf-8").read()
-VERSION = "0.9.0"
+VERSION = "1.0.0"
 
 requirements = [
     "onnx",
@@ -18,7 +18,7 @@ setup(
     author="Luo Yu",
     author_email="luoyu888888@gmail.com",
     url="https://github.com/ThanatosShinji/onnx-tool",
-    description="A tool for ONNX model: A parser, editor and profiler tool for ONNX models.",
+    description="A tool for parsing, editing, optimizing, and profiling ONNX models.",
     long_description=readme,
     long_description_content_type="text/markdown",
     license="MIT",

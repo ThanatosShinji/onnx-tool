@@ -1,5 +1,3 @@
-import warnings
-
 import numpy
 import onnx
 
@@ -55,7 +53,7 @@ def onnxdtype2npdtype(data_type):
     if data_type == onnx.TensorProto.BOOL:
         return numpy.bool_
     if data_type == onnx.TensorProto.STRING:
-        return numpy.string_
+        return numpy.bytes_
 
 
 def type_of_tensor(tensor):
@@ -85,7 +83,7 @@ def npdtype2onnxdtype(npdtype):
         return onnx.TensorProto.BOOL
     if npdtype == numpy.bytes_:
         return onnx.TensorProto.STRING
-    if npdtype.type == numpy.string_:
+    if npdtype == numpy.bytes_:
         return onnx.TensorProto.STRING
 
 
@@ -111,8 +109,7 @@ def tensorproto2ndarray(initial):
 
         elif ndtype == numpy.float64:
             arr = numpy.fromiter(initial.double_data, dtype=ndtype)
-
-        elif ndtype == numpy.string_:
+        elif ndtype == numpy.bytes_:
             arr = numpy.array(initial.string_data, dtype=ndtype)
     else:
         arr = numpy.frombuffer(initial.raw_data, dtype=ndtype)
@@ -479,7 +476,7 @@ class Tensor():
         if self.numpy is None:
             dtype = npdtype2onnxdtype(self.dtype)
         else:
-            dtype = npdtype2onnxdtype(self.numpy.dtype)
+            dtype = npdtype2onnxdtype(self.numpy.dtype.type)
         if self.name == '':
             return None
         # shape = [int(i) for i in shape]

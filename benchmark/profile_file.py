@@ -59,15 +59,28 @@ models = [
     #     }
     # },
     {
-        'name': 'data/public/model_custom_vocabulary.onnx',
-        'dynamic_input': None,
-        'mcfg':{
-            'constant_folding':True,
-            'verbose':True,
-            'if_fixed_branch':'else',
-            'fixed_topk':1000,
+      'name': 'silero_vad_16k_op15.onnx',
+        'dynamic_input': {
+            'input':numpy.zeros((1, 512),dtype=numpy.float32)
+        },
+        'mcfg': {
+            'constant_folding': True,
+            'if_fixed_branch': 'else',
         }
-    }
+    },
+    # {
+    #     'name': 'data/public/model_custom_vocabulary.onnx',
+    #     'dynamic_input': {
+    #         'speech': numpy.zeros((1, 100, 560), dtype=numpy.float32),
+    #         'speech_lengths': numpy.array((100,), dtype=numpy.int32)
+    #     },
+    #     'mcfg': {
+    #         'constant_folding': False,
+    #         'verbose': True,
+    #         'if_fixed_branch': 'else',
+    #         'fixed_topk': 1000,
+    #     }
+    # }
     # {
     #     'name': 'data/public/resnet50-v2-7.onnx',
     #     'dynamic_input':

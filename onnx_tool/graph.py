@@ -331,53 +331,58 @@ class Graph():
         self.dynamics = list(self.producedby.keys())
 
     def __remove_if__(self):
-        prekeys = list(self.nodemap.keys())
-        remove_list = []
-        selected_branch = 'else_branch' if self.cfg.if_fixed_branch == 'else' else 'then_branch'
-        for n in prekeys:
-            node = self.nodemap[n]
-            if node.op_type == 'If':
-                # remove condition node chain
-                sub_input = []
-                for node_proto in node.attr[selected_branch].node:
-                    for ipn in node_proto.input:
-                        sub_input.append(ipn)
-                node_list = [node.name]
-                while len(node_list):
-                    remove = True
-                    sname = node_list.pop(0)
-                    snode = self.nodemap[sname]
-                    for ipn in snode.input:
-                        if len(self.consumedby[ipn]) == 1 and ipn not in sub_input:  # consumed by this node
-                            node_list.append(self.producedby[ipn][0])
-                    if remove:
-                        remove_list.append(sname)
-                # add branch node
-                names = []
-                for node_proto in node.attr[selected_branch].node:
-                    self.__add_node_from_proto__(node_proto)
-                    names.append(node_proto.name)
+        while True:
+            prekeys = list(self.nodemap.keys())
+            remove_list = []
+            selected_branch = 'else_branch' if self.cfg.if_fixed_branch == 'else' else 'then_branch'
+            for n in prekeys:
+                node = self.nodemap[n]
+                if node.op_type == 'If':
+                    # remove condition node chain
+                    sub_input = []
+                    for node_proto in node.attr[selected_branch].node:
+                        for ipn in node_proto.input:
+                            sub_input.append(ipn)
+                    node_list = [node.name]
+                    while len(node_list):
+                        remove = True
+                        sname = node_list.pop(0)
+                        snode = self.nodemap[sname]
+                        for ipn in snode.input:
+                            if len(self.consumedby[ipn]) == 1 and ipn not in sub_input:  # consumed by this node
+                                if ipn in self.producedby.keys():
+                                    node_list.append(self.producedby[ipn][0])
+                            self.consumedby[ipn].remove(sname)
+                        if remove:
+                            remove_list.append(sname)
+                    # add branch node
+                    names = []
+                    for node_proto in node.attr[selected_branch].node:
+                        self.__add_node_from_proto__(node_proto)
+                        names.append(node_proto.name)
 
-                # revise output name
-                preoutput = node.attr[selected_branch].output[0].name
-                newoutput = node.output[0]
-                for newname in names:
-                    newnode = self.nodemap[newname]
-                    for tensor in newnode.input:
-                        if tensor not in self.tensormap.keys():
-                            self.tensormap[tensor] = Tensor(tensor)
-                    for tensor in newnode.output:
-                        if tensor not in self.tensormap.keys():
-                            self.tensormap[tensor] = Tensor(tensor)
-                        if tensor in self.consumedby:
-                            for consumer in self.consumedby[tensor]:
-                                self.nodemap[newnode.name].nextnodes.append(self.nodemap[consumer])
-                    for i, v in enumerate(newnode.output):
-                        if v == preoutput:
-                            newnode.output[i] = newoutput
-                            self.producedby[newoutput].append(newname)
-        for n in remove_list:
-            self.remove_node(n)
+                    # revise output name
+                    preoutput = node.attr[selected_branch].output[0].name
+                    newoutput = node.output[0]
+                    for newname in names:
+                        newnode = self.nodemap[newname]
+                        for tensor in newnode.input:
+                            if tensor not in self.tensormap.keys():
+                                self.tensormap[tensor] = Tensor(tensor)
+                        for tensor in newnode.output:
+                            if tensor not in self.tensormap.keys():
+                                self.tensormap[tensor] = Tensor(tensor)
+                            if tensor in self.consumedby:
+                                for consumer in self.consumedby[tensor]:
+                                    self.nodemap[newnode.name].nextnodes.append(self.nodemap[consumer])
+                        for i, v in enumerate(newnode.output):
+                            if v == preoutput:
+                                newnode.output[i] = newoutput
+                                self.producedby[newoutput].append(newname)
+            if len(remove_list)==0:
+                break
+            for n in remove_list:
+                self.remove_node(n)
 
     def __set_fixed_topk(self, fixed_k):
         prekeys = list(self.nodemap.keys())
@@ -660,7 +665,8 @@ class Graph():
                             break
                     if dangle_node:
                         newnodes.append(pnode)
-                self.consumedby[i].remove(nodename)
+                if nodename in self.consumedby[i]:
+                    self.consumedby[i].remove(nodename)
                 if len(self.consumedby[i]) == 0:
                     self.consumedby.pop(i)
         self.nodemap.pop(nodename)

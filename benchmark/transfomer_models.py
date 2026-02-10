@@ -84,9 +84,10 @@ def transformer_mpt():
                                                   '-1layer.csv', mcfg={'constant_folding': True, 'verbose': True},
                             shape_only=True, save_model=modelname)
 
+
 def transformer_qwen():
     from onnx_tool.llm import QWen_7B
-    QWen_7B['num_hidden_layers']=1
+    QWen_7B['num_hidden_layers'] = 1
     modelname = f"{QWen_7B['model_type']}_{QWen_7B['hidden_size']}_{QWen_7B['num_attention_heads']}_{QWen_7B['num_hidden_layers']}.onnx"
     config = transformers.PretrainedConfig(**QWen_7B)
     m = transformers.Qwen2ForCausalLM(config)
@@ -95,9 +96,10 @@ def transformer_qwen():
     onnx_tool.model_profile(tmpfile, save_profile='llama-1layer.csv', mcfg={'constant_folding': True, 'verbose': True},
                             shape_only=True, save_model=modelname)
 
+
 def transformer_llama3():
     from onnx_tool.llm import Llama3_8B
-    Llama3_8B['num_hidden_layers']=2
+    Llama3_8B['num_hidden_layers'] = 2
     modelname = f"{Llama3_8B['model_type']}_{Llama3_8B['hidden_size']}_{Llama3_8B['num_attention_heads']}_{Llama3_8B['num_hidden_layers']}.onnx"
     config = transformers.PretrainedConfig(**Llama3_8B)
     m = transformers.LlamaForCausalLM(config)
@@ -106,9 +108,10 @@ def transformer_llama3():
     # onnx_tool.model_profile(tmpfile, save_profile='llama-1layer.csv', mcfg={'constant_folding': True, 'verbose': True},
     #                         shape_only=True, save_model=modelname)
 
+
 def transformer_llama3():
     from onnx_tool.llm import Llama3_8B
-    Llama3_8B['num_hidden_layers']=2
+    Llama3_8B['num_hidden_layers'] = 2
     modelname = f"{Llama3_8B['model_type']}_{Llama3_8B['hidden_size']}_{Llama3_8B['num_attention_heads']}_{Llama3_8B['num_hidden_layers']}.onnx"
     config = transformers.PretrainedConfig(**Llama3_8B)
     m = transformers.LlamaForCausalLM(config)
@@ -120,7 +123,7 @@ def transformer_llama3():
 
 def transformer_phi3():
     from onnx_tool.llm import phi3_mini
-    phi3_mini['num_hidden_layers']=2
+    phi3_mini['num_hidden_layers'] = 1
     modelname = f"{phi3_mini['model_type']}_{phi3_mini['hidden_size']}_{phi3_mini['num_attention_heads']}_{phi3_mini['num_hidden_layers']}.onnx"
     config = transformers.PretrainedConfig(**phi3_mini)
     m = transformers.Phi3ForCausalLM(config)
@@ -130,9 +133,66 @@ def transformer_phi3():
     #                         shape_only=True, save_model=modelname)
 
 
+def transformer_phi2():
+    from onnx_tool.llm import Phi_3_small_8k_instruct
+    cfg = Phi_3_small_8k_instruct
+    cfg['num_hidden_layers'] = 1
+    modelname = f"{cfg['model_type']}_{cfg['hidden_size']}_{cfg['num_attention_heads']}_{cfg['num_hidden_layers']}.onnx"
+    config = transformers.PretrainedConfig(**cfg)
+    m = transformers.Phi3SmallForCausalLM(config)
+    ids = torch.zeros((1, 512), dtype=torch.long)
+    torch.onnx.export(m, ids, tmpfile)
+    # onnx_tool.model_profile(tmpfile, save_profile='llama-1layer.csv', mcfg={'constant_folding': True, 'verbose': True},
+    #                         shape_only=True, save_model=modelname)
+
+
+def transformer_gpt2():
+    from onnx_tool.llm import null, true, false
+    cfg = {
+        "architectures": [
+            "Gemma2ForCausalLM"
+        ],
+        "attention_bias": false,
+        "attention_dropout": 0.0,
+        "attn_logit_softcapping": 50.0,
+        "bos_token_id": 2,
+        "cache_implementation": "hybrid",
+        "eos_token_id": [
+            1,
+            107
+        ],
+        "final_logit_softcapping": 30.0,
+        "head_dim": 256,
+        "hidden_act": "gelu_pytorch_tanh",
+        "hidden_activation": "gelu_pytorch_tanh",
+        "hidden_size": 2304,
+        "initializer_range": 0.02,
+        "intermediate_size": 9216,
+        "max_position_embeddings": 8192,
+        "model_type": "gemma2",
+        "num_attention_heads": 8,
+        "num_hidden_layers": 2,
+        "num_key_value_heads": 4,
+        "pad_token_id": 0,
+        "query_pre_attn_scalar": 256,
+        "rms_norm_eps": 1e-06,
+        "rope_theta": 10000.0,
+        "sliding_window": 4096,
+        "torch_dtype": "bfloat16",
+        "transformers_version": "4.42.4",
+        "use_cache": true,
+        "vocab_size": 256000
+    }
+    config = transformers.PretrainedConfig(**cfg)
+    m = transformers.Gemma2ForCausalLM(config)
+    ids = torch.zeros((1, 3000), dtype=torch.long)
+    torch.onnx.export(m, ids, tmpfile)
+
+
 # transfomer_llama()
 # transfomer_gptj()
 # transformer_mpt()
-transformer_phi3()
+# transformer_phi2()
+transformer_gpt2()
 # transformer_llama3()
 # transformer_qwen()

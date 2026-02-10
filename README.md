@@ -1,29 +1,45 @@
-<a href="README_CN.md">简体中文</a>  
-_New project_: [AI-Enhancement-Filter](https://github.com/ThanatosShinji/AI-Enhancement-Filter) powered by onnx-tool
-
-# onnx-tool
-
-**A tool for ONNX model:**
-* *[Build LLM model and profile](#build-profile)*
-* *[Parse and edit](#basic-parse-edit): [Constant folding](data/ConstantFolding.md); [OPs fusion](data/GraphFusion.md).*
-* *[Model profiling](#shapeinfer-profile): Rapid shape inference; MACs statistics*
-* *[Compute Graph and Shape Engine](#compute_graph-header).*
-* *[Model memory compression](#memory-compression): activation compression and weight compression.*
-* *[Quantized models and sparse models](#models) are supported.*
-
-Supported Models:
-* NLP: BERT, T5, GPT, LLaMa, MPT([TransformerModel](benchmark/transfomer_models.py))
-* Diffusion: Stable Diffusion(TextEncoder, VAE, UNET)
-* CV: [Detic](https://github.com/ThanatosShinji/onnx-tool/issues/63), [BEVFormer](benchmark/compression.py), [SSD300_VGG16](https://github.com/ThanatosShinji/onnx-tool/issues/66), ...
-* Audio: sovits, LPCNet
+<a href="README_CN.md">📄 简体中文</a> | <a href="https://github.com/ThanatosShinji/AI-Enhancement-Filter">✨ New Project: AI-Enhancement-Filter</a> (powered by onnx-tool)
 
 ---
 
-## Build LLM model and profile
-<a id="build-profile"></a>
-Profile 10 hugging face models within one second. Save the ONNX models as simple as llama.cpp's.
-[code ref](benchmark/llm_test.py)
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.6%2B-blue?logo=python" alt="Python 3.6+">
+  <img src="https://img.shields.io/pypi/v/onnx-tool?color=green" alt="PyPI Version">
+  <img src="https://img.shields.io/github/license/ThanatosShinji/onnx-tool?color=orange" alt="License">
+</p> 
 
+# onnx-tool
+
+**A comprehensive toolkit for analyzing, optimizing, and transforming ONNX models** with advanced capabilities for LLMs, diffusion models, and computer vision architectures.
+
+- **LLM Optimization**: Build and profile large language models with KV cache analysis ([example](#build-profile))
+- **Graph Transformation**: 
+  - Constant folding ([docs](data/ConstantFolding.md))
+  - Operator fusion ([docs](data/GraphFusion.md))
+- **Advanced Profiling**: 
+  - Rapid shape inference
+  - MACs/parameter statistics with sparsity awareness
+- **Compute Graph Engine**: Runtime shape computation with minimal overhead ([details](#compute_graph-header))
+- **Memory Compression**:
+  - Activation memory optimization (up to 95% reduction)
+  - Weight quantization (FP16, INT8/INT4 with per-tensor/channel/block schemes)
+- **Quantization & Sparsity**: Full support for quantized and sparse model analysis
+## 🤖 Supported Model Architectures
+
+| Domain      | Models                                                                 |
+|-------------|------------------------------------------------------------------------|
+| **NLP**     | BERT, T5, GPT, LLaMa, MPT ([TransformerModel](benchmark/transfomer_models.py)) |
+| **Diffusion** | Stable Diffusion (TextEncoder, VAE, UNet)                            |
+| **CV**      | Detic, BEVFormer, SSD300_VGG16, ConvNeXt, Mask R-CNN, Silero VAD         |
+| **Audio**   | Sovits, LPCNet                                                        |
+
+---
+
+## ⚡ Build & Profile LLMs in Seconds
+<a id="build-profile"></a>
+Profile 10 Hugging Face models in under one second. Export ONNX models with llama.cpp-like simplicity ([code](benchmark/llm_test.py)).
+
+### Model Statistics (1k token input)
 model name(1k input)                 | MACs(G) | Parameters(G) |   KV Cache(G)
 ------------------------------------ |---------|---------------| ----------
 gpt-j-6b                             | 6277    | 6.05049       |  0.234881
@@ -37,89 +53,90 @@ Llama-3.1-70B-Japanese-Instruct-2407 | 72888   | 70.5537       |  0.167772
 QWen-7B                              | 7509    | 7.61562       |  0.0293601
 Qwen2_72B_Instruct                   | 74895   | 72.7062       |  0.167772
 
-Get first-token latency and next-token latency from hardware specs.
+### Latency Estimation (4-bit weights, 16-bit KV cache)
 
-model_type_4bit_kv16bit              | memory_size(GB) |   Ultra-155H_first_latency |   Ultra-155H_next_latency |  Arc-A770_first_latency |   Arc-A770_next_latency |   H100-PCIe_first_latency |   H100-PCIe_next_latency
------------------------------------- |-----------------| -------------------------- | ------------------------- |------------------------ | ----------------------- | ------------------------- | ------------------------
-gpt-j-6b                             | 3.75678         |                   1.0947   |                 0.041742  |               0.0916882 |              0.00670853 |                 0.0164015 |              0.00187839
-yi-1.5-34B                           | 19.3369         |                   5.77095  |                 0.214854  |               0.45344   |              0.0345302  |                 0.0747854 |              0.00966844
-microsoft/phi-2                      | 1.82485         |                   0.58361  |                 0.0202761 |               0.0529628 |              0.00325866 |                 0.010338  |              0.000912425
-Phi-3-mini-4k                        | 2.49649         |                   0.811173 |                 0.0277388 |               0.0745356 |              0.00445802 |                 0.0147274 |              0.00124825
-Phi-3-small-8k-instruct              | 4.2913          |                   1.38985  |                 0.0476811 |               0.117512  |              0.00766303 |                 0.0212535 |              0.00214565
-Phi-3-medium-4k-instruct             | 7.96977         |                   2.4463   |                 0.088553  |               0.198249  |              0.0142317  |                 0.0340576 |              0.00398489
-Llama3-8B                            | 4.35559         |                   1.4354   |                 0.0483954 |               0.123333  |              0.00777784 |                 0.0227182 |              0.00217779
-Llama-3.1-70B-Japanese-Instruct-2407 | 39.4303         |                  11.3541   |                 0.438114  |               0.868475  |              0.0704112  |                 0.137901  |              0.0197151
-QWen-7B                              | 4.03576         |                   1.34983  |                 0.0448417 |               0.11722   |              0.00720671 |                 0.0218461 |              0.00201788
-Qwen2_72B_Instruct                   | 40.5309         |                  11.6534   |                 0.450343  |               0.890816  |              0.0723766  |                 0.14132   |              0.0202654
-
+model_type_4bit_kv16bit              | memory_size(GB) | Ultra-155H_TTFT | Ultra-155H_TPOT |  Arc-A770_TTFT |   Arc-A770_TPOT | H100-PCIe_TTFT |   H100-PCIe_TPOT
+------------------------------------ |-----------------|-----------------|-----------------|------------------------ | ----------------------- |----------------| ------------------------
+gpt-j-6b                             | 3.75678         | 1.0947          | 0.041742        |               0.0916882 |              0.00670853 | 0.0164015      |              0.00187839
+yi-1.5-34B                           | 19.3369         | 5.77095         | 0.214854        |               0.45344   |              0.0345302  | 0.0747854      |              0.00966844
+microsoft/phi-2                      | 1.82485         | 0.58361         | 0.0202761       |               0.0529628 |              0.00325866 | 0.010338       |              0.000912425
+Phi-3-mini-4k                        | 2.49649         | 0.811173        | 0.0277388       |               0.0745356 |              0.00445802 | 0.0147274      |              0.00124825
+Phi-3-small-8k-instruct              | 4.2913          | 1.38985         | 0.0476811       |               0.117512  |              0.00766303 | 0.0212535      |              0.00214565
+Phi-3-medium-4k-instruct             | 7.96977         | 2.4463          | 0.088553        |               0.198249  |              0.0142317  | 0.0340576      |              0.00398489
+Llama3-8B                            | 4.35559         | 1.4354          | 0.0483954       |               0.123333  |              0.00777784 | 0.0227182      |              0.00217779
+Llama-3.1-70B-Japanese-Instruct-2407 | 39.4303         | 11.3541         | 0.438114        |               0.868475  |              0.0704112  | 0.137901       |              0.0197151
+QWen-7B                              | 4.03576         | 1.34983         | 0.0448417       |               0.11722   |              0.00720671 | 0.0218461      |              0.00201788
+Qwen2_72B_Instruct                   | 40.5309         | 11.6534         | 0.450343        |               0.890816  |              0.0723766  | 0.14132        |              0.0202654
+> 💡 *Latencies computed from hardware specs – no actual inference required*
+> 
 ---
 
-## Basic Parse and Edit
+## 🔧 Basic Parsing & Editing
 
 <a id="basic-parse-edit"></a>
-You can load any onnx file by onnx_tool.Model:  
-Change graph structure with onnx_tool.Graph;  
-Change op attributes and IO tensors with onnx_tool.Node;  
-Change tensor data or type with onnx_tool.Tensor.  
-To apply your changes, just call save_model method of onnx_tool.Model or onnx_tool.Graph.
+Intuitive API for model manipulation:
+```python
+from onnx_tool import Model
 
-Please refer [benchmark/examples.py](benchmark/examples.py).
+model = Model('model.onnx')          # Load any ONNX file
+graph = model.graph                  # Access computation graph
+node = graph.nodemap['Conv_0']       # Modify operator attributes
+tensor = graph.tensormap['weight']   # Edit tensor data/types
+model.save_model('modified.onnx')    # Persist changes
+```
+See comprehensive examples in [`benchmark/examples.py`](benchmark/examples.py).
 
 ---
 
-## Shape Inference & Profile Model
+## 📊 Shape Inference & Profiling
 <a id="shapeinfer-profile"></a>
-All profiling data must be built on shape inference result.  
-ONNX graph with tensor shapes:
-<p align="center">  
-  <img src="data/shape_inference.jpg">
-</p>  
-Regular model profiling table:  
+All profiling relies on precise shape inference:
+
 <p align="center">
-  <img src="data/macs_counting.png">
+  <img src="data/shape_inference.jpg" width="600" alt="Shape inference visualization">
 </p>
-<br><br>
-Sparse profiling table:
-<p id="sparsity" align="center">
-  <img src="data/sparse_model.png">
-</p>
-<br><br>  
 
-Introduction: [data/Profile.md](data/Profile.md).  
-pytorch usage: [data/PytorchUsage.md](data/PytorchUsage.md).  
-tensorflow
-usage: [data/TensorflowUsage.md](data/TensorflowUsage.md).  
-examples: [benchmark/examples.py](benchmark/examples.py).
+### Profiling Capabilities
+- **Standard profiling**: MACs, parameters, memory footprint
+- **Sparse-aware profiling**: Quantify sparsity impact on compute
+  
+<p align="center">
+  <img src="data/macs_counting.png" width="450" alt="MACs profiling table">
+  <img src="data/sparse_model.png" width="450" alt="Sparse model profiling">
+</p>
+
+📚 **Learn more**: 
+- [Profiling Guide](data/Profile.md)
+- [PyTorch Integration](data/PytorchUsage.md)
+- [TensorFlow Integration](data/TensorflowUsage.md)
+
 
 ---
 
-## Compute Graph with Shape Engine
+## ⚙️ Compute Graph & Shape Engine
 <a id="compute_graph-header"></a>
-From a raw graph to a compute graph:
-<p id="compute_graph" align="center">
-  <img src="data/compute_graph.png">
-</p>  
 
-Remove shape calculation layers(created by ONNX export) to get a *Compute Graph*. Use *Shape Engine* to update tensor
-shapes at runtime.  
-Examples: [benchmark/shape_regress.py](benchmark/shape_regress.py).
-[benchmark/examples.py](benchmark/examples.py).  
-Integrate *Compute Graph* and *Shape Engine* into a cpp inference
-engine: [data/inference_engine.md](data/inference_engine.md)
+Transform exported ONNX graphs into efficient *Compute Graphs* by removing shape-calculation overhead:
+
+<p align="center">
+  <img src="data/compute_graph.png" width="700" alt="Compute graph transformation">
+</p>
+
+- **Compute Graph**: Minimal graph containing only compute operations
+- **Shape Engine**: Runtime shape resolver for dynamic models
+
+**Use Cases**:
+- Integration with custom inference engines ([guide](data/inference_engine.md))
+- Shape regression testing ([example](benchmark/shape_regress.py))
+
 
 ---
 
-## Memory Compression
+## 💾 Memory Compression
 <a id="memory-compression"></a>
 
-### Activation Compression
-Activation memory also called temporary memory is created by each OP's output. Only the last activation marked as the
-model's output will be kept. So you don't have to prepare memory space for each activation tensor. They better reuse 
-an optimized memory size.
-
-For large language models and high-resolution CV models, the activation memory compression is a key to save memory.  
-The compression method achieves 5% memory compression on most models.   
-For example:
+### Activation Memory Compression
+Reuses temporary buffers to minimize peak memory usage – critical for LLMs and high-res CV models.
 
  model                         | Native Memory Size(MB) | Compressed Memory Size(MB) | Compression Ratio(%) 
 -------------------------------|------------------------|----------------------------|----------------------
@@ -130,35 +147,45 @@ For example:
  GPT2                          | 40                     | 2                          | 6.9                  
  BERT                          | 2,170                  | 27                         | 1.25                 
 
-code example: [benchmark/compression.py](benchmark/compression.py)
-
+> ✅ Typical models achieve **>90% activation memory reduction**  
+> 📌 Implementation: [`benchmark/compression.py`](benchmark/compression.py)
+> 
 ### Weight Compression
-A fp32 model with 7B parameters will take 28GB disk space and memory space. You can not even run the model if your device
- doesn't have that much memory space. So weight compression is critical to run large language models. As a reference, 7B 
-model with int4 symmetric per block(32) quantization(llama.cpp's q4_0 quantization method) only has ~0.156x model size compared with fp32 model. 
+Essential for deploying large models on memory-constrained devices:
 
-Current support:   
-* [fp16]
-* [int8]x[symmetric/asymmetric]x[per tensor/per channel/per block]  
-* [int4]x[symmetric/asymmetric]x[per tensor/per channel/per block]  
+| Quantization Scheme                     | Size vs FP32 | Example (7B model) |
+|-----------------------------------------|--------------|--------------------|
+| FP32 (baseline)                         | 1.00×        | 28 GB              |
+| FP16                                    | 0.50×        | 14 GB              |
+| INT8 (per-channel)                      | 0.25×        | 7 GB               |
+| INT4 (block=32, symmetric) – llama.cpp  | 0.156×       | 4.4 GB             |
 
-code examples:[benchmark/examples.py](benchmark/examples.py).  
+**Supported schemes**:
+- ✅ FP16
+- ✅ INT8: symmetric/asymmetric × per-tensor/channel/block
+- ✅ INT4: symmetric/asymmetric × per-tensor/channel/block
+
+📌 See [`benchmark/examples.py`](benchmark/examples.py) for implementation examples.
 
 
 ---
 
-## How to install
+## 🚀 Installation
     
-`pip install onnx-tool`
+```bash
+# PyPI (recommended)
+pip install onnx-tool
 
-OR
+# Latest development version
+pip install --upgrade git+https://github.com/ThanatosShinji/onnx-tool.git
+```
 
-`pip install --upgrade git+https://github.com/ThanatosShinji/onnx-tool.git`  
+**Requirements**: Python ≥ 3.6
 
-python>=3.6
-
-If `pip install onnx-tool` failed by onnx's installation, you may try `pip install onnx==1.8.1` (a lower version like this) first.  
-Then `pip install onnx-tool` again.
+> ⚠️ **Troubleshooting**: If ONNX installation fails, try:
+> ```bash
+> pip install onnx==1.8.1 && pip install onnx-tool
+> ```
 
 
 ---
@@ -169,11 +196,13 @@ Then `pip install onnx-tool` again.
   
 ---
 
-## Results of [ONNX Model Zoo](https://github.com/onnx/models) and SOTA models
+## 📈 Model Zoo Results
 <a id='models'></a>
-Some models have dynamic input shapes. The MACs varies from input shapes. The input shapes used in these results are writen to [data/public/config.py](data/public/config.py).
-These onnx models with all tensors' shape can be downloaded: [baidu drive](https://pan.baidu.com/s/1eebBP-n-wXvOhSmIH-NUZQ 
-)(code: p91k) [google drive](https://drive.google.com/drive/folders/1H-ya1wTvjIMg2pMcMITWDIfWNSnjYxTn?usp=sharing)
+Comprehensive profiling of [ONNX Model Zoo](https://github.com/onnx/models) and SOTA models. Input shapes defined in [`data/public/config.py`](data/public/config.py).
+
+📥 **Download pre-profiled models** (with full tensor shapes):
+- [Baidu Drive](https://pan.baidu.com/s/1eebBP-n-wXvOhSmIH-NUZQ) (code: `p91k`)
+- [Google Drive](https://drive.google.com/drive/folders/1H-ya1wTvjIMg2pMcMITWDIfWNSnjYxTn?usp=sharing)
 <p id="results" align="center">
 <table>
 <tr>
@@ -222,5 +251,12 @@ Model | Params(M) | MACs(M)
 
 </td>
 </tr>
-</table>
-</p>
+</table> 
+
+## 🤝 Contributing
+
+Contributions are welcome! Please open an issue or PR for:
+- Bug reports
+- Feature requests
+- Documentation improvements
+- New model support

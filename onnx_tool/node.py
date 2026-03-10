@@ -575,6 +575,19 @@ class ReluNode(PWNode):
         result = numpy.clip(intensors[0].get_numpy(), 0, None)
         outtensors[0].update_tensor(result)
 
+@NODE_REGISTRY.register()
+class EluNode(PWNode):
+    def __init__(self, n):
+        super().__init__(n)
+        self.op_mac = CMP_MACS + EXP_MACS + ADD_MACS + MUL_MACS
+        self.ratio = 1
+
+    def value_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
+        x = intensors[0].get_numpy()
+        alpha = getattr(self, 'alpha', 1.0)
+        result = numpy.where(x >= 0, x, alpha * (numpy.exp(x) - 1))
+        outtensors[0].update_tensor(result)
+
 
 @NODE_REGISTRY.register()
 class SiluNode(PWNode):

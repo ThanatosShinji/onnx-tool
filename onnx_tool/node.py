@@ -1356,12 +1356,25 @@ class ExpandNode(Node):
         expandshape = intensors[1].get_numpy().tolist()
         if not isinstance(expandshape, list):
             expandshape = [expandshape, ]
-        yshape = []
+        # Ensure both shapes have the same rank by prepending 1s to the shorter one.
+        xshape = list(xshape)
+        expandshape = list(expandshape)
         if len(xshape) < len(expandshape):
-            for i in range(len(xshape), len(expandshape)):
-                xshape = [1, ] + xshape
+            xshape = [1] * (len(expandshape) - len(xshape)) + xshape
+        elif len(expandshape) < len(xshape):
+            expandshape = [1] * (len(xshape) - len(expandshape)) + expandshape
+
+        yshape = []
         for x, e in zip(xshape, expandshape):
-            yshape.append(max(x, e))
+            try:
+                xi = int(x)
+            except Exception:
+                xi = x
+            try:
+                ei = int(e)
+            except Exception:
+                ei = e
+            yshape.append(max(xi, ei))
         outtensors[0].update_shape(yshape)
         outtensors[0].update_dtype(intensors[0].dtype)
 

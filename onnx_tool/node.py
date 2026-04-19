@@ -123,20 +123,36 @@ def _get_tensor(item):
 
 
 def _broadcast_shape(shapes: []):
+    norm_shapes = []
     maxlen = 0
     for shape in shapes:
-        maxlen = max(len(shape), maxlen)
-    newshapes = []
-    for shape in shapes:
-        if len(shape) < maxlen:
-            gap = maxlen - len(shape)
-            newshape = [1] * gap + shape
+        if isinstance(shape, numpy.ndarray):
+            s = list(shape.tolist()) if getattr(shape, 'tolist', None) is not None else list(shape.shape)
+        elif isinstance(shape, (list, tuple)):
+            s = list(shape)
         else:
-            newshape = shape
-        newshapes.append(newshape)
-    outshape = newshapes[0]
-    for i in range(len(newshapes) - 1):
-        outshape = [max(a, b) for a, b in zip(newshapes[i + 1], outshape)]
+            # fallback: treat unknown as scalar
+            s = [int(shape)]
+        norm_shapes.append(s)
+        if len(s) > maxlen:
+            maxlen = len(s)
+
+    # left-pad shapes with 1s to the same rank
+    padded = []
+    for s in norm_shapes:
+        if len(s) < maxlen:
+            padded.append([1] * (maxlen - len(s)) + s)
+        else:
+            padded.append(s)
+
+    outshape = []
+    # verify each dimension is broadcast-compatible (either equal or one of them is 1)
+    for dims in zip(*padded):
+        maxdim = max(dims)
+        for d in dims:
+            if d != maxdim and d != 1:
+                raise ValueError(f'invalid broadcast shapes, dimensions {dims} are incompatible')
+        outshape.append(maxdim)
     return outshape
 
 
@@ -229,24 +245,11 @@ class NpMathBase(Node):
         self.ratio = max(1, len(self.input) - 1)
 
     def shape_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
-        maxlen = 0
-        for tensor in intensors:
-            shape = tensor.get_shape()
-            if len(shape) > maxlen:
-                maxlen = len(shape)
         inshapes = []
         for tensor in intensors:
             shape = tensor.get_shape()
-            for i in range(0, maxlen - len(shape)):
-                shape = [1, ] + shape
             inshapes.append(shape)
-        outshape = []
-        for i in range(maxlen):
-            maxdim = 0
-            for shape in inshapes:
-                if shape[i] > maxdim:
-                    maxdim = shape[i]
-            outshape.append(maxdim)
+        outshape = _broadcast_shape(inshapes)
         outtensors[0].update_shape(outshape)
         outtensors[0].update_dtype(intensors[0].dtype)
 
@@ -1529,45 +1532,135 @@ class SliceNode(Node):
 
     def shape_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
         inshape = intensors[0].get_shape()
+        # Prepare inputs (from attributes or input tensors)
         if len(intensors) == 1:
-            starts = self.starts
-            ends = self.ends
-            axes = self.axes
-            if self.steps is None:
-                steps = [1] * len(starts)
-            else:
-                steps = self.steps
+            starts = list(self.starts)
+            ends = list(self.ends)
+            axes = None if self.axes is None else list(self.axes)
+            steps = None if self.steps is None else list(self.steps)
         else:
-            elesize = len(intensors[1].get_numpy())
-            starts = intensors[1].get_numpy()
-            ends = intensors[2].get_numpy()
+            starts = list(intensors[1].get_numpy())
+            ends = list(intensors[2].get_numpy())
+            axes = None
+            steps = None
             if len(intensors) == 3:
-                # undef beheviour of bidaf-9.onnx
-                axes = [0]
-                steps = [1]
+                # fallback behaviour when axes/steps omitted
+                axes = None
             else:
-                axes = [0] * elesize
-                steps = [1] * elesize
-            if len(intensors) >= 4:
-                axes = intensors[3].get_numpy()
-            if len(intensors) >= 5:
-                steps = intensors[4].get_numpy()
+                if len(intensors) >= 4:
+                    axes = list(intensors[3].get_numpy())
+                if len(intensors) >= 5:
+                    steps = list(intensors[4].get_numpy())
 
-        axes = _axes_neg2pos(len(inshape), axes)
-        newshape = inshape.copy()
-        for a in axes:
-            newshape[a] = 0
-        for s, e, a, st in zip(starts, ends, axes, steps):
-            if s < 0:
-                s = max(0, inshape[a] + s)
+        r = len(inshape)
+        # If axes omitted, set to [0..r-1]
+        if axes is None:
+            axes = list(range(r))
+        # Normalize negative axes
+        axes = _axes_neg2pos(r, list(axes))
+
+        # If steps omitted, set to 1s of length len(starts)
+        if steps is None:
+            steps = [1] * len(starts)
+
+        # Initialize effective arrays
+        eff_start = [0] * r
+        eff_end = [None] * r
+        eff_step = [1] * r
+        for i in range(r):
+            eff_end[i] = inshape[i]
+
+        # Helper to cast numpy types to int
+        def to_int(x):
+            try:
+                return int(x)
+            except Exception:
+                return x
+
+        # Apply provided starts/ends/steps to effective arrays
+        for idx, axis in enumerate(axes):
+            s = to_int(starts[idx])
+            e = to_int(ends[idx])
+            st = to_int(steps[idx])
+
+            dim = inshape[axis]
+
+            # Adjust negative indices by adding dim when possible
+            if isinstance(s, int) and s < 0 and isinstance(dim, int):
+                s = dim + s
+            if isinstance(e, int) and e < 0 and isinstance(dim, int):
+                e = dim + e
+
+            # Clamp start depending on step sign
+            if isinstance(st, int) and st < 0:
+                # negative stepping: start clamped to [0, dim-1]
+                if isinstance(dim, int):
+                    s = max(0, min(s, dim - 1))
+                else:
+                    s = max(0, s)
             else:
-                s = max(s, 0)
-            if e < 0:
-                e = max(0, inshape[a] + e)
+                # positive stepping: start clamped to [0, dim]
+                if isinstance(dim, int):
+                    s = max(0, min(s, dim))
+                else:
+                    s = max(0, s)
+
+            # Clamp end depending on step sign
+            if isinstance(st, int) and st < 0:
+                # negative stepping: end clamped to [-1, dim-1]
+                if isinstance(dim, int):
+                    e = max(-1, min(e, dim - 1))
+                else:
+                    e = min(e, -1) if isinstance(e, int) else e
             else:
-                e = min(e, inshape[a])
-            tmp = abs(e - s)
-            newshape[a] += abs(math.ceil(tmp / st))
+                # positive stepping: end clamped to [0, dim]
+                if isinstance(dim, int):
+                    e = max(0, min(e, dim))
+                else:
+                    e = max(0, e) if isinstance(e, int) else e
+
+            eff_start[axis] = s
+            eff_end[axis] = e
+            eff_step[axis] = st
+
+        # Compute output shape
+        newshape = list(inshape)
+        for i in range(r):
+            s = eff_start[i]
+            e = eff_end[i]
+            st = eff_step[i]
+            dim = inshape[i]
+
+            # If dimension unknown or any of s/e not int, result may be unknown
+            if not isinstance(dim, int):
+                newshape[i] = None
+                continue
+
+            # Compute span depending on sign of step
+            try:
+                st_val = int(st)
+            except Exception:
+                st_val = 1
+
+            if st_val > 0:
+                # ensure s/e are ints
+                s_val = int(s)
+                e_val = int(e)
+                span = e_val - s_val
+                if span <= 0:
+                    newshape[i] = 0
+                else:
+                    newshape[i] = int(math.ceil(span / float(st_val)))
+            else:
+                # negative step
+                s_val = int(s)
+                e_val = int(e)
+                span = s_val - e_val
+                if span <= 0:
+                    newshape[i] = 0
+                else:
+                    newshape[i] = int(math.ceil(span / float(abs(st_val))))
+
         outtensors[0].update_shape(newshape)
         outtensors[0].update_dtype(intensors[0].dtype)
 

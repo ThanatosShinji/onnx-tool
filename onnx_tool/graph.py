@@ -1473,6 +1473,7 @@ class Graph():
             factor = 2
 
         params += 1e-18
+        memory += 1e-18
         forward_macs += 1e-18
         backward_macs += 1e-18
         ops_to_cover = {k for k, v in self.nodemap.items() if v.op_type not in exclude_ops} if exclude_ops else self.nodemap.keys()

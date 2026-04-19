@@ -149,12 +149,16 @@ def _broadcast_shape(shapes: []):
     # verify each dimension is broadcast-compatible (either equal or one of them is 1)
     for dims in zip(*padded):
         maxdim = max(dims)
-        for d in dims:
-            if d == 0:
-                continue
-            if d != maxdim and d != 1:
-                raise ValueError(f'invalid broadcast shapes, dimensions {dims} are incompatible')
-        outshape.append(maxdim)
+        if 0 in dims:  # if any dimension is zero, the output shape is zero in that dimension
+            outshape.append(0)
+            for d in dims:
+                if d != 0 and d != 1:
+                    raise ValueError(f'invalid broadcast shapes, dimensions {dims} are incompatible')
+        else:
+            for d in dims:
+                if d != maxdim and d != 1:
+                    raise ValueError(f'invalid broadcast shapes, dimensions {dims} are incompatible')
+            outshape.append(maxdim)
     return outshape
 
 

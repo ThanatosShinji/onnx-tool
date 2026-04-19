@@ -3,7 +3,7 @@
 from setuptools import setup, find_packages
 
 readme = open("README.md", encoding="utf-8").read()
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 
 requirements = [
     "onnx",

@@ -2,7 +2,7 @@ import time
 import warnings
 from tabulate import tabulate
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 
 class ModelConfig():
     def __init__(self, mcfg={}):

@@ -150,6 +150,8 @@ def _broadcast_shape(shapes: []):
     for dims in zip(*padded):
         maxdim = max(dims)
         for d in dims:
+            if d == 0:
+                continue
             if d != maxdim and d != 1:
                 raise ValueError(f'invalid broadcast shapes, dimensions {dims} are incompatible')
         outshape.append(maxdim)
@@ -803,21 +805,35 @@ class GemmNode(Node):
         self.add_default_value('transB', 0)
 
     def shape_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
-        xshape = intensors[0].get_shape()
-        wshape = intensors[1].get_shape()
+        a_shape = intensors[0].get_shape()
+        b_shape = intensors[1].get_shape()
+        if len(a_shape) < 2 or len(b_shape) < 2:
+            raise RuntimeError('Gemm inputs must have rank >= 2')
         if self.__class__ == GemmNode:
+            # determine M,K from A depending on transA
             if self.transA > 0:
-                xshape = xshape[::-1]
+                a_m = a_shape[-1]
+                a_k = a_shape[-2]
             else:
-                xshape = xshape
+                a_m = a_shape[-2]
+                a_k = a_shape[-1]
+            # determine K,N from B depending on transB
             if self.transB > 0:
-                yshape = xshape[:-1] + [wshape[-2], ]
+                b_k = b_shape[-1]
+                b_n = b_shape[-2]
             else:
-                yshape = xshape[:-1] + [wshape[-1], ]
+                b_k = b_shape[-2]
+                b_n = b_shape[-1]
+            if a_k != b_k:
+                raise RuntimeError(f'Incompatible GEMM shapes: A K={a_k} != B K={b_k}')
+            a_batch = a_shape[:-2]
+            b_batch = b_shape[:-2]
+            batchshape = a_batch if volume(a_batch) >= volume(b_batch) else b_batch
+            yshape = batchshape + [a_m, b_n]
         else:
-            # broadcast support
-            batchshape = xshape[:-2] if volume(xshape[:-2]) >= volume(wshape[:-2]) else wshape[:-2]
-            yshape = batchshape + [xshape[-2], wshape[-1]]
+            # broadcast support for MatMul-like nodes
+            batchshape = a_shape[:-2] if volume(a_shape[:-2]) >= volume(b_shape[:-2]) else b_shape[:-2]
+            yshape = batchshape + [a_shape[-2], b_shape[-1]]
         outtensors[0].update_shape(yshape)
         outtensors[0].update_dtype(intensors[0].dtype)
 
@@ -828,14 +844,13 @@ class GemmNode(Node):
             assert (ashape[-1] == bshape[-2])
             result = numpy.matmul(intensors[0].get_numpy(), intensors[1].get_numpy())
             outtensors[0].update_tensor(result)
+            return
+        A = intensors[0].get_numpy()
+        B = intensors[1].get_numpy()
         if self.transA > 0:
-            A = numpy.transpose(intensors[0].get_numpy())
-        else:
-            A = intensors[0].get_numpy()
+            A = numpy.swapaxes(A, -1, -2)
         if self.transB > 0:
-            B = numpy.transpose(intensors[1].get_numpy())
-        else:
-            B = intensors[1].get_numpy()
+            B = numpy.swapaxes(B, -1, -2)
         C = numpy.matmul(A, B)
         if len(intensors) > 2:
             C = numpy.add(C, intensors[2].get_numpy())

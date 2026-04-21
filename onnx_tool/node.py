@@ -453,15 +453,25 @@ class SqrtNode(PWNode):
 
 
 @NODE_REGISTRY.register()
-class PowNode(PWNode):
+class PowNode(Node):
     def __init__(self, node_proto):
         super().__init__(node_proto)
         self.op_mac = POW_MACS
+
+    def shape_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
+        shapes = [t.get_shape() for t in intensors]
+        oshape = _broadcast_shape(shapes)
+        outtensors[0].update_shape(oshape)
+        outtensors[0].update_dtype(intensors[0].dtype)
 
     def value_infer(sel, intensors: List[Tensor], outtensors: List[Tensor]):
         result = numpy.power(intensors[0].get_numpy(), intensors[1].get_numpy())
         outtensors[0].update_tensor(result)
 
+    def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
+        outshape = outtensors[0].get_shape()
+        macs = volume(outshape) * self.op_mac
+        return [macs, 0]
 
 @NODE_REGISTRY.register()
 class SinNode(PWNode):

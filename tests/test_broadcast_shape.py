@@ -1,4 +1,5 @@
 import pytest
+import numpy as np
 from onnx_tool.node import _broadcast_shape
 
 
@@ -39,3 +40,19 @@ def test_incompatible_shapes():
     # new implementation should raise ValueError for incompatible dims
     with pytest.raises(ValueError):
         _broadcast_shape(shapes)
+
+
+def test_broadcast_with_zero_dim_ok():
+    shapes = [[2, 0, 3], [1, 0, 1]]
+    assert _broadcast_shape(shapes) == [2, 0, 3]
+
+
+def test_broadcast_with_zero_dim_incompatible():
+    shapes = [[0, 2], [3, 0]]
+    with pytest.raises(ValueError):
+        _broadcast_shape(shapes)
+
+
+def test_broadcast_various_input_types():
+    shapes = [np.array([2, 3]), (1, 3), 3]
+    assert _broadcast_shape(shapes) == [2, 3]

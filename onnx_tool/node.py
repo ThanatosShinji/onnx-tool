@@ -781,7 +781,7 @@ class WhereNode(Node):
         cond_shape = intensors[0].get_shape()
         x_shape = intensors[1].get_shape()
         y_shape = intensors[2].get_shape()
-        outtensors[0].update_shape(_max_shape((cond_shape, x_shape, y_shape)))
+        outtensors[0].update_shape(_broadcast_shape([cond_shape, x_shape, y_shape]))
         outtensors[0].update_dtype(intensors[1].dtype)
 
     def value_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):

@@ -1029,11 +1029,13 @@ class Graph():
             otensors = []
             for output in node.output:
                 otensors.append(self.tensormap[output])
-
-            if node.shape_calc:
-                node.value_infer(itensors, otensors)
-            else:
-                node.shape_infer(itensors, otensors)
+            try:
+                if node.shape_calc:
+                    node.value_infer(itensors, otensors)
+                else:
+                    node.shape_infer(itensors, otensors)
+            except Exception as e:
+                raise ValueError(f"Error occurred while inferring shape for node {node.name}: {e}")
 
             if node.op_type in self.shapeinfer_optime_map.keys():
                 self.shapeinfer_optime_map[node.op_type] += tm.stop()

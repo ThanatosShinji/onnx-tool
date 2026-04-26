@@ -1077,23 +1077,109 @@ class TriluNode(FusedBase):
 class EinsumNode(Node):
     def __init__(self, node_proto):
         super().__init__(node_proto)
-        strs = self.equation.split(b',')
-        self.ashape = strs[0].replace(b' ', b'')
-        strs = strs[1].split(b'->')
-        self.bshape = strs[0].replace(b' ', b'')
-        self.cshape = strs[1].replace(b' ', b'')
+        self._parse_equation()
+
+    def _parse_equation(self):
+        """Parse the einsum equation string, handling ellipsis (...) and broadcasting."""
+        eq = self.equation
+        if isinstance(eq, bytes):
+            eq = eq.decode('utf-8')
+        eq = eq.replace(' ', '')
+
+        # Split left and right hand sides
+        if '->' in eq:
+            lhs, rhs = eq.split('->')
+        else:
+            # Implicit mode: output is alphabetically sorted unique labels not summed
+            lhs = eq
+            rhs = None
+
+        terms = lhs.split(',')
+        self.input_labels = []
+        for t in terms:
+            self.input_labels.append(t)
+
+        if rhs is not None:
+            self.output_label_str = rhs
+        else:
+            # Implicit mode: collect labels appearing exactly once
+            all_labels = ''.join(terms)
+            unique_labels = []
+            for ch in all_labels:
+                if ch != '.' and all_labels.count(ch) == 1:
+                    if ch not in unique_labels:
+                        unique_labels.append(ch)
+            self.output_label_str = ''.join(sorted(unique_labels))
+
+    def _has_ellipsis(self, label_str):
+        return '...' in label_str
+
+    def _get_non_ellipsis_labels(self, label_str):
+        """Get the labels after the ellipsis part."""
+        if '...' in label_str:
+            idx = label_str.index('...')
+            return label_str[idx + 3:]
+        return label_str
+
+    def _get_ellipsis_ndim(self, label_str, total_ndim):
+        """Compute how many dimensions the ellipsis covers."""
+        non_ellipsis = self._get_non_ellipsis_labels(label_str)
+        return total_ndim - len(non_ellipsis)
 
     def shape_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
         shape = []
-        map = {}
-        shape0 = intensors[0].get_shape()
-        shape1 = intensors[1].get_shape()
-        for i, v in enumerate(shape0):
-            map[self.ashape[i]] = v
-        for i, v in enumerate(shape1):
-            map[self.bshape[i]] = v
-        for k in self.cshape:
-            shape.append(map[k])
+        # Map from label character -> list of dimension values across inputs
+        label_to_dims = {}
+        ellipsis_dims_list = []  # list of (ndim, shape_slice) for each input with ellipsis
+
+        for idx, tensor in enumerate(intensors):
+            label_str = self.input_labels[idx]
+            tshape = tensor.get_shape()
+            if self._has_ellipsis(label_str):
+                non_ellipsis = self._get_non_ellipsis_labels(label_str)
+                ellipsis_ndim = len(tshape) - len(non_ellipsis)
+                # Record ellipsis dimensions for broadcasting
+                ellipsis_dims_list.append(tshape[:ellipsis_ndim])
+                offset = ellipsis_ndim
+            else:
+                non_ellipsis = label_str
+                offset = 0
+
+            for i, ch in enumerate(non_ellipsis):
+                if ch == '.':
+                    continue
+                dim_val = tshape[offset + i]
+                if ch not in label_to_dims:
+                    label_to_dims[ch] = []
+                label_to_dims[ch].append(dim_val)
+
+        # Compute broadcast shape for ellipsis dimensions
+        ellipsis_shape = []
+        if ellipsis_dims_list:
+            max_ndim = max(len(d) for d in ellipsis_dims_list)
+            # Pad shorter ellipsis shapes with 1s on the left (broadcast semantics)
+            padded_shapes = []
+            for d in ellipsis_dims_list:
+                if len(d) < max_ndim:
+                    padded_shapes.append([1] * (max_ndim - len(d)) + list(d))
+                else:
+                    padded_shapes.append(list(d))
+            for dims in zip(*padded_shapes):
+                ellipsis_shape.append(max(dims))
+
+        # Build output shape: first ellipsis dims, then output labels
+        shape.extend(ellipsis_shape)
+
+        # For each output label, take the max across all inputs (broadcast)
+        for ch in self.output_label_str:
+            if ch == '.':
+                continue
+            if ch in label_to_dims:
+                shape.append(max(label_to_dims[ch]))
+            else:
+                # Label not found in any input (shouldn't happen in valid equations)
+                shape.append(1)
+
         outtensors[0].update_shape(shape)
         outtensors[0].update_dtype(intensors[0].dtype)
 
@@ -1103,9 +1189,9 @@ class EinsumNode(Node):
         shape0 = intensors[0].get_shape()
         shape1 = intensors[1].get_shape()
         for i, v in enumerate(shape0):
-            map[self.ashape[i]] = v
+            map[self.input_labels[0].replace('.', '')[i]] = v
         for i, v in enumerate(shape1):
-            map[self.bshape[i]] = v
+            map[self.input_labels[1].replace('.', '')[i]] = v
         for key in map.keys():
             macs *= map[key]
         return [macs, 0]

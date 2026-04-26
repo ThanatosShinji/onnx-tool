@@ -1167,28 +1167,6 @@ class Graph():
             vcount += len(dstranges)
         return shapeengine
 
-    @staticmethod
-    def __merge_free_blocks__(mem_tags, mem_block):
-        """Merge consecutive free blocks to reduce fragmentation."""
-        i = 0
-        while i < len(mem_tags):
-            if mem_tags[i] == "":
-                # merge with next free blocks
-                j = i + 1
-                while j < len(mem_tags) and mem_tags[j] == "":
-                    j += 1
-                if j > i + 1:
-                    # merge blocks [i, j-1] into one
-                    new_start = mem_block[i][0]
-                    new_end = mem_block[j - 1][0] + mem_block[j - 1][1]
-                    new_block = [new_start, new_end - new_start]
-                    # remove merged blocks (j-1 down to i+1)
-                    for k in range(j - 1, i, -1):
-                        mem_tags.pop(k)
-                        mem_block.pop(k)
-                    mem_block[i] = new_block
-            i += 1
-
     def compress_memory(self, size_padding=64):
         tensor_in_mem = copy.deepcopy(self.input)
         tensor_mem_per_node = []

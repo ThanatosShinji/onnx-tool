@@ -1030,6 +1030,7 @@ class DepthToSpaceNode(Node):
 def one_hot(indices, depth, axis=-1, dtype=numpy.float32):  # type: ignore
     ''' Compute one hot from indices at a specific axis '''
     values = numpy.asarray(indices)
+    depth = depth.item() if hasattr(depth, 'item') else int(depth)
     rank = len(values.shape)
     depth_range = numpy.arange(depth)
     if axis < 0:
@@ -1046,6 +1047,16 @@ class OneHotNode(Node):
     def __init__(self, nodeproto):
         super().__init__(nodeproto)
         self.add_default_value('axis', -1)
+
+    def shape_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
+        indices_shape = intensors[0].get_shape()
+        depth = int(intensors[1].get_scalar())
+        axis = _axes_neg2pos(len(indices_shape) + 1, [self.axis])[0]
+
+        outshape = list(indices_shape)
+        outshape.insert(axis, depth)
+        outtensors[0].update_shape(outshape)
+        outtensors[0].update_dtype(intensors[2].dtype)
 
     def value_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
         indices = intensors[0].get_numpy()

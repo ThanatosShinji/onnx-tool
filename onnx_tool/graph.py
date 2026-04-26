@@ -1167,6 +1167,28 @@ class Graph():
             vcount += len(dstranges)
         return shapeengine
 
+    @staticmethod
+    def __merge_free_blocks__(mem_tags, mem_block):
+        """Merge consecutive free blocks to reduce fragmentation."""
+        i = 0
+        while i < len(mem_tags):
+            if mem_tags[i] == "":
+                # merge with next free blocks
+                j = i + 1
+                while j < len(mem_tags) and mem_tags[j] == "":
+                    j += 1
+                if j > i + 1:
+                    # merge blocks [i, j-1] into one
+                    new_start = mem_block[i][0]
+                    new_end = mem_block[j - 1][0] + mem_block[j - 1][1]
+                    new_block = [new_start, new_end - new_start]
+                    # remove merged blocks (j-1 down to i+1)
+                    for k in range(j - 1, i, -1):
+                        mem_tags.pop(k)
+                        mem_block.pop(k)
+                    mem_block[i] = new_block
+            i += 1
+
     def compress_memory(self, size_padding=64):
         tensor_in_mem = copy.deepcopy(self.input)
         tensor_mem_per_node = []
@@ -1190,16 +1212,21 @@ class Graph():
         for output in self.output:
             if output not in tensor_in_mem:
                 warnings.warn(f'tensor list is wrong, {output} is missing!')
-        # print(tensor_mem_per_node)
+
         compress_mem = {}
         mem_tags = []
         mem_block = []
+        # Split threshold: only split when remaining space >= this value
+        # Use a smaller threshold (aligned to padding) to reduce waste
+        split_threshold = max(size_padding, 4096)
+
         for nodetensors in tensor_mem_per_node:
-            # clear mem tags
+            # ---- Phase 1: Release tensors no longer alive (with inline merge) ----
             for i, tag in enumerate(mem_tags):
                 if tag == "":
                     continue
                 if tag not in nodetensors:
+                    # Mark as free, then merge with adjacent free blocks
                     premerge = False
                     if i >= 1 and mem_tags[i - 1] == "":
                         premerge = True
@@ -1232,29 +1259,41 @@ class Graph():
                     else:
                         mem_tags[i] = ""
 
-            # push tensor mem to block
+            # ---- Phase 2: Allocate new tensors (Best-Fit strategy) ----
             for tname in nodetensors:
+                if tname in mem_tags:
+                    continue
                 t_ = self.tensormap[tname]
                 size_ = t_.get_memsize()
                 size_ = int((size_ + size_padding - 1) // size_padding * size_padding)
-                if tname in mem_tags:
-                    continue
-                block_found = False
+
+                # Best-Fit: find the smallest free block that fits
+                best_idx = -1
+                best_remain = None  # (remain_size, remain_block)
                 for i, tag in enumerate(mem_tags):
                     if tag == "":
-                        if mem_block[i][1] >= size_:
-                            remain_size = mem_block[i][1] - size_
-                            if remain_size > 1024 * 1024:
-                                remain_block = [mem_block[i][0] + size_, remain_size]
-                                mem_tags[i] = tname
-                                mem_block[i][1] = size_
-                                mem_tags.insert(i + 1, "")
-                                mem_block.insert(i + 1, remain_block)
-                            else:
-                                mem_tags[i] = tname
-                            block_found = True
-                            break
-                if not block_found:
+                        free_size = mem_block[i][1]
+                        if free_size >= size_:
+                            remain_size = free_size - size_
+                            if best_idx == -1 or remain_size < best_remain[0]:
+                                best_idx = i
+                                best_remain = [remain_size, [mem_block[i][0] + size_, remain_size]]
+
+                if best_idx >= 0:
+                    i = best_idx
+                    remain_size = best_remain[0]
+                    if remain_size >= split_threshold:
+                        # Split: keep the remainder as a new free block
+                        remain_block = best_remain[1]
+                        mem_tags[i] = tname
+                        mem_block[i][1] = size_
+                        mem_tags.insert(i + 1, "")
+                        mem_block.insert(i + 1, remain_block)
+                    else:
+                        # Don't split: allocate the whole block (absorb small remainder)
+                        mem_tags[i] = tname
+                else:
+                    # No free block found: append at the end
                     lastidx = len(mem_tags) - 1
                     if lastidx >= 0 and mem_tags[lastidx] == "":
                         mem_block[lastidx][1] = size_
@@ -1271,7 +1310,7 @@ class Graph():
 
         lastblock = mem_block[-1]
         compress_size = lastblock[0] + lastblock[1]
-        # print(compress_mem)
+
         # validate memory
         for nodetensors in tensor_mem_per_node:
             maxmem = 0

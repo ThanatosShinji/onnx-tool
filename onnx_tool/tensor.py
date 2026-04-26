@@ -18,8 +18,11 @@ def shape_of_tensor(tensor):
     for nb in tensor.type.tensor_type.shape.dim:
         if nb.HasField('dim_value'):
             shape.append(nb.dim_value)
-        if nb.HasField('dim_param'):
+        elif nb.HasField('dim_param'):
             shape.append(nb.dim_param)
+        else:
+            # unknown dim, use -1 as placeholder
+            shape.append(-1)
     return shape
 
 

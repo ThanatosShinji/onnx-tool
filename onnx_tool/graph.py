@@ -1238,7 +1238,11 @@ class Graph():
                         mem_tags[i] = ""
 
             # ---- Phase 2: Allocate new tensors (Best-Fit strategy) ----
-            for tname in nodetensors:
+            # Sort new tensors by size descending to reduce fragmentation
+            new_tensors = [t for t in nodetensors if t not in mem_tags]
+            new_tensors.sort(key=lambda t: self.tensormap[t].get_memsize() if t in self.tensormap else 0, reverse=True)
+
+            for tname in new_tensors:
                 if tname in mem_tags:
                     continue
                 t_ = self.tensormap[tname]
@@ -1284,25 +1288,31 @@ class Graph():
                             mem_block.append([0, size_])
 
                 idx = mem_tags.index(tname)
-                compress_mem[tname] = mem_block[idx]
+                # Store a copy to avoid list reference aliasing
+                compress_mem[tname] = [mem_block[idx][0], mem_block[idx][1]]
 
-        lastblock = mem_block[-1]
-        compress_size = lastblock[0] + lastblock[1]
+        # ---- Tail compression: trim unused space at the end ----
+        last_used_end = max(b[0] + b[1] for b in mem_block) if mem_block else 0
+        compress_size = last_used_end
 
         # validate memory
         for nodetensors in tensor_mem_per_node:
             maxmem = 0
             overlap = False
             for tname in nodetensors:
+                if tname not in compress_mem:
+                    continue
                 block = compress_mem[tname]
                 if block[0] + block[1] > maxmem:
                     maxmem = block[0] + block[1]
             for tname in nodetensors:
+                if tname not in compress_mem:
+                    continue
                 block0 = compress_mem[tname]
                 if block0[1] == 0:
                     continue
                 for tname1 in nodetensors:
-                    if tname1 == tname:
+                    if tname1 == tname or tname1 not in compress_mem:
                         continue
                     block1 = compress_mem[tname1]
                     if block1[1] == 0:

@@ -20,6 +20,10 @@
   - Rapid shape inference
   - MACs/parameter statistics with sparsity awareness
 - **Compute Graph Engine**: Runtime shape computation with minimal overhead ([details](#compute_graph-header))
+- **Inference Engine**: PyTorch-backed graph inference with memory pool ([details](inference/README.md))
+  - 40+ registered op kernels (Conv, Add, Relu, Gemm, etc.)
+  - Up to **11.3x faster** than PyTorch in dynamic resolution scenarios
+  - **54% memory reduction** via two-pass compression algorithm
 - **Memory Compression**:
   - Activation memory optimization (up to 95% reduction)
   - Weight quantization (FP16, INT8/INT4 with per-tensor/channel/block schemes)
@@ -149,6 +153,42 @@ Reuses temporary buffers to minimize peak memory usage – critical for LLMs and
 
 > ✅ Typical models achieve **>90% activation memory reduction**  
 > 📌 Implementation: [`benchmark/compression.py`](benchmark/compression.py)
+
+The `compress_memory()` algorithm has been patched with two improvements (see [`onnx_tool/graph.py`](onnx_tool/graph.py)):
+1. **Size-sorted allocation**: New tensors within each node are allocated in descending size order, reducing fragmentation
+2. **Tail compression**: Unused space at the end of the memory pool is trimmed
+3. **List reference fix**: Each tensor's `[offset, size]` is stored as an independent copy, preventing accidental cross-tensor aliasing
+
+Benchmark results across models:
+
+ model                         | Native(MB) | Compressed(MB) | Ratio(%)
+-------------------------------|------------|----------------|----------
+ VAE encoder                   | 11,313.6   | **512.0**      | 4.53
+ VAE decoder                   | 19,816.2   | **896.1**      | 4.52
+ Text encoder                  | 172.5      | **3.7**        | 2.12
+ GPT2                          | 381.1      | **16.1**       | 4.23
+ ResNet50                      | 279.3      | **10.7**       | 3.84
+
+> ✅ Optimized algorithm achieves **up to 54% additional pool reduction** (ResNet50: 21.4→10.7 MB vs original)
+
+### Inference Engine
+
+The [`inference/`](inference/) module provides a complete PyTorch-backed inference engine built on the compressed memory pool:
+
+- **MemoryPool**: Zero-copy tensor views into a pre-allocated contiguous buffer
+- **Kernel Registry**: 40+ registered op kernels (Conv, Add, Relu, Gemm, MatMul, etc.)
+- **GraphInfer**: Graph-level inference with shape engine integration
+
+**Performance highlights** (ResNet18 on Intel XPU):
+
+| Metric | PyTorch | GraphInfer | Improvement |
+|--------|---------|------------|-------------|
+| Single inference (1080p) | 0.0151s | **0.0167s** | 0.91x (on par) |
+| Sequential 7 resolutions | 1820ms | **162ms** | **11.3x faster** |
+| Peak XPU memory (4K) | 2338 MB | **1926 MB** | **17.6% less** |
+| Memory pool (4K) | — | **1012 MB** | Fixed size |
+
+> 📌 See [`inference/README.md`](inference/README.md) for full benchmark details
 > 
 ### Weight Compression
 Essential for deploying large models on memory-constrained devices:

@@ -139,3 +139,4 @@ dmypy.json
 *.output
 /data/public/unet/
 /*.cm
+/inference/data

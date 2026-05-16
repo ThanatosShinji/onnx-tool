@@ -42,8 +42,8 @@ class GraphInfer:
         self.dtype = dtype
         self.device = device
 
-        # 1. 加载模型
-        self._model = onnx_tool.Model(onnx_path)
+        # 1. 加载模型（启用 constant folding，折叠常量子图）
+        self._model = onnx_tool.Model(onnx_path, {'constant_folding': True})
         self._graph = self._model.graph
 
         # 2. 节点重排
@@ -336,8 +336,11 @@ class GraphInfer:
                                        lookup_time, kernel_time))
                     overhead_total += overhead
             else:
-                if debug:
-                    print(f"    >> No registered kernel for '{node.op_type}', skipping")
+                raise RuntimeError(
+                    f"Unsupported op_type '{node.op_type}' in node '{node_name}'. "
+                    f"No registered kernel found. "
+                    f"Registered ops: {sorted(KernelRegistry.registered_ops())}"
+                )
 
             # 缓存本次构建的 tensor 视图
             if rebuild_cache:

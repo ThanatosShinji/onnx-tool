@@ -48,6 +48,9 @@ class Kernel:
     """
     算子内核基类。
     子类需实现 run(inputs, outputs, attrs) 方法。
+
+    可选实现 preprocess_weight，在 GraphInfer 初始化时对 weight 做前处理
+    （如格式转换、常量折叠等），处理后的 tensor 会替换原始 weight 缓存。
     """
     op_type: str = ""
 
@@ -66,6 +69,22 @@ class Kernel:
             attrs: 算子属性字典
         """
         raise NotImplementedError
+
+    @staticmethod
+    def preprocess_weight(src_name: str, tensor: torch.Tensor, attrs: Dict) -> torch.Tensor:
+        """可选：对 weight 常量做前处理，返回处理后的 tensor。
+
+        如果子类不重写此方法，默认返回原 tensor（不做处理）。
+
+        Args:
+            src_name: 该 tensor 在 ONNX 图中的名称（如 '/conv1/Conv_weight'）
+            tensor: 已加载到目标设备的原始 weight tensor
+            attrs: 使用该 weight 的节点的属性字典
+
+        Returns:
+            处理后的 weight tensor
+        """
+        return tensor
 
 
 # ===========================================================================
@@ -268,13 +287,22 @@ class GemmKernel(Kernel):
 
         if transA:
             A = A.T
-        if transB:
-            B = B.T
+        # B 已在 preprocess_weight 中预转置，无需再次转置
+        # if transB:
+        #     B = B.T
 
         result = alpha * torch.mm(A, B)
         if C is not None:
             result += beta * C
         outputs[0].copy_(result)
+
+    @staticmethod
+    def preprocess_weight(src_name: str, tensor: torch.Tensor, attrs: Dict) -> torch.Tensor:
+        """Gemm weight 前处理：如果 transB=1，预转置 weight 矩阵。"""
+        transB = attrs.get('transB', 0)
+        if transB:
+            tensor = tensor.T.contiguous()
+        return tensor
 
 
 @KernelRegistry.register("MatMul")

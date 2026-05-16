@@ -31,20 +31,38 @@ def run_pytorch(
     input_tensor: torch.Tensor,
     num_warmup: int = 10,
     num_iter: int = 50,
+    use_fp16: bool = False,
 ) -> tuple:
-    """使用 PyTorch 推理，返回 (输出, 耗时秒, 内存增量MB)"""
+    """使用 PyTorch 推理，返回 (输出, 耗时秒, 内存增量MB)
+
+    Args:
+        use_fp16: 如果为 True，在 XPU 上使用 autocast(fp16) 进行半精度推理。
+    """
+    is_xpu = input_tensor.device.type == 'xpu'
+
+    def _run_inference():
+        if use_fp16 and is_xpu:
+            if hasattr(torch.xpu, 'amp') and hasattr(torch.xpu.amp, 'autocast'):
+                with torch.xpu.amp.autocast(dtype=torch.float16):
+                    return model(input_tensor)
+            else:
+                with torch.cuda.amp.autocast(dtype=torch.float16):
+                    return model(input_tensor)
+        else:
+            return model(input_tensor)
+
     for _ in range(num_warmup):
         with torch.no_grad():
-            _ = model(input_tensor)
-    if torch.xpu.is_available():
+            _ = _run_inference()
+    if is_xpu:
         torch.xpu.synchronize()
 
     mem_before = get_memory_usage()
     start = time.perf_counter()
     for _ in range(num_iter):
         with torch.no_grad():
-            output = model(input_tensor)
-    if torch.xpu.is_available():
+            output = _run_inference()
+    if is_xpu:
         torch.xpu.synchronize()
     elapsed = (time.perf_counter() - start) / num_iter
 
@@ -100,6 +118,53 @@ def run_graphinfer(
     return outputs['output'].cpu().numpy(), elapsed, mem_after - mem_before
 
 
+def profile_graphinfer_overhead(
+    engine,
+    input_tensor: torch.Tensor,
+    device: str,
+    num_iter: int = 20,
+) -> dict:
+    """使用 profile 模式运行 GraphInfer，分析 overhead 占比。
+
+    Returns:
+        dict: 包含 overhead_total, kernel_total, total_time, overhead_pct 等统计
+    """
+    # warmup
+    for _ in range(5):
+        engine.forward({'input': input_tensor}, debug=False)
+    if device == 'xpu':
+        torch.xpu.synchronize()
+
+    # profile run
+    outputs = engine.forward({'input': input_tensor}, debug=False, profile=True)
+    if device == 'xpu':
+        torch.xpu.synchronize()
+
+    profile_data = outputs['__profile__']
+    engine.print_profile(profile_data)
+
+    overhead_total = profile_data['overhead_total']
+    kernel_total = sum(profile_data['op_time'].values())
+    total_time = overhead_total + kernel_total
+    ob = profile_data.get('overhead_breakdown', {})
+
+    result = {
+        'overhead_total': overhead_total,
+        'kernel_total': kernel_total,
+        'total_time': total_time,
+        'overhead_pct': overhead_total / total_time * 100 if total_time > 0 else 0,
+        'kernel_pct': kernel_total / total_time * 100 if total_time > 0 else 0,
+        'num_nodes': len(profile_data['node_times']),
+        'avg_overhead_per_node': overhead_total / len(profile_data['node_times']) * 1000 if profile_data['node_times'] else 0,
+        'overhead_breakdown': {
+            'resolve_input': ob.get('resolve_input', 0),
+            'prepare_output': ob.get('prepare_output', 0),
+            'kernel_lookup': ob.get('kernel_lookup', 0),
+        },
+    }
+    return result
+
+
 def compare_outputs(
     ref_output: np.ndarray,
     test_output: np.ndarray,
@@ -133,7 +198,7 @@ def compare_outputs(
 
 
 def main():
-    resolution = 224
+    resolution = 640
     onnx_path = "resnet18.onnx"
 
     print(f"PyTorch/GraphInfer device: XPU")
@@ -152,6 +217,11 @@ def main():
     pytorch_model_xpu = torchvision.models.resnet18(
         weights=torchvision.models.ResNet18_Weights.IMAGENET1K_V1)
     pytorch_model_xpu.eval().to('xpu')
+
+    # XPU FP16 模型（半精度）
+    pytorch_model_xpu_fp16 = torchvision.models.resnet18(
+        weights=torchvision.models.ResNet18_Weights.IMAGENET1K_V1)
+    pytorch_model_xpu_fp16.eval().to('xpu').to(torch.float16)
 
     # 导出 ONNX（用 CPU 模型导出）
     dummy = torch.randn(1, 3, resolution, resolution)
@@ -194,6 +264,17 @@ def main():
     )
     infer_engine_cpu.print_summary()
 
+    # GraphInfer XPU FP16
+    print("\n--- GraphInfer (XPU FP16) ---")
+    infer_engine_xpu_fp16 = GraphInfer(
+        onnx_path,
+        {'input': ('batch', 3, 'height', 'width')},
+        {'batch': (1, 1), 'height': (resolution, resolution), 'width': (resolution, resolution)},
+        dtype=torch.float16,
+        device='xpu',
+    )
+    infer_engine_xpu_fp16.print_summary()
+
     # ===== 4. 准备输入数据 =====
     print("\n=== 4. Preparing input data ===")
     np.random.seed(42)
@@ -225,6 +306,16 @@ def main():
     print("\n--- GraphInfer (XPU) ---")
     gi_xpu_output, gi_xpu_time, gi_xpu_mem = run_graphinfer(infer_engine_xpu, input_tensor.to('xpu'), 'xpu')
 
+    # PyTorch XPU FP16
+    print("\n--- PyTorch (XPU FP16) ---")
+    pt_xpu_fp16_output, pt_xpu_fp16_time, pt_xpu_fp16_mem = run_pytorch(
+        pytorch_model_xpu_fp16, input_tensor.to('xpu').to(torch.float16), use_fp16=False)
+
+    # GraphInfer XPU FP16
+    print("\n--- GraphInfer (XPU FP16) ---")
+    gi_xpu_fp16_output, gi_xpu_fp16_time, gi_xpu_fp16_mem = run_graphinfer(
+        infer_engine_xpu_fp16, input_tensor.to('xpu').to(torch.float16), 'xpu')
+
     # ===== 6. 比较输出 =====
     print("\n=== 6. Comparing outputs ===")
 
@@ -243,7 +334,39 @@ def main():
     print("\n--- Cross: ONNX Runtime (CPU) vs GraphInfer (XPU) ---")
     match_gi_xpu_ort = compare_outputs(onnx_output, gi_xpu_output, "ONNX Runtime(CPU)", "GraphInfer(XPU)")
 
-    # ===== 7. 汇总 =====
+    print("\n--- XPU FP16: PyTorch vs GraphInfer ---")
+    match_gi_xpu_fp16_pt = compare_outputs(
+        pt_xpu_fp16_output, gi_xpu_fp16_output, "PyTorch(XPU FP16)", "GraphInfer(XPU FP16)",
+        rtol=1e-2, atol=1e-3)
+
+    print("\n--- Cross: ONNX Runtime (CPU) vs GraphInfer (XPU FP16) ---")
+    match_gi_xpu_fp16_ort = compare_outputs(
+        onnx_output, gi_xpu_fp16_output, "ONNX Runtime(CPU)", "GraphInfer(XPU FP16)",
+        rtol=1e-2, atol=1e-3)
+
+    print("\n--- Cross: ONNX Runtime (CPU) vs PyTorch (XPU FP16) ---")
+    match_pt_xpu_fp16_ort = compare_outputs(
+        onnx_output, pt_xpu_fp16_output, "ONNX Runtime(CPU)", "PyTorch(XPU FP16)",
+        rtol=1e-2, atol=1e-3)
+
+    # ===== 7. Overhead Profiling =====
+    print("\n=== 7. Overhead Profiling (GraphInfer XPU FP32) ===")
+    prof_result = profile_graphinfer_overhead(
+        infer_engine_xpu, input_tensor.to('xpu'), 'xpu', num_iter=20)
+
+    print(f"\nOverhead Summary:")
+    print(f"  Total nodes: {prof_result['num_nodes']}")
+    print(f"  Total time: {prof_result['total_time']*1000:.4f} ms")
+    print(f"  Kernel time: {prof_result['kernel_total']*1000:.4f} ms ({prof_result['kernel_pct']:.1f}%)")
+    print(f"  Overhead time: {prof_result['overhead_total']*1000:.4f} ms ({prof_result['overhead_pct']:.1f}%)")
+    print(f"  Avg overhead per node: {prof_result['avg_overhead_per_node']:.4f} ms")
+    ob = prof_result['overhead_breakdown']
+    print(f"\n  Overhead Breakdown:")
+    print(f"    Resolve Input:   {ob['resolve_input']*1000:.4f} ms ({ob['resolve_input']/prof_result['overhead_total']*100:.1f}%)")
+    print(f"    Prepare Output:  {ob['prepare_output']*1000:.4f} ms ({ob['prepare_output']/prof_result['overhead_total']*100:.1f}%)")
+    print(f"    Kernel Lookup:   {ob['kernel_lookup']*1000:.4f} ms ({ob['kernel_lookup']/prof_result['overhead_total']*100:.1f}%)")
+
+    # ===== 8. 汇总 =====
     # CPU 表
     print(f"\n{'='*75}")
     print("PERFORMANCE SUMMARY — CPU")
@@ -256,17 +379,18 @@ def main():
     print("=" * 75)
 
     # XPU 表
-    print(f"\n{'='*60}")
+    print(f"\n{'='*80}")
     print("PERFORMANCE SUMMARY — XPU")
-    print("=" * 60)
-    print(f"{'':<20} {'PyTorch':>12} {'GraphInfer':>12} {'Speedup':>10}")
-    print(f"{'':<20} {'(XPU)':>12} {'(XPU)':>12} {'':>10}")
-    print("-" * 54)
-    print(f"{'Time (s)':<20} {pt_xpu_time:>12.4f} {gi_xpu_time:>12.4f} {pt_xpu_time/gi_xpu_time:>9.2f}x")
-    print(f"{'Mem Δ (MB)':<20} {pt_xpu_mem:>12.2f} {gi_xpu_mem:>12.2f} {'':>10}")
-    print("=" * 60)
+    print("=" * 80)
+    print(f"{'':<22} {'PyTorch':>12} {'GraphInfer':>12} {'Speedup':>10} {'PyTorch':>12} {'GraphInfer':>12}")
+    print(f"{'':<22} {'(FP32)':>12} {'(FP32)':>12} {'':>10} {'(FP16)':>12} {'(FP16)':>12}")
+    print("-" * 80)
+    print(f"{'Time (s)':<22} {pt_xpu_time:>12.4f} {gi_xpu_time:>12.4f} {pt_xpu_time/gi_xpu_time:>9.2f}x {pt_xpu_fp16_time:>12.4f} {gi_xpu_fp16_time:>12.4f}")
+    print(f"{'Mem Δ (MB)':<22} {pt_xpu_mem:>12.2f} {gi_xpu_mem:>12.2f} {'':>10} {pt_xpu_fp16_mem:>12.2f} {gi_xpu_fp16_mem:>12.2f}")
+    print("=" * 80)
 
-    all_pass = match_gi_cpu_ort and match_gi_cpu_pt and match_gi_xpu_pt
+    all_pass = (match_gi_cpu_ort and match_gi_cpu_pt and match_gi_xpu_pt
+                and match_gi_xpu_fp16_pt)
     if all_pass:
         print("✓ All tests passed!")
     else:

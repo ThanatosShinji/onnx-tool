@@ -867,6 +867,11 @@ class Graph():
 
         inputs = []
         outputs = []
+        # 收集有 numpy 数据的 initializer 名称（这些会作为 ONNX initializer 导出）
+        initializer_names = set()
+        if initializer:
+            for proto in initializer:
+                initializer_names.add(proto.name)
         for name in inputnames:
             if name in self.tensormap:
                 proto = self.tensormap[name].make_value_proto(make_dummy=True)
@@ -874,6 +879,14 @@ class Graph():
                     inputs.append(proto)
             else:
                 inputs.append(onnx.helper.make_tensor_value_info(name, 1, None))
+        # 把没有 numpy 数据的 initializer 也作为 graph input（保留 shape 信息）
+        for name in self.initials:
+            if name in initializer_names:
+                continue  # 已有 numpy 数据，作为 initializer 导出
+            if name in self.tensormap:
+                proto = self.tensormap[name].make_value_proto(make_dummy=True)
+                if proto is not None:
+                    inputs.append(proto)
         for name in outputnames:
             if name in self.tensormap:
                 proto = self.tensormap[name].make_value_proto(make_dummy=True)
@@ -1168,6 +1181,17 @@ class Graph():
         return shapeengine
 
     def compress_memory(self, size_padding=64):
+        """两遍内存压缩算法（Best-Fit 策略）。
+
+        Pass 1: 获取每个 tensor 的生命周期信息
+        Pass 2: 按大小降序分配，Best-Fit 选择最匹配的空闲块
+
+        只处理 activation tensor（由节点产生的动态 tensor），
+        跳过 weight/bias 等常量（不在 producedby 中的 tensor）。
+
+        Returns:
+            (compress_mem, compress_size)
+        """
         tensor_in_mem = copy.deepcopy(self.input)
         tensor_mem_per_node = []
         tensor_consumed = {}
@@ -1190,6 +1214,21 @@ class Graph():
         for output in self.output:
             if output not in tensor_in_mem:
                 warnings.warn(f'tensor list is wrong, {output} is missing!')
+
+        # 预计算每个 tensor 的 padded size，过滤掉常量（weight/bias）
+        # 规则：
+        #   1. 被节点产生的 tensor（producedby）参与内存复用
+        #   2. graph input 也需要分配内存
+        #   3. weight/bias 等常量（在 input 中但不在 producedby 中）不参与内存复用
+        tensor_sizes = {}
+        for tname in self.dynamics:
+            if tname not in self.producedby and tname not in self.input:
+                continue
+            if tname in self.tensormap:
+                size_ = self.tensormap[tname].get_memsize()
+                size_ = int((size_ + size_padding - 1) // size_padding * size_padding)
+                if size_ > 0:
+                    tensor_sizes[tname] = size_
 
         compress_mem = {}
         mem_tags = []
@@ -1239,15 +1278,13 @@ class Graph():
 
             # ---- Phase 2: Allocate new tensors (Best-Fit strategy) ----
             # Sort new tensors by size descending to reduce fragmentation
-            new_tensors = [t for t in nodetensors if t not in mem_tags]
-            new_tensors.sort(key=lambda t: self.tensormap[t].get_memsize() if t in self.tensormap else 0, reverse=True)
+            new_tensors = [t for t in nodetensors if t not in mem_tags and t in tensor_sizes]
+            new_tensors.sort(key=lambda t: -tensor_sizes[t])
 
             for tname in new_tensors:
                 if tname in mem_tags:
                     continue
-                t_ = self.tensormap[tname]
-                size_ = t_.get_memsize()
-                size_ = int((size_ + size_padding - 1) // size_padding * size_padding)
+                size_ = tensor_sizes[tname]
 
                 # Best-Fit: find the smallest free block that fits
                 best_idx = -1

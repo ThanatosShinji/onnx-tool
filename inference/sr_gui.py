@@ -143,7 +143,7 @@ class SREngine:
             return 4
         return 4
 
-    def initialize(self, max_height: int = 2160, max_width: int = 3840):
+    def initialize(self, max_height: int = 1080, max_width: int = 1920):
         """初始化 GraphInfer"""
         from inference.infer import GraphInfer
 

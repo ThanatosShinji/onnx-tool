@@ -145,7 +145,7 @@ class AddKernel(Kernel):
 
     @staticmethod
     def run(inputs, outputs, attrs):
-        outputs[0].copy_(inputs[0] + inputs[1])
+        torch.add(inputs[0], inputs[1], out=outputs[0])
 
 
 @KernelRegistry.register("Sub")
@@ -154,7 +154,7 @@ class SubKernel(Kernel):
 
     @staticmethod
     def run(inputs, outputs, attrs):
-        outputs[0].copy_(inputs[0] - inputs[1])
+        torch.sub(inputs[0], inputs[1], out=outputs[0])
 
 
 @KernelRegistry.register("Mul")
@@ -163,7 +163,7 @@ class MulKernel(Kernel):
 
     @staticmethod
     def run(inputs, outputs, attrs):
-        outputs[0].copy_(inputs[0] * inputs[1])
+        torch.mul(inputs[0], inputs[1], out=outputs[0])
 
 
 @KernelRegistry.register("Div")
@@ -172,7 +172,7 @@ class DivKernel(Kernel):
 
     @staticmethod
     def run(inputs, outputs, attrs):
-        outputs[0].copy_(inputs[0] / inputs[1])
+        torch.div(inputs[0], inputs[1], out=outputs[0])
 
 
 @KernelRegistry.register("Relu")
@@ -181,7 +181,7 @@ class ReluKernel(Kernel):
 
     @staticmethod
     def run(inputs, outputs, attrs):
-        outputs[0].copy_(F.relu(inputs[0]))
+        outputs[0].copy_(torch.relu(inputs[0]))
 
 
 @KernelRegistry.register("Sigmoid")
@@ -228,7 +228,7 @@ class ClipKernel(Kernel):
             _max = inputs[2].item()
         else:
             _max = attrs.get('max', 3.4e38)
-        outputs[0].copy_(torch.clamp(t, _min, _max))
+        torch.clamp(t, _min, _max, out=outputs[0])
 
 
 @KernelRegistry.register("Reshape")
@@ -291,10 +291,11 @@ class GemmKernel(Kernel):
         # if transB:
         #     B = B.T
 
-        result = alpha * torch.mm(A, B)
+        torch.mm(A, B, out=outputs[0])
+        if alpha != 1.0:
+            outputs[0].mul_(alpha)
         if C is not None:
-            result += beta * C
-        outputs[0].copy_(result)
+            outputs[0].add_(beta * C)
 
     @staticmethod
     def preprocess_weight(src_name: str, tensor: torch.Tensor, attrs: Dict) -> torch.Tensor:
@@ -311,7 +312,9 @@ class MatMulKernel(Kernel):
 
     @staticmethod
     def run(inputs, outputs, attrs):
-        outputs[0].copy_(torch.matmul(inputs[0], inputs[1]))
+        torch.matmul(inputs[0], inputs[1], out=outputs[0])
+        if len(inputs) > 2 and inputs[2] is not None:
+            outputs[0].add_(inputs[2])
 
 
 @KernelRegistry.register("BatchNormalization")
@@ -413,7 +416,7 @@ class ConcatKernel(Kernel):
     @staticmethod
     def run(inputs, outputs, attrs):
         axis = attrs.get('axis', 0)
-        outputs[0].copy_(torch.cat(inputs, dim=axis))
+        torch.cat(inputs, dim=axis, out=outputs[0])
 
 
 @KernelRegistry.register("Softmax")
@@ -459,7 +462,7 @@ class ShapeKernel(Kernel):
 
     @staticmethod
     def run(inputs, outputs, attrs):
-        shape_tensor = torch.tensor(inputs[0].shape, dtype=torch.int64)
+        shape_tensor = torch.tensor(inputs[0].shape, dtype=torch.int64, device=outputs[0].device)
         outputs[0].copy_(shape_tensor)
 
 
@@ -472,7 +475,18 @@ class GatherKernel(Kernel):
         axis = attrs.get('axis', 0)
         data = inputs[0]
         indices = inputs[1].long()
-        outputs[0].copy_(torch.gather(data, axis, indices))
+        # ONNX Gather: data[indices, ...] 沿 axis 维收集
+        # 使用 torch.index_select 更高效且语义正确
+        if indices.dim() > 1:
+            # 多维 indices: 需要先展平再 reshape
+            flat_idx = indices.reshape(-1)
+            result = torch.index_select(data, axis, flat_idx)
+            # 恢复 indices 的维度
+            out_shape = list(data.shape)
+            out_shape[axis] = indices.numel()
+            outputs[0].copy_(result.reshape(out_shape))
+        else:
+            outputs[0].copy_(torch.index_select(data, axis, indices))
 
 
 @KernelRegistry.register("Cast")
@@ -526,7 +540,7 @@ class WhereKernel(Kernel):
     @staticmethod
     def run(inputs, outputs, attrs):
         condition = inputs[0].bool()
-        outputs[0].copy_(torch.where(condition, inputs[1], inputs[2]))
+        torch.where(condition, inputs[1], inputs[2], out=outputs[0])
 
 
 @KernelRegistry.register("Equal")
@@ -535,7 +549,7 @@ class EqualKernel(Kernel):
 
     @staticmethod
     def run(inputs, outputs, attrs):
-        outputs[0].copy_(inputs[0] == inputs[1])
+        torch.eq(inputs[0], inputs[1], out=outputs[0])
 
 
 @KernelRegistry.register("Greater")
@@ -544,7 +558,7 @@ class GreaterKernel(Kernel):
 
     @staticmethod
     def run(inputs, outputs, attrs):
-        outputs[0].copy_(inputs[0] > inputs[1])
+        torch.gt(inputs[0], inputs[1], out=outputs[0])
 
 
 @KernelRegistry.register("Less")
@@ -553,7 +567,7 @@ class LessKernel(Kernel):
 
     @staticmethod
     def run(inputs, outputs, attrs):
-        outputs[0].copy_(inputs[0] < inputs[1])
+        torch.lt(inputs[0], inputs[1], out=outputs[0])
 
 
 @KernelRegistry.register("Neg")
@@ -562,7 +576,7 @@ class NegKernel(Kernel):
 
     @staticmethod
     def run(inputs, outputs, attrs):
-        outputs[0].copy_(-inputs[0])
+        outputs[0].copy_(torch.neg(inputs[0]))
 
 
 @KernelRegistry.register("Sqrt")
@@ -580,7 +594,7 @@ class PowKernel(Kernel):
 
     @staticmethod
     def run(inputs, outputs, attrs):
-        outputs[0].copy_(inputs[0] ** inputs[1])
+        torch.pow(inputs[0], inputs[1], out=outputs[0])
 
 
 @KernelRegistry.register("Erf")
@@ -589,7 +603,7 @@ class ErfKernel(Kernel):
 
     @staticmethod
     def run(inputs, outputs, attrs):
-        outputs[0].copy_(torch.erf(inputs[0]))
+        torch.erf(inputs[0], out=outputs[0])
 
 
 @KernelRegistry.register("ReduceMean")
@@ -701,3 +715,324 @@ class ResizeKernel(Kernel):
             torch_mode = {'nearest': 'nearest', 'linear': 'bilinear', 'cubic': 'bicubic'}.get(mode, 'nearest')
             result = F.interpolate(x, size=sizes[2:], mode=torch_mode)
             outputs[0].copy_(result)
+
+
+# ===========================================================================
+# Fused Ops for LLM (GPT2)
+# ===========================================================================
+
+@KernelRegistry.register("Layernrom")
+class LayerNormKernel(Kernel):
+    """Fused Layer Normalization: y = (x - mean) / sqrt(var + eps) * weight + bias"""
+    op_type = "Layernrom"
+
+    @staticmethod
+    def run(inputs, outputs, attrs):
+        x = inputs[0]       # [B, N, C]
+        weight = inputs[1]  # [C]
+        bias = inputs[2]    # [C]
+        axes = attrs.get('ReduceMean0_axes', [-1])
+        eps = 1e-5
+
+        mean = x.mean(dim=tuple(axes), keepdim=True)
+        var = x.var(dim=tuple(axes), keepdim=True, unbiased=False)
+        # y = (x - mean) / sqrt(var + eps) * weight + bias
+        torch.sub(x, mean, out=outputs[0])
+        inv_std = torch.rsqrt(var + eps)
+        outputs[0].mul_(inv_std).mul_(weight).add_(bias)
+
+
+@KernelRegistry.register("Mad")
+class MadKernel(Kernel):
+    """Fused Mul+Add: y = x * weight + bias"""
+    op_type = "Mad"
+
+    @staticmethod
+    def run(inputs, outputs, attrs):
+        x = inputs[0]
+        weight = inputs[1]
+        bias = inputs[2]
+        torch.mul(x, weight, out=outputs[0])
+        outputs[0].add_(bias)
+
+
+@KernelRegistry.register("Gelu")
+class GeluKernel(Kernel):
+    """Fused GELU activation: y = 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))"""
+    op_type = "Gelu"
+
+    @staticmethod
+    def run(inputs, outputs, attrs):
+        x = inputs[0]
+        outputs[0].copy_(F.gelu(x))
+
+
+@KernelRegistry.register("RangeGather")
+class RangeGatherKernel(Kernel):
+    """
+    Fused Range + Gather for positional embedding lookup with KV cache offset.
+    Generates position indices [n_past, n_past+1, ..., n_past+seq_len-1] and
+    gathers from position embedding table.
+    """
+    op_type = "RangeGather"
+
+    @staticmethod
+    def run(inputs, outputs, attrs):
+        # inputs: [seq_len_shape, const_of_shape_output, ..., pos_embed_weight, n_past]
+        seq_len_tensor = inputs[0]  # scalar tensor, sequence length
+        pos_weight = inputs[4]      # position embedding weight [max_len, C]
+        n_past = inputs[5]          # scalar tensor, past length
+
+        seq_len = int(seq_len_tensor.cpu().item())
+        past = int(n_past.cpu().item())
+
+        # Generate position indices [past, past+1, ..., past+seq_len-1]
+        indices = torch.arange(past, past + seq_len, device=pos_weight.device, dtype=torch.int64)
+
+        # Gather from position embedding
+        outputs[0].copy_(torch.index_select(pos_weight, 0, indices))
+
+
+# ===========================================================================
+# LLM 标准 Ops (Qwen3 / LLaMA 等)
+# ===========================================================================
+
+@KernelRegistry.register("LayerNormalization")
+class LayerNormKernel(Kernel):
+    """
+    Layer Normalization (支持 RMS Norm 和 per-head Q/K Norm).
+
+    ONNX 标准 LayerNormalization 节点。
+    attr['type'] == 'rms' 时为 RMS Norm（Qwen/LLaMA 使用）。
+
+    支持 per-head norm：当 weight.shape[-1] != x.shape[-1] 时，
+    自动将 x reshape 为 [..., N, head_dim] 沿最后一维做 norm。
+    （Qwen3 的 q_norm/k_norm 使用此模式）
+    """
+    op_type = "LayerNormalization"
+
+    @staticmethod
+    def run(inputs, outputs, attrs):
+        x = inputs[0]
+        weight = inputs[1]
+        bias = inputs[2] if len(inputs) > 2 else None
+        eps = attrs.get('epsilon', 1e-5)
+        norm_type = attrs.get('type', 'layer')
+
+        # 检测 per-head norm：weight 维度小于 x 最后一维
+        head_dim = weight.shape[-1]
+        if head_dim < x.shape[-1]:
+            # Per-head norm: reshape [B, S, N*head_dim] -> [B, S, N, head_dim]
+            N = x.shape[-1] // head_dim
+            x = x.reshape(*x.shape[:-1], N, head_dim)
+
+        if norm_type == 'rms':
+            # RMS Norm: y = x * rsqrt(mean(x^2) + eps) * weight
+            variance = x.pow(2).mean(-1, keepdim=True)
+            y = x * torch.rsqrt(variance + eps)
+            y = y * weight
+        else:
+            # Layer Norm: y = (x - mean) / sqrt(var + eps) * weight + bias
+            mean = x.mean(dim=-1, keepdim=True)
+            var = x.var(dim=-1, keepdim=True, unbiased=False)
+            y = (x - mean) / torch.sqrt(var + eps)
+            y = y * weight
+            if bias is not None:
+                y = y + bias
+
+        # 恢复原始 shape
+        if head_dim < inputs[0].shape[-1]:
+            y = y.reshape(inputs[0].shape)
+
+        outputs[0].copy_(y)
+
+
+@KernelRegistry.register("SDPA")
+class SDPAKernel(Kernel):
+    """
+    Scaled Dot-Product Attention (with optional KV cache).
+
+    支持两种输入格式：
+      4D: Q/K/V [B, N, S, head_dim]  (Builder 的 MHA 模式)
+      3D: Q/K/V [B, S, D]            (Builder 的 SDPA 模式, D = N * head_dim)
+
+    当 inputs 包含 5 个元素时，后两个是 n_past 和 kv_cache：
+      inputs[3]: n_past  (scalar tensor, current past length)
+      inputs[4]: kv_cache [B, 2*num_layers, context_len, kv_hidden_size]
+                 其中 kv_hidden_size = kv_head_num * head_dim
+                 layer_i 的 K 在 [:, layer_i*2, :, :], V 在 [:, layer_i*2+1, :, :]
+    """
+    op_type = "SDPA"
+
+    @staticmethod
+    def run(inputs, outputs, attrs):
+        q = inputs[0]
+        k = inputs[1]
+        v = inputs[2]
+
+        num_heads = attrs.get('head_num', 16)
+        kv_head_num = attrs.get('kv_head_num', num_heads)
+        layer_i = attrs.get('layer_i', 0)
+
+        # head_dim: 优先从 q 的实际 shape 推导（比 attrs['head_size'] 更可靠）
+        if q.dim() == 3:
+            head_dim = q.shape[-1] // num_heads
+            kv_hidden_size = k.shape[-1]  # 保存原始 K 的最后一维
+        else:
+            head_dim = q.shape[-1]
+            kv_hidden_size = k.shape[-1] * k.shape[-2] if k.dim() == 4 else k.shape[-1]
+
+        # 统一转为 4D [B, N, S, head_dim]
+        if q.dim() == 3:
+            B, S, D = q.shape
+            N = num_heads
+            q = q.reshape(B, S, N, head_dim).transpose(1, 2)  # [B, N, S, head_dim]
+            k = k.reshape(B, S, kv_head_num, head_dim).transpose(1, 2)
+            v = v.reshape(B, S, kv_head_num, head_dim).transpose(1, 2)
+        else:
+            B, N, S, _ = q.shape
+
+        # KV-cache: 拼接历史 K/V
+        has_kv_cache = len(inputs) >= 5 and inputs[4] is not None
+        if has_kv_cache:
+            n_past_tensor = inputs[3]
+            kv_cache = inputs[4]  # [B, 2*num_layers, context_len, kv_hidden_size]
+            if n_past_tensor is None:
+                n_past = 0
+            elif n_past_tensor.numel() == 1:
+                n_past = int(n_past_tensor.item())
+            else:
+                n_past = int(n_past_tensor[0, 0].item())
+
+            # kv_cache 是 4D: [B, 2*num_layers, context_len, kv_hidden_size]
+            # kv_hidden_size 已在上面从原始 K 的最后一维推导
+            cache_k = kv_cache[:, layer_i * 2, :n_past, :kv_hidden_size]  # [B, n_past, kv_hidden]
+            cache_v = kv_cache[:, layer_i * 2 + 1, :n_past, :kv_hidden_size]  # [B, n_past, kv_hidden]
+
+            # Reshape cache K/V to [B, kv_head_num, n_past, head_dim]
+            cache_k = cache_k.reshape(B, n_past, kv_head_num, head_dim).transpose(1, 2)
+            cache_v = cache_v.reshape(B, n_past, kv_head_num, head_dim).transpose(1, 2)
+
+            # 拼接历史和当前
+            k = torch.cat([cache_k, k], dim=2)  # [B, kv_head_num, n_past+S, head_dim]
+            v = torch.cat([cache_v, v], dim=2)
+
+            # 把当前 K/V 写回 kv_cache（只写 kv_hidden_size 个元素）
+            curr_k_flat = inputs[1].reshape(B, S, -1)  # [B, S, kv_hidden_size]
+            curr_v_flat = inputs[2].reshape(B, S, -1)  # [B, S, kv_hidden_size]
+            kv_cache[:, layer_i * 2, n_past:n_past + S, :kv_hidden_size] = curr_k_flat
+            kv_cache[:, layer_i * 2 + 1, n_past:n_past + S, :kv_hidden_size] = curr_v_flat
+
+            total_S = n_past + S
+        else:
+            total_S = S
+
+        # GQA: expand KV heads to match Q heads
+        if kv_head_num < num_heads:
+            repeat = num_heads // kv_head_num
+            k = k.repeat_interleave(repeat, dim=1)
+            v = v.repeat_interleave(repeat, dim=1)
+
+        # Scaled dot-product attention
+        scale = head_dim ** 0.5
+        attn = torch.matmul(q, k.transpose(-2, -1)) / scale
+
+        # Causal mask: Q 的每个 token 只能看到 K 中 <= 自己位置的 token
+        # 对于 KV-cache: Q 位置 [n_past, n_past+S), K 位置 [0, n_past+S)
+        if has_kv_cache:
+            # 构建 causal mask: [S, total_S]
+            mask = torch.full((S, total_S), float('-inf'), device=q.device)
+            for i in range(S):
+                q_pos = n_past + i
+                mask[i, :q_pos + 1] = 0.0
+            attn = attn + mask
+        else:
+            mask = torch.triu(torch.full((S, S), float('-inf'), device=q.device), diagonal=1)
+            attn = attn + mask
+
+        attn = F.softmax(attn, dim=-1)
+
+        # Weighted sum
+        out = torch.matmul(attn, v)  # [B, N, S, head_dim]
+        out = out.transpose(1, 2).contiguous().view(B, S, -1)  # [B, S, D]
+
+        outputs[0].copy_(out)
+
+
+@KernelRegistry.register("Rope")
+class RopeKernel(Kernel):
+    """
+    Rotary Position Embedding.
+
+    支持两种输入格式：
+      4D: x [B, N, S, head_dim]  (Builder 的 MHA 模式)
+      3D: x [B, S, D]            (Builder 的 SDPA 模式, D = N * head_dim)
+
+    RoPE 总是按 head_dim 维度应用，对于 3D 输入需要先 reshape。
+    cos/sin table 的最后一维是 head_dim/2。
+
+    inputs[1]: cos constant [1, 1, max_pos, head_dim/2] 或 [1, max_pos, head_dim/2]
+    inputs[2]: sin constant [1, 1, max_pos, head_dim/2] 或 [1, max_pos, head_dim/2]
+    inputs[3]: position [B, S] (每个 token 的位置索引)
+    """
+    op_type = "Rope"
+
+    @staticmethod
+    def run(inputs, outputs, attrs):
+        x = inputs[0]
+        cos_table = inputs[1]
+        sin_table = inputs[2]
+        position = inputs[3]   # [B, S]
+
+        # 从 cos/sin table 推断 head_dim
+        head_dim_half = cos_table.shape[-1]
+        head_dim = head_dim_half * 2
+
+        if x.dim() == 4:
+            B, N, S, HD = x.shape
+            # 已经是 [B, N, S, head_dim]
+            pass
+        else:
+            B, S, D = x.shape
+            N = D // head_dim  # 头数
+            x = x.reshape(B, S, N, head_dim).transpose(1, 2)  # [B, N, S, head_dim]
+
+        # 根据 position 索引从 cos/sin 表中 gather
+        pos_idx = position.long()  # [B, S]
+
+        # cos/sin table 可能是 [1, max_pos, half] 或 [1, 1, max_pos, half]
+        if cos_table.dim() == 3:
+            cos = cos_table.expand(B, -1, -1)  # [B, max_pos, half]
+            sin = sin_table.expand(B, -1, -1)
+            cos = torch.gather(cos, 1, pos_idx.unsqueeze(-1).expand(-1, -1, head_dim_half))
+            sin = torch.gather(sin, 1, pos_idx.unsqueeze(-1).expand(-1, -1, head_dim_half))
+            cos = cos.unsqueeze(1)  # [B, 1, S, half]
+            sin = sin.unsqueeze(1)
+        else:
+            cos = cos_table.expand(B, -1, -1, -1)  # [B, 1, max_pos, half]
+            sin = sin_table.expand(B, -1, -1, -1)
+            cos = torch.gather(cos, 2, pos_idx.unsqueeze(1).unsqueeze(-1).expand(-1, -1, -1, head_dim_half))
+            sin = torch.gather(sin, 2, pos_idx.unsqueeze(1).unsqueeze(-1).expand(-1, -1, -1, head_dim_half))
+
+        # Apply RoPE on head_dim dimension
+        x1 = x[..., :head_dim_half]
+        x2 = x[..., head_dim_half:]
+        y1 = x1 * cos - x2 * sin
+        y2 = x1 * sin + x2 * cos
+        y = torch.cat([y1, y2], dim=-1)  # [B, N, S, head_dim]
+
+        # 如果输入是 3D，转回 [B, S, D]
+        if inputs[0].dim() == 3:
+            y = y.transpose(1, 2).reshape(B, S, -1)
+
+        outputs[0].copy_(y)
+
+
+@KernelRegistry.register("Silu")
+class SiluKernel(Kernel):
+    """SiLU (Swish) activation: y = x * sigmoid(x)"""
+    op_type = "Silu"
+
+    @staticmethod
+    def run(inputs, outputs, attrs):
+        outputs[0].copy_(F.silu(inputs[0]))

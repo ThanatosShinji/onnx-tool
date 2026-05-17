@@ -18,7 +18,7 @@ ActMap = {
 
 ArchMap = {
     'LlamaForCausalLM': {
-        "mlp_gate": 3,
+        "mlp_gate": True,
         "norm_scale": True,
         "norm_bias": False,
         "fuse_qkv": False,
@@ -28,7 +28,90 @@ ArchMap = {
         "lm_head_bias": False,
         "post_mlp_norm": False,
         "post_attn_norm": False
-    }
+    },
+    'Qwen2ForCausalLM': {
+        # Qwen2Attention: q_proj/k_proj/v_proj bias=True, o_proj bias=False
+        # Qwen2MLP: gate_proj/up_proj/down_proj bias=False
+        # No qk_norm (Q/K per-head norm is Qwen3 only)
+        "mlp_gate": True,
+        "norm_scale": True,
+        "norm_bias": False,
+        "fuse_qkv": False,
+        "qkv_bias": True,
+        "o_bias": False,
+        "mlp_bias": False,
+        "lm_head_bias": False,
+    },
+    'Qwen3ForCausalLM': {
+        # Qwen3Attention: bias controlled by config.attention_bias
+        # Has q_norm/k_norm (per-head RMSNorm)
+        "mlp_gate": True,
+        "norm_scale": True,
+        "norm_bias": False,
+        "fuse_qkv": False,
+        "qkv_bias": True,
+        "o_bias": False,
+        "mlp_bias": False,
+        "lm_head_bias": False,
+        "qk_norm": True,
+    },
+}
+
+ArchMap['Phi3ForCausalLM'] = {
+    "mlp_gate": False,
+    "norm_scale": True,
+    "norm_bias": False,
+    "fuse_qkv": True,
+    "qkv_bias": False,
+    "o_bias": False,
+    "mlp_bias": False,
+    "lm_head_bias": False,
+}
+
+ArchMap['PhiForCausalLM'] = {
+    "mlp_gate": False,
+    "norm_scale": True,
+    "norm_bias": True,
+    "fuse_qkv": False,
+    "qkv_bias": True,
+    "o_bias": True,
+    "mlp_bias": False,
+    "lm_head_bias": True,
+}
+
+ArchMap['Phi3SmallForCausalLM'] = {
+    "mlp_gate": False,
+    "norm_scale": True,
+    "norm_bias": False,
+    "fuse_qkv": True,
+    "qkv_bias": False,
+    "o_bias": False,
+    "mlp_bias": False,
+    "lm_head_bias": False,
+}
+
+ArchMap['GPTJForCausalLM'] = {
+    "mlp_gate": False,
+    "norm_scale": True,
+    "norm_bias": True,
+    "fuse_qkv": False,
+    "qkv_bias": False,
+    "o_bias": False,
+    "mlp_bias": False,
+    "lm_head_bias": False,
+}
+
+ArchMap['GPT2LMHeadModel'] = {
+    "mlp_gate": False,
+    "norm_scale": True,
+    "norm_bias": True,
+    "fuse_qkv": True,
+    "qkv_bias": True,
+    "o_bias": True,
+    "mlp_bias": True,
+    "lm_head_bias": False,
+    'qk_rope': False,
+    'pos_embedding': True
 }
 
 WeightMap = {
@@ -90,6 +173,8 @@ class Builder():
                 setattr(self, 'intermediate_size', self.hidden_size * 4)
             if not hasattr(self, 'n_positions'):
                 setattr(self, 'n_positions', 1024)
+        if not hasattr(self, 'model_type'):
+            setattr(self, 'model_type', '')
         if ArchMap.__contains__(self.architectures[0]):
             self.arch_config = ArchMap[self.architectures[0]]
         else:
@@ -102,7 +187,11 @@ class Builder():
         self.graph = Graph(None, ModelConfig())
         self.node_count = 0
         self.tensor_count = 0
-        self.head_size = self.hidden_size // self.num_attention_heads
+        # head_size: 优先使用配置中的 head_dim，否则用 hidden_size / num_heads
+        if hasattr(self, 'head_dim'):
+            self.head_size = self.head_dim
+        else:
+            self.head_size = self.hidden_size // self.num_attention_heads
         self.hidden_kv_size = self.head_size * self.num_key_value_heads
         self.device_perf = []
 
@@ -165,12 +254,39 @@ class Builder():
         return o
 
     def add_rope(self, inp, name):
-        nod = create_node(TmpNodeProto(name, 'Rope',
-                                       {'rope_theta': self.rope_theta if hasattr(self,
-                                                                                 'rope_theta') and self.rope_theta is not None else 0,
-                                        'rope_scaling': self.rope_scaling if hasattr(self,
-                                                                                     'rope_scaling') and self.rope_scaling is not None else 0}))
-        nod.input = [inp.name]
+        # 全局共享的 cos/sin constant tensor（所有 Rope 节点共用）
+        if not hasattr(self, '_rope_cos_sin_added'):
+            max_pos = getattr(self, 'max_position_embeddings', 4096)
+            head_dim = self.head_size
+            half = head_dim // 2
+            theta = getattr(self, 'rope_theta', 10000.0)
+
+            pos = numpy.arange(max_pos, dtype=numpy.float32)
+            dim_idx = numpy.arange(half, dtype=numpy.float32)
+            freq = 1.0 / (theta ** (2 * dim_idx / head_dim))
+            angles = pos.reshape(-1, 1) * freq.reshape(1, -1)
+            cos = numpy.cos(angles).reshape(1, 1, max_pos, half).astype(numpy.float32)
+            sin = numpy.sin(angles).reshape(1, 1, max_pos, half).astype(numpy.float32)
+
+            t_cos = create_tensor('rope.cos', STATIC_TENSOR, list(cos.shape), numpy.float32)
+            t_cos.update_tensor(cos)
+            t_sin = create_tensor('rope.sin', STATIC_TENSOR, list(sin.shape), numpy.float32)
+            t_sin.update_tensor(sin)
+            self.graph.initials.append('rope.cos')
+            self.graph.initials.append('rope.sin')
+            self.graph.tensormap['rope.cos'] = t_cos
+            self.graph.tensormap['rope.sin'] = t_sin
+            self._rope_cos_sin_added = True
+
+        # position 输入（每个 token 的位置索引，支持 KV cache 偏移）
+        if not hasattr(self, '_position_added'):
+            pos_tensor = create_tensor('position', DYNAMIC_TENSOR, [self.batch, self.seq_len], numpy.int64)
+            self.graph.input.append('position')
+            self.graph.tensormap['position'] = pos_tensor
+            self._position_added = True
+
+        nod = create_node(TmpNodeProto(name, 'Rope', {}))
+        nod.input = [inp.name, 'rope.cos', 'rope.sin', 'position']
         o = create_tensor(name + '.output', DYNAMIC_TENSOR, inp.get_shape(),
                           numpy.float32)
         nod.output = [o.name]
@@ -219,9 +335,11 @@ class Builder():
         attrs['layer_i'] = self.layer_i
         if getattr(self, 'attn_logit_softcapping', None) is not None:
             attrs['attn_logit_softcapping'] = self.attn_logit_softcapping
-        nod = create_node(TmpNodeProto(name, 'MHA', attrs))
+        nod = create_node(TmpNodeProto(name, 'SDPA', attrs))
         nod.input = [inp.name for inp in inps]
-        o = create_tensor(name + '.output', DYNAMIC_TENSOR, [self.batch, self.seq_len, self.hidden_size],
+        # SDPA 输出维度: num_attention_heads * head_dim（可能不同于 hidden_size）
+        attn_out = self.num_attention_heads * self.head_size
+        o = create_tensor(name + '.output', DYNAMIC_TENSOR, [self.batch, self.seq_len, attn_out],
                           numpy.float32)
         nod.output = [o.name]
         self.graph.tensormap[o.name] = o
@@ -245,20 +363,24 @@ class Builder():
 
     def add_qkv(self, inp):
         bias = self.arch_config['qkv_bias']
+        # Q/K 输出维度：当 head_dim 显式配置且与 hidden_size/num_heads 不同时使用
+        q_out = self.num_attention_heads * self.head_size
+        k_out = self.num_key_value_heads * self.head_size
+        v_out = self.num_key_value_heads * self.head_size
         if self.arch_config['fuse_qkv']:
-            qkv = self.add_mm(inp, self.hidden_size, self.hidden_size + self.hidden_kv_size * 2, bias,
+            qkv = self.add_mm(inp, self.hidden_size, q_out + k_out + v_out, bias,
                               self.layer_prefix + self.w_map['attention']['qkv'])
-            q = self.add_slice(qkv, 2, 0, self.hidden_size, 1, self.layer_prefix + 'q.slice')
-            k = self.add_slice(qkv, 2, self.hidden_size, self.hidden_kv_size, 1, self.layer_prefix + 'k.slice')
-            v = self.add_slice(qkv, 2, self.hidden_size + self.hidden_kv_size, self.hidden_kv_size, 1,
+            q = self.add_slice(qkv, 2, 0, q_out, 1, self.layer_prefix + 'q.slice')
+            k = self.add_slice(qkv, 2, q_out, k_out, 1, self.layer_prefix + 'k.slice')
+            v = self.add_slice(qkv, 2, q_out + k_out, v_out, 1,
                                self.layer_prefix + 'v.slice')
         else:
             nameq = self.layer_prefix + self.w_map['attention']['q']
             namek = self.layer_prefix + self.w_map['attention']['k']
             namev = self.layer_prefix + self.w_map['attention']['v']
-            q = self.add_mm(inp, self.hidden_size, self.hidden_size, bias, nameq)
-            k = self.add_mm(inp, self.hidden_size, self.hidden_kv_size, bias, namek)
-            v = self.add_mm(inp, self.hidden_size, self.hidden_kv_size, bias, namev)
+            q = self.add_mm(inp, self.hidden_size, q_out, bias, nameq)
+            k = self.add_mm(inp, self.hidden_size, k_out, bias, namek)
+            v = self.add_mm(inp, self.hidden_size, v_out, bias, namev)
         return [q, k, v]
 
     def add_mlp(self, inp):
@@ -277,11 +399,13 @@ class Builder():
             o0.update_shape(s)
             o2 = self.add_mm(o0, self.intermediate_size, self.hidden_size, bias, namedown)
         else:
-            o0 = self.add_mm(inp, self.hidden_size, self.intermediate_size, bias, nameup)
-            o0 = self.add_act(o0, self.hidden_act, self.layer_prefix + 'mlp.activation')
+            o_up = self.add_mm(inp, self.hidden_size, self.intermediate_size, bias, nameup)
             if mlp_gate:
-                o1 = self.add_mm(inp, self.hidden_size, self.intermediate_size, bias, namegate)
-                o0 = self.add_eltop(o0, o1, 'Mul', self.layer_prefix + 'mlp.gate_mul')
+                o_gate = self.add_mm(inp, self.hidden_size, self.intermediate_size, bias, namegate)
+                o_act = self.add_act(o_gate, self.hidden_act, self.layer_prefix + 'mlp.activation')
+                o0 = self.add_eltop(o_up, o_act, 'Mul', self.layer_prefix + 'mlp.gate_mul')
+            else:
+                o0 = self.add_act(o_up, self.hidden_act, self.layer_prefix + 'mlp.activation')
             o2 = self.add_mm(o0, self.intermediate_size, self.hidden_size, bias, namedown)
         return o2
 
@@ -291,6 +415,30 @@ class Builder():
                           self.w_map['lm_head']['lm'])
         return cur
 
+    def add_qk_norm(self, inp, name, num_heads):
+        """Per-head Q/K RMS norm (Qwen3 特有).
+        
+        输入: [B, S, num_heads * head_dim]
+        输出: [B, S, num_heads * head_dim]
+        对每个 head 独立做 RMS norm，weight shape = [head_dim]
+        """
+        head_dim = self.head_size
+        # Reshape: [B, S, num_heads * head_dim] -> [B, S, num_heads, head_dim]
+        # 做 LayerNormalization（沿最后一个维度，即 head_dim）
+        attrs = {'epsilon': self.rms_norm_eps, 'type': 'rms'}
+        nod = create_node(TmpNodeProto(name, 'LayerNormalization', attrs))
+        nod.input = [inp.name]
+        # scale weight: [head_dim]（每个 head 共享）
+        s = create_tensor(name + '.weight', STATIC_TENSOR, [head_dim], numpy.float32)
+        self.graph.initials.append(s.name)
+        nod.input.append(s.name)
+        self.graph.tensormap[s.name] = s
+        o = create_tensor(name + '.output', DYNAMIC_TENSOR, inp.get_shape(), numpy.float32)
+        nod.output = [o.name]
+        self.graph.tensormap[o.name] = o
+        self.graph.nodemap[nod.name] = nod
+        return o
+
     def add_layers(self, inp):
         for i in range(self.num_hidden_layers):
             self.layer_i = i
@@ -298,11 +446,16 @@ class Builder():
             cur = inp
             cur = self.add_layernorm(cur, self.layer_prefix + self.w_map['attention']['input_norm'])
             q, k, v = self.add_qkv(cur)
+            # Q/K per-head norm (Qwen3 特有)
+            if self.arch_config.get('qk_norm', False):
+                q = self.add_qk_norm(q, self.layer_prefix + 'self_attn.q_norm', self.num_attention_heads)
+                k = self.add_qk_norm(k, self.layer_prefix + 'self_attn.k_norm', self.num_key_value_heads)
             if self.arch_config.get('qk_rope', True):
                 q = self.add_rope(q, self.layer_prefix + 'rope_q')
                 k = self.add_rope(k, self.layer_prefix + 'rope_k')
             cur = self.add_mha([q, k, v], self.layer_prefix + 'mha')
-            cur = self.add_mm(cur, self.hidden_size, self.hidden_size, self.arch_config['o_bias'],
+            attn_out = self.num_attention_heads * self.head_size
+            cur = self.add_mm(cur, attn_out, self.hidden_size, self.arch_config['o_bias'],
                               self.layer_prefix + self.w_map['attention']['o'])
             if self.arch_config.get('post_attn_norm', False):
                 cur = self.add_layernorm(cur, self.layer_prefix + self.w_map['attention']['output_norm'])
@@ -371,7 +524,7 @@ class Builder():
                 if Device is not None:
                     c_latency = flops / c_mm / d_num
                     l_latency = mem / mw / d_num
-            elif node.op_type == 'MHA':
+            elif node.op_type == 'SDPA':
                 mem += volume(self.graph.tensormap[node.input[0]].get_shape())
                 mem += volume(self.graph.tensormap[node.output[0]].get_shape())
                 mem = mem * cfg['Bits']['Others'] / 8
@@ -491,7 +644,7 @@ class Builder():
         self.graph.input.append('kv_cache')
         self.graph.tensormap[kv_cache.name] = kv_cache
         for n in self.graph.nodemap:
-            if self.graph.nodemap[n].op_type == 'MHA':
+            if self.graph.nodemap[n].op_type == 'SDPA':
                 self.graph.nodemap[n].input.append('n_past')
                 self.graph.nodemap[n].input.append('kv_cache')
 
@@ -500,489 +653,4 @@ class Builder():
         self.graph.save_model(path, shape_only=False)
 
 
-phi3_mini = {
-    "name": 'Phi-3-mini-4k',
-    "_name_or_path": "Phi-3-mini-4k-instruct",
-    "architectures": [
-        "Phi3ForCausalLM"
-    ],
-    "attention_dropout": 0.0,
-    "auto_map": {
-        "AutoConfig": "configuration_phi3.Phi3Config",
-        "AutoModelForCausalLM": "modeling_phi3.Phi3ForCausalLM"
-    },
-    "bos_token_id": 1,
-    "embd_pdrop": 0.0,
-    "eos_token_id": 32000,
-    "hidden_act": "silu",
-    "hidden_size": 3072,
-    "initializer_range": 0.02,
-    "intermediate_size": 8192,
-    "max_position_embeddings": 4096,
-    "model_type": "phi3",
-    "num_attention_heads": 32,
-    "num_hidden_layers": 32,
-    "num_key_value_heads": 32,
-    "original_max_position_embeddings": 4096,
-    "pad_token_id": 32000,
-    "resid_pdrop": 0.0,
-    "rms_norm_eps": 1e-05,
-    "rope_scaling": null,
-    "rope_theta": 10000.0,
-    "sliding_window": 2047,
-    "tie_word_embeddings": false,
-    "torch_dtype": "bfloat16",
-    "transformers_version": "4.40.2",
-    "use_cache": true,
-    "attention_bias": false,
-    "vocab_size": 32064
-}
-
-ArchMap['Phi3ForCausalLM'] = {
-    "mlp_gate": False,
-    "norm_scale": True,
-    "norm_bias": False,
-    "fuse_qkv": True,
-    "qkv_bias": False,
-    "o_bias": False,
-    "mlp_bias": False,
-    "lm_head_bias": False,
-}
-
-QWen_7B = {
-    "name": 'QWen-7B',
-    "architectures": [
-        "Qwen2ForCausalLM"
-    ],
-    "attention_dropout": 0.0,
-    "bos_token_id": 151643,
-    "eos_token_id": 151645,
-    "hidden_act": "silu",
-    "hidden_size": 3584,
-    "initializer_range": 0.02,
-    "intermediate_size": 18944,
-    "max_position_embeddings": 32768,
-    "max_window_layers": 28,
-    "model_type": "qwen2",
-    "num_attention_heads": 28,
-    "num_hidden_layers": 28,
-    "num_key_value_heads": 4,
-    "rms_norm_eps": 1e-06,
-    "rope_theta": 1000000.0,
-    "sliding_window": 131072,
-    "tie_word_embeddings": false,
-    "torch_dtype": "bfloat16",
-    "transformers_version": "4.41.2",
-    "use_cache": true,
-    "use_sliding_window": false,
-    "vocab_size": 152064
-}
-
-ArchMap['Qwen2ForCausalLM'] = {
-    "mlp_gate": True,
-    "norm_scale": True,
-    "norm_bias": False,
-    "fuse_qkv": False,
-    "qkv_bias": True,
-    "o_bias": False,
-    "mlp_bias": False,
-    "lm_head_bias": False,
-}
-
-Llama3_8B = {
-    "name": 'Llama3-8B',
-    "_name_or_path": "./dpo_1_000005_07",
-    "architectures": [
-        "LlamaForCausalLM"
-    ],
-    "attention_bias": false,
-    "attention_dropout": 0.0,
-    "bos_token_id": 128000,
-    "eos_token_id": 128001,
-    "hidden_act": "silu",
-    "hidden_size": 4096,
-    "initializer_range": 0.02,
-    "intermediate_size": 14336,
-    "max_position_embeddings": 8192,
-    "mlp_bias": false,
-    "model_type": "llama",
-    "num_attention_heads": 32,
-    "num_hidden_layers": 32,
-    "num_key_value_heads": 8,
-    "pretraining_tp": 1,
-    "rms_norm_eps": 1e-05,
-    "rope_scaling": null,
-    "rope_theta": 500000.0,
-    "tie_word_embeddings": false,
-    "torch_dtype": "float32",
-    "transformers_version": "4.42.3",
-    "use_cache": true,
-    "vocab_size": 128256
-}
-
-phi2 = {
-    "name": 'microsoft/phi-2',
-    "_name_or_path": "microsoft/phi-2",
-    "architectures": [
-        "PhiForCausalLM"
-    ],
-    "attention_dropout": 0.0,
-    "bos_token_id": 50256,
-    "embd_pdrop": 0.0,
-    "eos_token_id": 50256,
-    "hidden_act": "gelu_new",
-    "hidden_size": 2560,
-    "initializer_range": 0.02,
-    "intermediate_size": 10240,
-    "layer_norm_eps": 1e-05,
-    "max_position_embeddings": 2048,
-    "model_type": "phi",
-    "num_attention_heads": 32,
-    "num_hidden_layers": 32,
-    "num_key_value_heads": 32,
-    "partial_rotary_factor": 0.4,
-    "qk_layernorm": false,
-    "resid_pdrop": 0.1,
-    "rope_scaling": null,
-    "rope_theta": 10000.0,
-    "tie_word_embeddings": false,
-    "torch_dtype": "float16",
-    "transformers_version": "4.37.0",
-    "use_cache": true,
-    "vocab_size": 51200
-}
-
-ArchMap['PhiForCausalLM'] = {
-    "mlp_gate": False,
-    "norm_scale": True,
-    "norm_bias": True,
-    "fuse_qkv": False,
-    "qkv_bias": True,
-    "o_bias": True,
-    "mlp_bias": False,
-    "lm_head_bias": True,
-}
-
-Qwen2_72B_Instruct = {
-    "name": 'Qwen2_72B_Instruct',
-    "architectures": [
-        "Qwen2ForCausalLM"
-    ],
-    "attention_dropout": 0.0,
-    "bos_token_id": 151643,
-    "eos_token_id": 151645,
-    "hidden_act": "silu",
-    "hidden_size": 8192,
-    "initializer_range": 0.02,
-    "intermediate_size": 29568,
-    "max_position_embeddings": 32768,
-    "max_window_layers": 80,
-    "model_type": "qwen2",
-    "num_attention_heads": 64,
-    "num_hidden_layers": 80,
-    "num_key_value_heads": 8,
-    "rms_norm_eps": 1e-06,
-    "rope_theta": 1000000.0,
-    "sliding_window": 131072,
-    "tie_word_embeddings": false,
-    "torch_dtype": "bfloat16",
-    "transformers_version": "4.40.1",
-    "use_cache": true,
-    "use_sliding_window": false,
-    "vocab_size": 152064
-}
-
-llama_31_70B = {
-    "name": 'Llama-3.1-70B-Japanese-Instruct-2407',
-    "_name_or_path": "Llama-3.1-70B-Japanese-Instruct-2407",
-    "architectures": [
-        "LlamaForCausalLM"
-    ],
-    "attention_bias": false,
-    "attention_dropout": 0.0,
-    "bos_token_id": 128000,
-    "eos_token_id": [
-        128001,
-        128008,
-        128009
-    ],
-    "hidden_act": "silu",
-    "hidden_size": 8192,
-    "initializer_range": 0.02,
-    "intermediate_size": 28672,
-    "max_position_embeddings": 131072,
-    "mlp_bias": false,
-    "model_type": "llama",
-    "num_attention_heads": 64,
-    "num_hidden_layers": 80,
-    "num_key_value_heads": 8,
-    "pretraining_tp": 1,
-    "rms_norm_eps": 1e-05,
-    "rope_scaling": {
-        "factor": 8.0,
-        "high_freq_factor": 4.0,
-        "low_freq_factor": 1.0,
-        "original_max_position_embeddings": 8192,
-        "rope_type": "llama3"
-    },
-    "rope_theta": 500000.0,
-    "tie_word_embeddings": false,
-    "torch_dtype": "bfloat16",
-    "transformers_version": "4.44.0.dev0",
-    "use_cache": true,
-    "vocab_size": 128256
-}
-
-Phi_3_medium_4k_instruct = {
-    "name": "Phi-3-medium-4k-instruct",
-    "_name_or_path": "Phi-3-medium-4k-instruct",
-    "architectures": [
-        "Phi3ForCausalLM"
-    ],
-    "attention_dropout": 0.0,
-    "auto_map": {
-        "AutoConfig": "configuration_phi3.Phi3Config",
-        "AutoModelForCausalLM": "modeling_phi3.Phi3ForCausalLM"
-    },
-    "bos_token_id": 1,
-    "embd_pdrop": 0.0,
-    "eos_token_id": 32000,
-    "hidden_act": "silu",
-    "hidden_size": 5120,
-    "initializer_range": 0.02,
-    "intermediate_size": 17920,
-    "max_position_embeddings": 4096,
-    "model_type": "phi3",
-    "num_attention_heads": 40,
-    "num_hidden_layers": 40,
-    "num_key_value_heads": 10,
-    "original_max_position_embeddings": 4096,
-    "pad_token_id": 32000,
-    "resid_pdrop": 0.0,
-    "rms_norm_eps": 1e-05,
-    "rope_scaling": null,
-    "rope_theta": 10000.0,
-    "sliding_window": 2047,
-    "tie_word_embeddings": false,
-    "torch_dtype": "bfloat16",
-    "transformers_version": "4.39.3",
-    "use_cache": true,
-    "attention_bias": false,
-    "vocab_size": 32064
-}
-
-Phi_3_small_8k_instruct = {
-    "name": "Phi-3-small-8k-instruct",
-    "_name_or_path": "Phi-3-small-8k-instruct",
-    "architectures": [
-        "Phi3SmallForCausalLM"
-    ],
-    "attention_dropout_prob": 0.0,
-    "auto_map": {
-        "AutoConfig": "configuration_phi3_small.Phi3SmallConfig",
-        "AutoModelForCausalLM": "modeling_phi3_small.Phi3SmallForCausalLM",
-        "AutoModelForSequenceClassification": "modeling_phi3_small.Phi3SmallForSequenceClassification",
-        "AutoTokenizer": "tokenization_phi3_small.Phi3SmallTokenizer"
-    },
-    "blocksparse_block_size": 64,
-    "blocksparse_homo_head_pattern": false,
-    "blocksparse_num_local_blocks": 16,
-    "blocksparse_triton_kernel_block_size": 64,
-    "blocksparse_vert_stride": 8,
-    "bos_token_id": 100257,
-    "dense_attention_every_n_layers": 2,
-    "embedding_dropout_prob": 0.1,
-    "eos_token_id": 100257,
-    "ff_dim_multiplier": null,
-    "ff_intermediate_size": 14336,
-    "ffn_dropout_prob": 0.1,
-    "gegelu_limit": 20.0,
-    "gegelu_pad_to_256": true,
-    "hidden_act": "gegelu",
-    "hidden_size": 4096,
-    "initializer_range": 0.02,
-    "layer_norm_epsilon": 1e-05,
-    "max_position_embeddings": 8192,
-    "model_type": "phi3small",
-    "mup_attn_multiplier": 1.0,
-    "mup_embedding_multiplier": 10.0,
-    "mup_use_scaling": true,
-    "mup_width_multiplier": 8.0,
-    "num_attention_heads": 32,
-    "num_hidden_layers": 32,
-    "num_key_value_heads": 8,
-    "pad_sequence_to_multiple_of_64": true,
-    "reorder_and_upcast_attn": false,
-    "rope_embedding_base": 1000000,
-    "rope_position_scale": 1.0,
-    "torch_dtype": "bfloat16",
-    "transformers_version": "4.38.1",
-    "use_cache": true,
-    "attention_bias": false,
-    "vocab_size": 100352
-}
-
-ArchMap['Phi3SmallForCausalLM'] = {
-    "mlp_gate": False,
-    "norm_scale": True,
-    "norm_bias": False,
-    "fuse_qkv": True,
-    "qkv_bias": False,
-    "o_bias": False,
-    "mlp_bias": False,
-    "lm_head_bias": False,
-}
-
-gptj_6b = {
-    'name': "gpt-j-6b",
-    "activation_function": "gelu_new",
-    "architectures": [
-        "GPTJForCausalLM"
-    ],
-    "attn_pdrop": 0.0,
-    "bos_token_id": 50256,
-    "embd_pdrop": 0.0,
-    "eos_token_id": 50256,
-    "gradient_checkpointing": false,
-    "initializer_range": 0.02,
-    "layer_norm_epsilon": 1e-05,
-    "model_type": "gptj",
-    "n_embd": 4096,
-    "n_head": 16,
-    "n_inner": null,
-    "n_layer": 28,
-    "n_positions": 2048,
-    "resid_pdrop": 0.0,
-    "rotary": true,
-    "rotary_dim": 64,
-    "scale_attn_weights": true,
-    "summary_activation": null,
-    "summary_first_dropout": 0.1,
-    "summary_proj_to_labels": true,
-    "summary_type": "cls_index",
-    "summary_use_proj": true,
-    "task_specific_params": {
-        "text-generation": {
-            "do_sample": true,
-            "max_length": 50,
-            "temperature": 1.0
-        }
-    },
-    "tie_word_embeddings": false,
-    "tokenizer_class": "GPT2Tokenizer",
-    "transformers_version": "4.18.0.dev0",
-    "use_cache": true,
-    "vocab_size": 50400
-}
-
-ArchMap['GPTJForCausalLM'] = {
-    "mlp_gate": False,
-    "norm_scale": True,
-    "norm_bias": True,
-    "fuse_qkv": False,
-    "qkv_bias": False,
-    "o_bias": False,
-    "mlp_bias": False,
-    "lm_head_bias": False,
-}
-
-yi_34B = {
-    'name': "yi-1.5-34B",
-    "architectures": [
-        "LlamaForCausalLM"
-    ],
-    "attention_bias": false,
-    "attention_dropout": 0.0,
-    "bos_token_id": 1,
-    "eos_token_id": 2,
-    "hidden_act": "silu",
-    "hidden_size": 7168,
-    "initializer_range": 0.02,
-    "intermediate_size": 20480,
-    "max_position_embeddings": 4096,
-    "model_type": "llama",
-    "num_attention_heads": 56,
-    "num_hidden_layers": 60,
-    "num_key_value_heads": 8,
-    "pad_token_id": 0,
-    "pretraining_tp": 1,
-    "rms_norm_eps": 1e-06,
-    "rope_scaling": null,
-    "rope_theta": 5000000.0,
-    "tie_word_embeddings": false,
-    "torch_dtype": "bfloat16",
-    "transformers_version": "4.40.0",
-    "use_cache": false,
-    "vocab_size": 64000
-}
-
-gpt2 = {
-    "activation_function": "gelu_new",
-    "architectures": [
-        "GPT2LMHeadModel"
-    ],
-    "attn_pdrop": 0.1,
-    "bos_token_id": 50256,
-    "embd_pdrop": 0.1,
-    "eos_token_id": 50256,
-    "initializer_range": 0.02,
-    "layer_norm_epsilon": 1e-05,
-    "model_type": "gpt2",
-    "n_ctx": 1024,
-    "n_embd": 768,
-    "n_head": 12,
-    "n_layer": 12,
-    "n_positions": 1024,
-    "resid_pdrop": 0.1,
-    "summary_activation": null,
-    "summary_first_dropout": 0.1,
-    "summary_proj_to_labels": true,
-    "summary_type": "cls_index",
-    "summary_use_proj": true,
-    "task_specific_params": {
-        "text-generation": {
-            "do_sample": true,
-            "max_length": 50
-        }
-    },
-    "vocab_size": 50257
-}
-
-ArchMap['GPT2LMHeadModel'] = {
-    "mlp_gate": False,
-    "norm_scale": True,
-    "norm_bias": True,
-    "fuse_qkv": True,
-    "qkv_bias": True,
-    "o_bias": True,
-    "mlp_bias": True,
-    "lm_head_bias": False,
-    'qk_rope': False,
-    'pos_embedding': True
-}
-
-llama2_7b = {
-    "_name_or_path": "meta-llama/Llama-2-7b-chat-hf",
-    "architectures": [
-        "LlamaForCausalLM"
-    ],
-    "bos_token_id": 1,
-    "eos_token_id": 2,
-    "hidden_act": "silu",
-    "hidden_size": 4096,
-    "initializer_range": 0.02,
-    "intermediate_size": 11008,
-    "max_position_embeddings": 4096,
-    "model_type": "llama",
-    "num_attention_heads": 32,
-    "num_hidden_layers": 32,
-    "num_key_value_heads": 32,
-    "pretraining_tp": 1,
-    "rms_norm_eps": 1e-06,
-    "rope_scaling": null,
-    "tie_word_embeddings": false,
-    "torch_dtype": "float16",
-    "transformers_version": "4.32.0.dev0",
-    "use_cache": true,
-    "vocab_size": 32000
-}
+from .model_configs import *

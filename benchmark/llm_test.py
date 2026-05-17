@@ -1,5 +1,258 @@
+import importlib
+import onnx_tool.llm as _llm
+importlib.reload(_llm)
 from onnx_tool.llm import *
 import tabulate
+import copy
+
+
+def compress_memory_with_kv_cache(cg, size_padding=64):
+    """LLM 专用内存压缩：将 kv_cache 与普通 activation 隔离为两个独立内存池。
+
+    对 compute graph 执行两遍内存压缩：
+      - activation pool: 所有动态 tensor（除 kv_cache 外），使用 graph.py 的 compress_memory
+      - kv_cache pool: 仅 kv_cache tensor，独立分配
+
+    Args:
+        cg: compute graph（Graph 对象，需已调用 update_tensor_relations()）
+        size_padding: 内存对齐粒度
+
+    Returns:
+        (compress_mem, compress_size, kv_compress_mem, kv_compress_size)
+    """
+    # ---- Pass 1: 获取生命周期信息 ----
+    tensor_in_mem = copy.deepcopy(cg.input)
+    tensor_mem_per_node = []
+    tensor_consumed = {}
+    for node_name in cg.nodemap:
+        node = cg.nodemap[node_name]
+        for name in node.output:
+            tensor_in_mem.append(name)
+        new_list = copy.deepcopy(tensor_in_mem)
+        tensor_mem_per_node.append(new_list)
+        for name in node.input:
+            if name in cg.consumedby:
+                if name in tensor_consumed:
+                    tensor_consumed[name].append(node_name)
+                else:
+                    tensor_consumed[name] = [node_name]
+                consumers = cg.consumedby[name]
+                if len(tensor_consumed[name]) == len(consumers):
+                    if name in tensor_in_mem:
+                        tensor_in_mem.remove(name)
+
+    # 计算每个 tensor 的 padded size，分离 activation 和 kv_cache
+    tensor_sizes = {}       # activation tensors
+    kv_tensor_sizes = {}    # kv_cache only
+    for tname in cg.dynamics:
+        if tname not in cg.producedby and tname not in cg.input:
+            continue
+        if tname in cg.tensormap:
+            size_ = cg.tensormap[tname].get_memsize()
+            size_ = int((size_ + size_padding - 1) // size_padding * size_padding)
+            if size_ > 0:
+                if tname == 'kv_cache':
+                    kv_tensor_sizes[tname] = size_
+                else:
+                    tensor_sizes[tname] = size_
+
+    # ---- Pass 2: Best-Fit 分配 ----
+    def _allocate_pool(tensor_sizes):
+        """对一组 tensor 执行 Best-Fit 内存分配，返回 (compress_mem, compress_size)"""
+        compress_mem = {}
+        mem_tags = []
+        mem_block = []
+        split_threshold = max(size_padding, 4096)
+
+        for nodetensors in tensor_mem_per_node:
+            # Phase 1: 释放不再存活的 tensor
+            for i, tag in enumerate(mem_tags):
+                if tag == "":
+                    continue
+                if tag not in nodetensors:
+                    premerge = i >= 1 and mem_tags[i - 1] == ""
+                    nextmerge = i < len(mem_tags) - 1 and mem_tags[i + 1] == ""
+                    if premerge and nextmerge:
+                        newblock = [mem_block[i - 1][0], mem_block[i + 1][0] + mem_block[i + 1][1]
+                                    - mem_block[i - 1][0]]
+                        mem_tags.pop(i); mem_tags.pop(i)
+                        mem_block.pop(i); mem_block.pop(i)
+                        mem_tags[i - 1] = ""; mem_block[i - 1] = newblock
+                    elif premerge:
+                        newblock = [mem_block[i - 1][0], mem_block[i][0] + mem_block[i][1]
+                                    - mem_block[i - 1][0]]
+                        mem_tags.pop(i); mem_block.pop(i)
+                        mem_tags[i - 1] = ""; mem_block[i - 1] = newblock
+                    elif nextmerge:
+                        newblock = [mem_block[i][0], mem_block[i + 1][0] + mem_block[i + 1][1]
+                                    - mem_block[i][0]]
+                        mem_tags.pop(i); mem_block.pop(i)
+                        mem_tags[i] = ""; mem_block[i] = newblock
+                    else:
+                        mem_tags[i] = ""
+
+            # Phase 2: 分配新 tensor，按大小降序
+            new_tensors = [t for t in nodetensors if t not in mem_tags and t in tensor_sizes]
+            new_tensors.sort(key=lambda t: -tensor_sizes[t])
+
+            for tname in new_tensors:
+                size_ = tensor_sizes[tname]
+                best_idx = -1
+                best_remain = None
+                for i, tag in enumerate(mem_tags):
+                    if tag == "":
+                        free_size = mem_block[i][1]
+                        if free_size >= size_:
+                            remain_size = free_size - size_
+                            if best_idx == -1 or remain_size < best_remain[0]:
+                                best_idx = i
+                                best_remain = [remain_size, [mem_block[i][0] + size_, remain_size]]
+
+                if best_idx >= 0:
+                    i = best_idx
+                    remain_size = best_remain[0]
+                    if remain_size >= split_threshold:
+                        remain_block = best_remain[1]
+                        mem_tags[i] = tname; mem_block[i][1] = size_
+                        mem_tags.insert(i + 1, ""); mem_block.insert(i + 1, remain_block)
+                    else:
+                        mem_tags[i] = tname
+                else:
+                    lastidx = len(mem_tags) - 1
+                    if lastidx >= 0 and mem_tags[lastidx] == "":
+                        mem_block[lastidx][1] = size_; mem_tags[lastidx] = tname
+                    else:
+                        mem_tags.append(tname)
+                        if lastidx >= 0:
+                            mem_block.append([mem_block[lastidx][0] + mem_block[lastidx][1], size_])
+                        else:
+                            mem_block.append([0, size_])
+
+                idx = mem_tags.index(tname)
+                compress_mem[tname] = [mem_block[idx][0], mem_block[idx][1]]
+
+        last_used_end = max(b[0] + b[1] for b in mem_block) if mem_block else 0
+        return compress_mem, last_used_end
+
+    compress_mem, compress_size = _allocate_pool(tensor_sizes)
+    kv_compress_mem, kv_compress_size = _allocate_pool(kv_tensor_sizes)
+
+    # ---- 验证重叠（仅 activation pool）----
+    for nodetensors in tensor_mem_per_node:
+        for tname in nodetensors:
+            if tname not in compress_mem:
+                continue
+            block0 = compress_mem[tname]
+            if block0[1] == 0:
+                continue
+            for tname1 in nodetensors:
+                if tname1 == tname or tname1 not in compress_mem:
+                    continue
+                block1 = compress_mem[tname1]
+                if block1[1] == 0:
+                    continue
+                a_start, a_end = block0[0], block0[0] + block0[1]
+                b_start, b_end = block1[0], block1[0] + block1[1]
+                if a_start < b_end and b_start < a_end:
+                    print(f"  WARNING: overlap detected between {tname} and {tname1}")
+
+    raw_memsize = 0
+    for tname in cg.dynamics:
+        if tname in cg.input or tname in cg.output:
+            continue
+        if tname in cg.tensormap:
+            raw_memsize += cg.tensormap[tname].get_memsize()
+
+    print(f"LLM compress: raw={raw_memsize:,} bytes, "
+          f"activation_pool={compress_size:,} bytes, "
+          f"kv_cache_pool={kv_compress_size:,} bytes, "
+          f"total_pool={compress_size + kv_compress_size:,} bytes, "
+          f"ratio={(compress_size + kv_compress_size)/raw_memsize*100:.2f}%")
+
+    return compress_mem, compress_size, kv_compress_mem, kv_compress_size
+
+
+# ===========================================================================
+# Qwen3-0.6B-Base 模型配置
+# ===========================================================================
+# 从 https://huggingface.co/Qwen/Qwen3-0.6B-Base/resolve/main/config.json
+# Qwen3 架构与 Qwen2 完全兼容，仅 model_type 名称不同
+Qwen3_0_6B = {
+    "name": "Qwen3-0.6B-Base",
+    "architectures": ["Qwen3ForCausalLM"],
+    "attention_bias": False,
+    "attention_dropout": 0.0,
+    "bos_token_id": 151643,
+    "eos_token_id": 151643,
+    "head_dim": 128,
+    "hidden_act": "silu",
+    "hidden_size": 1024,
+    "initializer_range": 0.02,
+    "intermediate_size": 3072,
+    "max_position_embeddings": 32768,
+    "max_window_layers": 28,
+    "model_type": "qwen3",
+    "num_attention_heads": 16,
+    "num_hidden_layers": 28,
+    "num_key_value_heads": 8,
+    "rms_norm_eps": 1e-06,
+    "rope_theta": 1000000.0,
+    "sliding_window": None,
+    "tie_word_embeddings": True,
+    "torch_dtype": "bfloat16",
+    "transformers_version": "4.51.0",
+    "use_cache": True,
+    "use_sliding_window": False,
+    "vocab_size": 151936,
+}
+
+
+def export_qwen3_0_6b():
+    """导出 Qwen3-0.6B-Base 到 ONNX 格式"""
+    bs = 1
+    seq_len = 128
+    ids_shape = [bs, seq_len]
+
+    print("Building Qwen3-0.6B-Base graph...")
+    builder = Builder(**Qwen3_0_6B)
+    builder.build_graph(ids_shape)
+
+    onnx_path = 'qwen3_0_6b.onnx'
+    print(f"Saving to {onnx_path}...")
+    builder.save_graph(onnx_path)
+
+    print("Profiling...")
+    builder.graph.valid_shape = True
+    builder.graph.profile()
+    builder.graph.print_node_map()
+
+    macs = int(builder.graph.macs[0] / 1e9)
+    params = builder.graph.params / 1e9
+    print(f"\nQwen3-0.6B-Base: MACs={macs}G, Parameters={params:.3f}G")
+    return onnx_path
+
+
+def export_qwen3_0_6b_with_kv_cache():
+    """导出 Qwen3-0.6B-Base 带 KV cache 的 ONNX 模型"""
+    bs = 1
+    seq_len = 128
+    ids_shape = [bs, seq_len]
+    past_sequence = 0
+    context_length = 8192
+
+    print("Building Qwen3-0.6B-Base with KV cache...")
+    builder = Builder(**Qwen3_0_6B)
+    builder.build_graph(ids_shape)
+    builder.add_kv_cache(context_length, past_sequence)
+
+    onnx_path = 'qwen3_0_6b_kvcache.onnx'
+    print(f"Saving to {onnx_path}...")
+    builder.save_graph(onnx_path)
+
+    builder.graph.valid_shape = True
+    builder.graph.profile()
+    builder.graph.print_node_map()
+    return onnx_path
 
 
 # Export the model with pytorch tensor names

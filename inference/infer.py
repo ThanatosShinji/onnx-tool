@@ -35,21 +35,29 @@ class GraphInfer:
         input_range: Dict[str, tuple],
         dtype: torch.dtype = torch.float32,
         device: str = "cpu",
+        safetensors_path: Optional[str] = None,
+        weight_map: Optional[Dict[str, str]] = None,
     ):
         self.onnx_path = onnx_path
         self.input_desc = input_desc
         self.input_range = input_range
         self.dtype = dtype
         self.device = device
+        self.safetensors_path = safetensors_path
+        self.weight_map = weight_map or {}
 
         # 1. 加载模型（启用 constant folding，折叠常量子图）
         self._model = onnx_tool.Model(onnx_path, {'constant_folding': True})
         self._graph = self._model.graph
 
-        # 2. 节点重排
+        # 2. 从 safetensors 补全 weight 的 shape 信息（ONNX 文件中可能缺失）
+        if safetensors_path:
+            self._update_weight_shapes_from_safetensors(safetensors_path)
+
+        # 3. 节点重排
         self._graph.graph_reorder_nodes()
 
-        # 3. Shape regression
+        # 4. Shape regression
         self.shape_engine = self._graph.shape_regress(input_desc, input_range)
 
         # 4. 用 input_range 的最大值更新 shape_engine 变量，
@@ -57,28 +65,49 @@ class GraphInfer:
         for var_name, (lo, hi) in input_range.items():
             self.shape_engine.update_variable(var_name, hi)
         max_inputs = self.shape_engine.generate_input()
+        # generate_input() 默认生成 float64，会导致 compress_memory 中
+        # get_memsize() 按 8 bytes/elem 计算，使 compress_size 翻倍。
+        # 转为 self.dtype 对应的 numpy 类型，确保 memsize 计算正确。
+        np_dtype = self._get_np_dtype()
+        for key in max_inputs:
+            max_inputs[key] = max_inputs[key].astype(np_dtype)
         self._graph.shape_infer(max_inputs)
 
         # 5. 提取 compute graph（此时 tensormap 中的 shape 已是最大值）
         self._cg = self._graph.get_compute_graph()
 
         # 6. 内存压缩 + MemoryPool（compress_memory 基于最大 shape 分配）
-        # 使用两遍压缩：第一遍获取生命周期信息，第二遍按大小降序重排以减少碎片
-        compress_mem, compress_size = self._compress_memory_optimized()
+        # 使用 graph.py 的 compress_memory（Best-Fit 策略，按大小降序重排以减少碎片）
+        # 检测是否有 kv_cache tensor，有则使用 llm_test 的双池压缩
+        has_kv_cache = 'kv_cache' in self._cg.tensormap
+        if has_kv_cache:
+            from benchmark.llm_test import compress_memory_with_kv_cache
+            compress_mem, compress_size, kv_compress_mem, kv_compress_size = \
+                compress_memory_with_kv_cache(self._cg)
+        else:
+            compress_mem, compress_size = self._cg.compress_memory()
+            kv_compress_mem, kv_compress_size = {}, 0
         self.pool = MemoryPool(
             compress_mem, compress_size, dtype=dtype, device=device
         )
+        self.kv_pool = MemoryPool(
+            kv_compress_mem, kv_compress_size, dtype=dtype, device=device
+        ) if kv_compress_size > 0 else None
 
-        # 获取节点执行顺序（按 nodemap 的插入顺序，即拓扑序）
-        self._node_names = list(self._cg.nodemap.keys())
-
-        # 缓存每个 tensor 在 pool 中的 [offset, size]
-        # compress_memory 返回的列表是 mem_block 的引用，且多个 tensor 可能共享
-        # 同一个列表对象（offset=0 的 tensor 们），导致 size 相互覆盖。
-        # 修复方案：用 tensormap 中的 shape 重新计算正确的 size，保留 offset。
+        # 合并两个 pool 的 tensor blocks
         self._tensor_blocks: Dict[str, List[int]] = {}
         elem_size = torch.tensor([], dtype=dtype).element_size()
         for tname, (offset, _) in compress_mem.items():
+            if tname in self._cg.tensormap:
+                tm_shape = self._cg.tensormap[tname].get_shape()
+                num_elems = 1
+                for s in tm_shape:
+                    num_elems *= s
+                correct_size = num_elems * elem_size
+            else:
+                correct_size = 0
+            self._tensor_blocks[tname] = [offset, correct_size]
+        for tname, (offset, _) in kv_compress_mem.items():
             if tname in self._cg.tensormap:
                 tm_shape = self._cg.tensormap[tname].get_shape()
                 num_elems = 1
@@ -93,11 +122,21 @@ class GraphInfer:
         self._tensor_views: Dict[str, torch.Tensor] = {}
         for tname, (offset, size) in self._tensor_blocks.items():
             if size > 0:
-                self._tensor_views[tname] = self.pool._pool[offset:offset + size].view(dtype=dtype)
+                if tname in kv_compress_mem and self.kv_pool is not None:
+                    self._tensor_views[tname] = self.kv_pool._pool[offset:offset + size].view(dtype=dtype)
+                else:
+                    self._tensor_views[tname] = self.pool._pool[offset:offset + size].view(dtype=dtype)
+
+        # 获取节点执行顺序（按 nodemap 的插入顺序，即拓扑序）
+        self._node_names = list(self._cg.nodemap.keys())
 
         # 缓存常量 tensor（weight/bias 等），避免每次 forward 从 numpy 转换
         self._constant_tensors: Dict[str, torch.Tensor] = {}
         self._preload_constants()
+
+        # 动态输入缓存：不在 memory pool 中的输入（如 n_past scalar），
+        # forward 时由用户传入并暂存于此，供 _resolve_tensor 查找
+        self._dynamic_inputs: Dict[str, torch.Tensor] = {}
 
         # 预缓存每个 node 的 input/output tensor 名称列表，避免 forward 中重复遍历
         self._node_input_names: List[List[str]] = []
@@ -119,13 +158,13 @@ class GraphInfer:
             node = self._cg.nodemap[node_name]
             input_names = self._node_input_names[idx]
             output_names = self._node_output_names[idx]
-            # input: 优先从 pool 取 1D 视图，fallback 到常量
+            # input: 优先从常量取（weight/bias 等），否则从 pool 取 1D 视图
             in_tensors = []
             for tname in input_names:
-                if tname in self._tensor_views:
-                    in_tensors.append(self._tensor_views[tname])
-                elif tname in self._constant_tensors:
+                if tname in self._constant_tensors:
                     in_tensors.append(self._constant_tensors[tname])
+                elif tname in self._tensor_views:
+                    in_tensors.append(self._tensor_views[tname])
                 else:
                     in_tensors.append(None)
             # output: 全部从 pool 取 1D 视图
@@ -184,6 +223,9 @@ class GraphInfer:
             needed *= s
         if t.numel() > needed:
             return t[:needed].reshape(shape)
+        if t.numel() == needed:
+            return t.reshape(shape)
+        # t.numel() < needed: 用 view 并允许广播
         return t.reshape(shape)
 
     def forward(self, inputs: Dict[str, torch.Tensor], debug: bool = False,
@@ -227,8 +269,19 @@ class GraphInfer:
             if input_name in self._tensor_views:
                 flat = self._tensor_views[input_name]
                 needed = input_tensor.numel()
-                t = flat[:needed].reshape(input_tensor.shape)
+                try:
+                    t = flat[:needed].reshape(input_tensor.shape)
+                except RuntimeError as e:
+                    raise RuntimeError(
+                        f"Failed to reshape input '{input_name}': "
+                        f"flat.numel()={flat.numel()}, needed={needed}, "
+                        f"input_tensor.shape={input_tensor.shape}, "
+                        f"input_tensor.dtype={input_tensor.dtype}"
+                    ) from e
                 t.copy_(input_tensor.to(device=self.device, dtype=self.dtype))
+            else:
+                # 不在 pool 中的动态输入（如 n_past scalar），暂存供 kernel 使用
+                self._dynamic_inputs[input_name] = input_tensor.to(device=self.device)
 
         if debug:
             print(f"\n{'='*80}")
@@ -273,16 +326,26 @@ class GraphInfer:
                         needed = 1
                         for s in shape:
                             needed *= s
-                        if t.numel() > needed:
-                            input_tensors.append(t[:needed].reshape(shape))
-                        else:
-                            input_tensors.append(t.reshape(shape))
+                        try:
+                            if t.numel() > needed:
+                                input_tensors.append(t[:needed].reshape(shape))
+                            else:
+                                input_tensors.append(t.reshape(shape))
+                        except RuntimeError as e:
+                            raise RuntimeError(
+                                f"Failed to reshape input '{tname}' for node '{node_name}': "
+                                f"t.numel()={t.numel()}, needed={needed}, shape={shape}"
+                            ) from e
                     elif t is not None:
                         input_tensors.append(t)  # constant
                     else:
                         input_tensors.append(self._resolve_tensor(tname))
             else:
                 input_tensors = self._last_node_tensors[idx][0]
+                # 刷新动态输入（如 n_past），它们每步都可能变化
+                for i, tname in enumerate(input_names):
+                    if tname in self._dynamic_inputs:
+                        input_tensors[i] = self._dynamic_inputs[tname]
             if profile:
                 t_resolve = time.perf_counter()
             if debug:
@@ -435,209 +498,170 @@ class GraphInfer:
             short_name = name if len(name) < 43 else '...' + name[-40:]
             print(f"{short_name:<45} {op:>8} {rt*1000:>9.4f} {pt*1000:>9.4f} {lt*1000:>9.4f} {kt*1000:>11.4f}")
 
-    def _compress_memory_optimized(self, size_padding=64):
+    def _safetensors_is_transposed_layout(self) -> bool:
+        """safetensors 中的 2D weight 是否为 [N, K]（PyTorch transposed layout）。
+
+        PyTorch 的 Linear weight 存储为 [out_features, in_features]，
+        而 ONNX MatMul 期望 [in_features, out_features]。
+        如果返回 True，表示 safetensors 的 2D weight 需要转置才能用于 ONNX MatMul。
         """
-        两遍内存压缩算法。
+        return True
 
-        第一遍：运行原始 compress_memory，获取每个 tensor 的生命周期信息。
-        第二遍：按 node 顺序遍历，但在每个 node 内将新 tensor 按大小降序分配，
-               大 tensor 优先选择最佳空闲块，减少碎片。
+    def _needs_transpose_for_op(self, op_type: str) -> bool:
+        """判断该 op_type 是否需要将 safetensors 的 [N, K] 转置为 [K, N]。
 
-        Returns:
-            (compress_mem, compress_size): 优化后的内存分配
+        MatMul: 需要，ONNX MatMul 期望 weight 为 [K, N]
+        Gemm: 不需要，Gemm 有 transB 属性，由 preprocess_weight 处理
+        Gather/其他: 不需要，embed_tokens 等保持原样
         """
-        import copy
-        cg = self._cg
+        return op_type == 'MatMul'
 
-        # ---- Pass 1: 获取生命周期信息 ----
-        tensor_in_mem = copy.deepcopy(cg.input)
-        tensor_mem_per_node = []
-        tensor_consumed = {}
-        for node_name in cg.nodemap:
-            node = cg.nodemap[node_name]
-            for name in node.output:
-                tensor_in_mem.append(name)
-            new_list = copy.deepcopy(tensor_in_mem)
-            tensor_mem_per_node.append(new_list)
-            for name in node.input:
-                if name in cg.consumedby:
-                    if name in tensor_consumed:
-                        tensor_consumed[name].append(node_name)
-                    else:
-                        tensor_consumed[name] = [node_name]
-                    consumers = cg.consumedby[name]
-                    if len(tensor_consumed[name]) == len(consumers):
-                        if name in tensor_in_mem:
-                            tensor_in_mem.remove(name)
+    def _transpose_safetensors_shape(self, shape, op_type: str = ''):
+        """将 safetensors 的 [N, K] shape 转置为 ONNX 的 [K, N]。
+        仅对 MatMul 的 2D weight 生效。
+        """
+        if self._safetensors_is_transposed_layout() and self._needs_transpose_for_op(op_type) and len(shape) == 2:
+            return [shape[1], shape[0]]
+        return shape
 
-        # 计算每个 tensor 的 padded size（只包含动态 tensor）
-        elem_size = torch.tensor([], dtype=self.dtype).element_size()
-        tensor_sizes = {}
-        for tname in cg.dynamics:
-            if tname in cg.tensormap:
-                shape = cg.tensormap[tname].get_shape()
-                num_elems = 1
-                for s in shape:
-                    num_elems *= s
-                size_bytes = num_elems * elem_size
-                size_bytes = int((size_bytes + size_padding - 1) // size_padding * size_padding)
-                if size_bytes > 0:
-                    tensor_sizes[tname] = size_bytes
+    def _transpose_safetensors_tensor(self, t: torch.Tensor, op_type: str = '') -> torch.Tensor:
+        """将 safetensors 的 [N, K] tensor 转置为 ONNX 的 [K, N]。
+        仅对 MatMul 的 2D weight 生效。
+        """
+        if self._safetensors_is_transposed_layout() and self._needs_transpose_for_op(op_type) and t.dim() == 2:
+            return t.T.contiguous()
+        return t
 
-        # ---- Pass 2: 按 node 顺序分配，每个 node 内新 tensor 按大小降序 ----
-        compress_mem = {}
-        mem_tags = []
-        mem_block = []
-        split_threshold = max(size_padding, 4096)
+    def _update_weight_shapes_from_safetensors(self, safetensors_path: str):
+        """从 safetensors 文件读取 weight shape，更新到 graph 的 tensormap 中。
 
-        for nodetensors in tensor_mem_per_node:
-            # Phase 1: 释放不再存活的 tensor（与原始算法相同）
-            for i, tag in enumerate(mem_tags):
-                if tag == "":
+        onnx_tool.llm.Builder 导出的 ONNX 文件缺少 weight 的 shape 信息，
+        需要从 safetensors 中补全，否则 shape_regress 无法推导 tensor shape。
+
+        safetensors 中的 2D weight 为 [N, K]（PyTorch layout），
+        对于 MatMul 的 weight 需要转置为 [K, N]（ONNX layout）以正确推导 shape。
+        """
+        import safetensors
+
+        # 预计算每个 tensor 的消费者 op_type
+        consumer_op: Dict[str, str] = {}
+        for node in self._graph.nodemap.values():
+            for inp in node.input:
+                if inp not in consumer_op:
+                    consumer_op[inp] = node.op_type
+
+        with safetensors.safe_open(safetensors_path, framework='pt') as f:
+            st_keys = set(f.keys())
+            # Builder 导出的 ONNX 中 weight 被错误地放在 graph input 中。
+            # 只排除真正的动态输入（由 input_desc 指定的）和 graph output
+            dynamic_inputs = set(self.input_desc.keys()) if hasattr(self, 'input_desc') else set()
+            output_set = set(self._graph.output)
+            # 记录已更新的 tensor，供 _preload_constants 使用
+            self._safetensors_updated: set = set()
+            for tname in list(self._graph.tensormap.keys()):
+                tm = self._graph.tensormap[tname]
+                # 跳过已有 shape 的、动态输入的、输出的 tensor
+                if tm.get_shape() or tname in dynamic_inputs or tname in output_set:
                     continue
-                if tag not in nodetensors:
-                    premerge = False
-                    if i >= 1 and mem_tags[i - 1] == "":
-                        premerge = True
-                    nextmerge = False
-                    if i < len(mem_tags) - 1 and mem_tags[i + 1] == "":
-                        nextmerge = True
-                    if premerge and nextmerge:
-                        newblock = [mem_block[i - 1][0], mem_block[i + 1][0] + mem_block[i + 1][1]
-                                    - mem_block[i - 1][0]]
-                        mem_tags.pop(i)
-                        mem_tags.pop(i)
-                        mem_block.pop(i)
-                        mem_block.pop(i)
-                        mem_tags[i - 1] = ""
-                        mem_block[i - 1] = newblock
-                    elif premerge:
-                        newblock = [mem_block[i - 1][0], mem_block[i][0] + mem_block[i][1]
-                                    - mem_block[i - 1][0]]
-                        mem_tags.pop(i)
-                        mem_block.pop(i)
-                        mem_tags[i - 1] = ""
-                        mem_block[i - 1] = newblock
-                    elif nextmerge:
-                        newblock = [mem_block[i][0], mem_block[i + 1][0] + mem_block[i + 1][1]
-                                    - mem_block[i][0]]
-                        mem_tags.pop(i)
-                        mem_block.pop(i)
-                        mem_tags[i] = ""
-                        mem_block[i] = newblock
-                    else:
-                        mem_tags[i] = ""
-
-            # Phase 2: 分配新 tensor，按大小降序排列
-            new_tensors = [t for t in nodetensors if t not in mem_tags and t in tensor_sizes]
-            new_tensors.sort(key=lambda t: -tensor_sizes[t])
-
-            for tname in new_tensors:
-                size_ = tensor_sizes[tname]
-
-                # Best-Fit
-                best_idx = -1
-                best_remain = None
-                for i, tag in enumerate(mem_tags):
-                    if tag == "":
-                        free_size = mem_block[i][1]
-                        if free_size >= size_:
-                            remain_size = free_size - size_
-                            if best_idx == -1 or remain_size < best_remain[0]:
-                                best_idx = i
-                                best_remain = [remain_size, [mem_block[i][0] + size_, remain_size]]
-
-                if best_idx >= 0:
-                    i = best_idx
-                    remain_size = best_remain[0]
-                    if remain_size >= split_threshold:
-                        remain_block = best_remain[1]
-                        mem_tags[i] = tname
-                        mem_block[i][1] = size_
-                        mem_tags.insert(i + 1, "")
-                        mem_block.insert(i + 1, remain_block)
-                    else:
-                        mem_tags[i] = tname
-                else:
-                    lastidx = len(mem_tags) - 1
-                    if lastidx >= 0 and mem_tags[lastidx] == "":
-                        mem_block[lastidx][1] = size_
-                        mem_tags[lastidx] = tname
-                    else:
-                        mem_tags.append(tname)
-                        if lastidx >= 0:
-                            mem_block.append([mem_block[lastidx][0] + mem_block[lastidx][1], size_])
-                        else:
-                            mem_block.append([0, size_])
-
-                idx = mem_tags.index(tname)
-                compress_mem[tname] = [mem_block[idx][0], mem_block[idx][1]]
-
-        # ---- 压缩尾部 ----
-        last_used_end = max(b[0] + b[1] for b in mem_block) if mem_block else 0
-        compress_size = last_used_end
-
-        # ---- 验证重叠 ----
-        for nodetensors in tensor_mem_per_node:
-            for tname in nodetensors:
-                if tname not in compress_mem:
-                    continue
-                block0 = compress_mem[tname]
-                if block0[1] == 0:
-                    continue
-                for tname1 in nodetensors:
-                    if tname1 == tname or tname1 not in compress_mem:
-                        continue
-                    block1 = compress_mem[tname1]
-                    if block1[1] == 0:
-                        continue
-                    a_start, a_end = block0[0], block0[0] + block0[1]
-                    b_start, b_end = block1[0], block1[0] + block1[1]
-                    if a_start < b_end and b_start < a_end:
-                        print(f"  WARNING: overlap detected between {tname} and {tname1}")
-
-        raw_memsize = 0
-        for tname in cg.dynamics:
-            if tname in cg.input or tname in cg.output:
-                continue
-            if tname in cg.tensormap:
-                raw_memsize += cg.tensormap[tname].get_memsize()
-
-        print(f"Optimized compress: raw={raw_memsize:,} bytes, "
-              f"pool={compress_size:,} bytes, "
-              f"ratio={compress_size/raw_memsize*100:.2f}%")
-
-        return compress_mem, compress_size
+                # 尝试直接匹配名称
+                st_name = tname
+                if st_name not in st_keys:
+                    # 尝试通过 weight_map 匹配
+                    st_name = self.weight_map.get(tname, tname)
+                if st_name in st_keys:
+                    shape = list(f.get_tensor(st_name).shape)
+                    op_type = consumer_op.get(tname, '')
+                    shape = self._transpose_safetensors_shape(shape, op_type)
+                    tm.update_shape(shape)
+                    self._safetensors_updated.add(tname)
+                    print(f"  Updated shape from safetensors: {tname} -> {shape}")
 
     def _preload_constants(self):
-        """预加载所有常量 tensor 到目标设备，并对 weight 执行 kernel 注册的前处理"""
+        """预加载所有常量 tensor 到目标设备，并对 weight 执行 kernel 注册的前处理
+
+        支持两种数据源：
+          1. ONNX 文件内嵌的 weight（tensor_obj.numpy 不为 None）
+          2. 外部 safetensors 文件（通过 safetensors_path + weight_map 匹配名称）
+
+        注意：Builder 导出的 ONNX 中 weight 没有 numpy 数据且不在 initials 中，
+        因此需要遍历所有 STATIC_TENSOR（type=1）来加载 safetensors 权重。
+        """
+        # 确定需要加载的 tensor 列表
+        # 合并 initials（rope.cos/sin 等有 numpy 数据的常量）和
+        # _safetensors_updated（从 safetensors 加载的 weight）
+        load_names = set()
+        if self._cg.initials:
+            load_names.update(self._cg.initials)
+        if hasattr(self, '_safetensors_updated') and self._safetensors_updated:
+            load_names.update(self._safetensors_updated)
+        if not load_names:
+            dynamic_inputs = set(self.input_desc.keys())
+            output_set = set(self._cg.output)
+            load_names = set(n for n, tm in self._cg.tensormap.items()
+                             if not tm.get_shape() and n not in dynamic_inputs
+                             and n not in output_set)
+        # 补充：对于有 shape 但 numpy 为 None 的 STATIC_TENSOR（weight/bias），
+        # 也需要从 safetensors 加载（ONNX 中 weight 有 shape 但无数据）
+        for n, tm in self._cg.tensormap.items():
+            if tm.type == 1 and tm.numpy is None:  # STATIC_TENSOR without data
+                load_names.add(n)
+        load_names = list(load_names)
+
         # 预计算每个 constant 的消费者 op_type 和 attrs，用于 preprocess_weight
         const_consumer: Dict[str, tuple] = {}  # tname -> (op_type, attrs)
-        for tname in self._cg.initials:
+        for tname in load_names:
             if tname in self._cg.consumedby:
                 consumers = self._cg.consumedby[tname]
                 if consumers:
                     first_node = self._cg.nodemap[consumers[0]]
                     const_consumer[tname] = (first_node.op_type, first_node.attr)
 
-        for tname in self._cg.initials:
-            if tname in self._cg.tensormap:
-                tensor_obj = self._cg.tensormap[tname]
-                if tensor_obj.numpy is not None:
-                    t = torch.from_numpy(tensor_obj.numpy.astype(
-                        np.dtype(self._get_torch_dtype_name(self.dtype))
-                    )).to(device=self.device)
+        # 如果指定了 safetensors 文件，预加载所有 weight
+        safetensors_data: Dict[str, torch.Tensor] = {}
+        if self.safetensors_path:
+            import safetensors
+            with safetensors.safe_open(self.safetensors_path, framework='pt') as f:
+                for key in f.keys():
+                    safetensors_data[key] = f.get_tensor(key)
 
-                    # 如果该 constant 有消费者 kernel 且实现了 preprocess_weight，则调用
-                    if tname in const_consumer:
-                        op_type, attrs = const_consumer[tname]
-                        kernel_cls = KernelRegistry.get(op_type)
-                        if kernel_cls is not None and hasattr(kernel_cls, 'preprocess_weight'):
-                            processed = kernel_cls.preprocess_weight(tname, t, attrs)
-                            if processed is not None:
-                                t = processed
+        for tname in load_names:
+            if tname not in self._cg.tensormap:
+                continue
 
-                    self._constant_tensors[tname] = t
+            tensor_obj = self._cg.tensormap[tname]
+            t = None
+
+            # 1. 尝试从 safetensors 加载
+            if self.safetensors_path:
+                # 直接匹配名称
+                if tname in safetensors_data:
+                    t = safetensors_data[tname].to(device=self.device, dtype=self.dtype)
+                # 通过 weight_map 匹配
+                elif tname in self.weight_map and self.weight_map[tname] in safetensors_data:
+                    st_name = self.weight_map[tname]
+                    t = safetensors_data[st_name].to(device=self.device, dtype=self.dtype)
+
+            # 2. fallback: 从 ONNX 内嵌数据加载
+            if t is None and tensor_obj.numpy is not None:
+                t = torch.from_numpy(tensor_obj.numpy.astype(
+                    np.dtype(self._get_torch_dtype_name(self.dtype))
+                )).to(device=self.device)
+
+            if t is not None:
+                # safetensors 的 2D weight 为 [N, K]，MatMul 的 weight 转置为 [K, N]
+                op_type = const_consumer.get(tname, ('', {}))[0] if tname in const_consumer else ''
+                t = self._transpose_safetensors_tensor(t, op_type)
+
+                # 如果该 constant 有消费者 kernel 且实现了 preprocess_weight，则调用
+                if tname in const_consumer:
+                    op_type, attrs = const_consumer[tname]
+                    kernel_cls = KernelRegistry.get(op_type)
+                    if kernel_cls is not None and hasattr(kernel_cls, 'preprocess_weight'):
+                        processed = kernel_cls.preprocess_weight(tname, t, attrs)
+                        if processed is not None:
+                            t = processed
+
+                self._constant_tensors[tname] = t
 
     def _resolve_tensor(self, tname: str) -> Optional[torch.Tensor]:
         """
@@ -655,7 +679,11 @@ class GraphInfer:
         if tname in self._constant_tensors:
             return self._constant_tensors[tname]
 
-        # 3. 不在 pool 也不是常量
+        # 3. 尝试从动态输入缓存获取（如 n_past scalar）
+        if tname in self._dynamic_inputs:
+            return self._dynamic_inputs[tname]
+
+        # 4. 不在 pool 也不是常量/动态输入
         return None
 
     @staticmethod
@@ -672,6 +700,10 @@ class GraphInfer:
             torch.bool: 'bool',
         }
         return mapping.get(dtype, 'float32')
+
+    def _get_np_dtype(self):
+        """将 self.dtype (torch.dtype) 转为对应的 numpy dtype"""
+        return np.dtype(self._get_torch_dtype_name(self.dtype))
 
     def _update_shape_from_input(self, input_tensor: torch.Tensor) -> bool:
         """根据实际输入 tensor 的形状，更新 shape_engine 中的变量。

@@ -648,6 +648,11 @@ class RopeNode(PWNode):
         super().__init__(n)
         self.op_mac = COS_MACS + SIN_MACS + MUL_MACS * 2
 
+    def shape_infer(self, intensors, outtensors):
+        # Rope 有多个输入 [x, cos, sin, position]，输出 shape 与 x 相同
+        outtensors[0].update_shape(intensors[0].get_shape())
+        outtensors[0].update_dtype(intensors[0].dtype)
+
 
 @NODE_REGISTRY.register()
 class PReluNode(PWNode):
@@ -2813,12 +2818,18 @@ class CastNode(Node):
 
 
 @NODE_REGISTRY.register()
-class MHANode(Node):
+class SDPANode(Node):
     def __init__(self, nodeproto):
         super().__init__(nodeproto)
 
     def shape_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
-        outtensors[0].update_shape(intensors[0].get_shape())
+        # SDPA 输入 Q [B, N, S, D/N]，输出 [B, S, D]
+        q_shape = intensors[0].get_shape()
+        if len(q_shape) == 4:
+            out_shape = [q_shape[0], q_shape[2], q_shape[1] * q_shape[3]]
+        else:
+            out_shape = q_shape
+        outtensors[0].update_shape(out_shape)
         outtensors[0].update_dtype(intensors[0].dtype)
 
     def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
@@ -2847,12 +2858,12 @@ class MHANode(Node):
 
 
 @NODE_REGISTRY.register()
-class GQANode(MHANode):
+class GQANode(SDPANode):
     pass
 
 
 @NODE_REGISTRY.register()
-class MQANode(MHANode):
+class MQANode(SDPANode):
     pass
 
 

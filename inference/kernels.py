@@ -251,7 +251,7 @@ class ReshapeKernel(Kernel):
             if s == 0:
                 new_shape.append(x.shape[si])
             else:
-                new_shape.append(s)
+                new_shape.append(int(s))
             si += 1
         outputs[0].copy_(x.reshape(new_shape))
 
@@ -402,11 +402,23 @@ class FlattenKernel(Kernel):
     def run(inputs, outputs, attrs):
         axis = attrs.get('axis', 1)
         x = inputs[0]
-        # 从 axis 处展平
-        leading = x.shape[:axis]
-        rest = x.shape[axis:]
-        new_shape = list(leading) + [-1]
-        outputs[0].copy_(x.reshape(new_shape))
+        # ONNX Flatten: output shape = (d0, d1, ..., d_{axis-1}, d_{axis} * ... * d_{k-1})
+        # 即保留前 axis 个维度，将剩余维度展平为一个维度
+        if axis == 0:
+            # 展平所有维度
+            result = x.reshape(-1)
+        else:
+            leading = x.shape[:axis]
+            rest_numel = 1
+            for s in x.shape[axis:]:
+                rest_numel *= s
+            new_shape = tuple(leading) + (rest_numel,)
+            result = x.reshape(new_shape)
+        # 如果输出 tensor 的 shape 与计算结果不同（模型 shape inference 可能有误），
+        # 尝试 reshape 到输出 tensor 的 shape
+        if result.shape != outputs[0].shape:
+            result = result.reshape(outputs[0].shape)
+        outputs[0].copy_(result)
 
 
 @KernelRegistry.register("Concat")
@@ -448,10 +460,17 @@ class UnsqueezeKernel(Kernel):
 
     @staticmethod
     def run(inputs, outputs, attrs):
-        axes = attrs.get('axes', None)
+        # axes 来源: inputs[1] (ONNX 13+) 或 attrs['axes'] (ONNX 11-)
+        if len(inputs) > 1 and inputs[1] is not None:
+            axes = [int(x) for x in inputs[1].cpu().tolist()]
+        else:
+            axes = attrs.get('axes', None)
+
         if axes is not None:
+            t = inputs[0]
             for ax in sorted(axes):
-                outputs[0].copy_(inputs[0].unsqueeze(ax))
+                t = t.unsqueeze(ax)
+            outputs[0].copy_(t)
         else:
             outputs[0].copy_(inputs[0].unsqueeze(0))
 
@@ -530,6 +549,10 @@ class TileKernel(Kernel):
     @staticmethod
     def run(inputs, outputs, attrs):
         repeats = inputs[1].cpu().tolist()
+        # 确保 repeats 是扁平列表
+        if isinstance(repeats, list) and len(repeats) == 1 and isinstance(repeats[0], list):
+            repeats = repeats[0]
+        repeats = [int(r) for r in repeats]
         outputs[0].copy_(inputs[0].repeat(*repeats))
 
 
@@ -612,7 +635,11 @@ class ReduceMeanKernel(Kernel):
 
     @staticmethod
     def run(inputs, outputs, attrs):
-        axes = attrs.get('axes', None)
+        # axes 来源: inputs[1] (ONNX 18+) 或 attrs['axes']
+        if len(inputs) > 1 and inputs[1] is not None:
+            axes = [int(x) for x in inputs[1].cpu().tolist()]
+        else:
+            axes = attrs.get('axes', None)
         keepdims = attrs.get('keepdims', 1)
         if axes is not None:
             outputs[0].copy_(inputs[0].mean(dim=tuple(axes), keepdim=bool(keepdims)))
@@ -626,7 +653,11 @@ class ReduceSumKernel(Kernel):
 
     @staticmethod
     def run(inputs, outputs, attrs):
-        axes = attrs.get('axes', None)
+        # axes 来源: inputs[1] (ONNX 18+) 或 attrs['axes']
+        if len(inputs) > 1 and inputs[1] is not None:
+            axes = [int(x) for x in inputs[1].cpu().tolist()]
+        else:
+            axes = attrs.get('axes', None)
         keepdims = attrs.get('keepdims', 1)
         if axes is not None:
             outputs[0].copy_(inputs[0].sum(dim=tuple(axes), keepdim=bool(keepdims)))
@@ -651,17 +682,17 @@ class SliceKernel(Kernel):
     def run(inputs, outputs, attrs):
         x = inputs[0]
         # ONNX Slice: inputs[1]=starts, inputs[2]=ends, inputs[3]=axes, inputs[4]=steps
-        starts = inputs[1].cpu().tolist() if len(inputs) > 1 else attrs.get('starts', [0])
-        ends = inputs[2].cpu().tolist() if len(inputs) > 2 else attrs.get('ends', [x.shape[0]])
-        axes = inputs[3].cpu().tolist() if len(inputs) > 3 else attrs.get('axes', list(range(len(starts))))
-        steps = inputs[4].cpu().tolist() if len(inputs) > 4 else attrs.get('steps', [1] * len(starts))
+        starts = [int(v) for v in inputs[1].cpu().tolist()] if len(inputs) > 1 and inputs[1] is not None else attrs.get('starts', [0])
+        ends = [int(v) for v in inputs[2].cpu().tolist()] if len(inputs) > 2 and inputs[2] is not None else attrs.get('ends', [x.shape[0]])
+        axes = [int(v) for v in inputs[3].cpu().tolist()] if len(inputs) > 3 and inputs[3] is not None else attrs.get('axes', list(range(len(starts))))
+        steps = [int(v) for v in inputs[4].cpu().tolist()] if len(inputs) > 4 and inputs[4] is not None else attrs.get('steps', [1] * len(starts))
 
         # 构建切片
         slices = [slice(None)] * x.ndim
         for i, ax in enumerate(axes):
-            s = starts[i] if i < len(starts) else 0
-            e = ends[i] if i < len(ends) else x.shape[ax]
-            step = steps[i] if i < len(steps) else 1
+            s = int(starts[i]) if i < len(starts) else 0
+            e = int(ends[i]) if i < len(ends) else x.shape[ax]
+            step = int(steps[i]) if i < len(steps) else 1
             slices[ax] = slice(s, e, step)
 
         outputs[0].copy_(x[tuple(slices)])
@@ -1036,3 +1067,108 @@ class SiluKernel(Kernel):
     @staticmethod
     def run(inputs, outputs, attrs):
         outputs[0].copy_(F.silu(inputs[0]))
+
+
+# ===========================================================================
+# YOLO / CV detection 所需额外算子
+# ===========================================================================
+
+@KernelRegistry.register("GatherElements")
+class GatherElementsKernel(Kernel):
+    """ONNX GatherElements: 沿 axis 按 indices 收集元素，保持 indices 的维度结构"""
+    op_type = "GatherElements"
+
+    @staticmethod
+    def run(inputs, outputs, attrs):
+        axis = attrs.get('axis', 0)
+        data = inputs[0]
+        indices = inputs[1].long()
+        outputs[0].copy_(torch.gather(data, axis, indices))
+
+
+@KernelRegistry.register("Mod")
+class ModKernel(Kernel):
+    """ONNX Mod: 逐元素取模 (fmod=0 时行为同 Python % 即 truncation toward zero)"""
+    op_type = "Mod"
+
+    @staticmethod
+    def run(inputs, outputs, attrs):
+        fmod = attrs.get('fmod', 0)
+        if fmod:
+            outputs[0].copy_(torch.fmod(inputs[0], inputs[1]))
+        else:
+            outputs[0].copy_(torch.remainder(inputs[0], inputs[1]))
+
+
+@KernelRegistry.register("ReduceMax")
+class ReduceMaxKernel(Kernel):
+    """ONNX ReduceMax: 沿指定轴取最大值"""
+    op_type = "ReduceMax"
+
+    @staticmethod
+    def run(inputs, outputs, attrs):
+        # axes 来源: inputs[1] (ONNX 18+) 或 attrs['axes']
+        if len(inputs) > 1 and inputs[1] is not None:
+            axes = [int(x) for x in inputs[1].cpu().tolist()]
+        else:
+            axes = attrs.get('axes', None)
+        keepdims = attrs.get('keepdims', 1)
+        if axes is not None:
+            outputs[0].copy_(inputs[0].amax(dim=tuple(axes), keepdim=bool(keepdims)))
+        else:
+            outputs[0].copy_(inputs[0].amax(keepdim=bool(keepdims)))
+
+
+@KernelRegistry.register("Split")
+class SplitKernel(Kernel):
+    """ONNX Split: 沿 axis 将 tensor 切分为多个子 tensor
+
+    split 参数来源优先级:
+      1. inputs[1] (动态 split sizes tensor)
+      2. attrs['split'] (静态属性)
+      3. 均匀分割 (num_outputs 等分)
+    """
+    op_type = "Split"
+
+    @staticmethod
+    def run(inputs, outputs, attrs):
+        axis = attrs.get('axis', 0)
+
+        # 获取 split sizes
+        split_sizes = None
+        if len(inputs) > 1 and inputs[1] is not None:
+            split_sizes = [int(x) for x in inputs[1].cpu().tolist()]
+        elif attrs.get('split') is not None:
+            split_sizes = list(attrs['split'])
+
+        if split_sizes is not None:
+            chunks = torch.split(inputs[0], split_sizes, dim=axis)
+        else:
+            # 均匀分割
+            num_outputs = len(outputs)
+            chunks = torch.chunk(inputs[0], num_outputs, dim=axis)
+        for i, chunk in enumerate(chunks):
+            if i < len(outputs):
+                outputs[i].copy_(chunk)
+
+
+@KernelRegistry.register("TopK")
+class TopKKernel(Kernel):
+    """ONNX TopK: 沿 axis 取 top-k 值和索引 (largest=1 取最大, sorted=1 排序输出)"""
+    op_type = "TopK"
+
+    @staticmethod
+    def run(inputs, outputs, attrs):
+        axis = attrs.get('axis', -1)
+        largest = attrs.get('largest', 1)
+        sorted_result = attrs.get('sorted', 1)
+        k = int(inputs[1].item()) if len(inputs) > 1 and inputs[1] is not None else attrs.get('k', 1)
+
+        values, indices = torch.topk(
+            inputs[0], k, dim=axis,
+            largest=bool(largest),
+            sorted=bool(sorted_result),
+        )
+        outputs[0].copy_(values)
+        if len(outputs) > 1:
+            outputs[1].copy_(indices)

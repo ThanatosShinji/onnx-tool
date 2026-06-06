@@ -1435,10 +1435,6 @@ class Graph():
         if not self.valid_shape:
             warnings.warn('Please perform a valid shape_infer() before profile().')
             return
-        params_flag_map = {}
-        for key in self.initials:
-            params_flag_map[key] = 0
-
         self.macs = [0.0, 0.0]
         self.params = 0
         self.memory = 0
@@ -1454,23 +1450,22 @@ class Graph():
             for input in node.input:
                 tensor = self.tensormap[input]
                 itensors.append(tensor)
-                if input in self.initials:
-                    if params_flag_map[input] == 0:
-                        elesize = volume(self.tensormap[input].get_shape())
-                        _params += elesize
-                        _memory += elesize * self.tensormap[input].get_elementsize()
-                    params_flag_map[input] += 1
                 if tensor.sparsity is not None and tensor.sparsity['ratio'] > max_sparsity:
                     max_sparsity = tensor.sparsity['ratio']
                     block_sparsity = tensor.sparsity
+            # Annotate static/dynamic inputs on the node
+            node.static_inputs = [i for i, t in enumerate(itensors) if t.name != '' and t.type == STATIC_TENSOR]
+            node.dynamic_inputs = [i for i, t in enumerate(itensors) if t.name != '' and t.type == DYNAMIC_TENSOR]
             otensors = []
             for output in node.output:
                 otensors.append(self.tensormap[output])
-                if node.op_type == 'Constant':
-                    # Constant's output tensors are already counted as weight tensors
-                    continue
-                _memory += self.tensormap[output].get_memsize()
-            macs = node.profile(itensors, otensors)
+            ret = node.profile(itensors, otensors)
+            macs = ret[0]
+            # params: sum of all static input volumes (not deduped)
+            _params = sum(volume(itensors[i].get_shape()) for i in node.static_inputs)
+            io_elesize = self.tensormap[node.output[0]].get_elementsize() if node.output else 4
+            static_elesize = self.tensormap[node.input[0]].get_elementsize() if node.input else 4
+            _memory = ret[1] * io_elesize + ret[2] * static_elesize
             outshape = (0,)
             if len(node.output) > 0:
                 outshape = self.tensormap[node.output[0]].get_shape()
@@ -1484,11 +1479,18 @@ class Graph():
             node.outshape = outshape
             node.params = _params
             node.memory = _memory
+            node.io_params = ret[1]
+            node.static_params = ret[2]
             node.sparsity = block_sparsity
-            self.macs[0] += macs[0]
-            self.macs[1] += macs[1]
+            self.macs[0] += macs
             self.params += _params
             self.memory += _memory
+
+        # Dedup params: sum each static tensor's volume only once
+        self.dedup_params = 0
+        for key in self.initials:
+            if key in self.consumedby and len(self.consumedby[key]) > 0:
+                self.dedup_params += volume(self.tensormap[key].get_shape())
 
         self.valid_profile = True
 
@@ -1508,8 +1510,6 @@ class Graph():
         ptable = []
 
         forward_macs = int(round(self.macs[0]))
-        backward_macs = int(round(self.macs[1]))
-        backward_valid = backward_macs > 0
         params = int(self.params)
         memory = int(self.memory)
 
@@ -1518,7 +1518,8 @@ class Graph():
             if key in self.initials:
                 if key in self.consumedby.keys() and len(self.consumedby[key]) > 1:
                     tensor = self.tensormap[key]
-                    shared_size += volume(tensor.get_shape())
+                    # Each shared tensor is counted (N-1) extra times in params
+                    shared_size += volume(tensor.get_shape()) * (len(self.consumedby[key]) - 1)
 
         if shared_size > 1024:
             print()
@@ -1541,7 +1542,6 @@ class Graph():
         params += 1e-18
         memory += 1e-18
         forward_macs += 1e-18
-        backward_macs += 1e-18
         ops_to_cover = {k for k, v in self.nodemap.items() if v.op_type not in exclude_ops} if exclude_ops else self.nodemap.keys()
         for key in ops_to_cover:
             node = self.nodemap[key]
@@ -1551,11 +1551,8 @@ class Graph():
                 row.append(tuple2str(sparsity['blocksize'], splitch))
                 row.append('{:.2%}'.format(sparsity['blockratio']))
                 row.append('{:.2%}'.format(sparsity['ratio']))
-            row.append(num2str(int(node.macs[0]) * factor, csvformat))
-            row.append('{:.2%}'.format(node.macs[0] / forward_macs))
-            if backward_valid:
-                row.append(num2str(int(node.macs[1]) * factor, csvformat))
-                row.append('{:.2%}'.format(node.macs[1] / backward_macs))
+            row.append(num2str(int(node.macs) * factor, csvformat))
+            row.append('{:.2%}'.format(node.macs / forward_macs))
             row.append(num2str(int(node.memory), csvformat))
             row.append('{:.2%}'.format(node.memory / memory))
             row.append(num2str(int(node.params), csvformat))
@@ -1571,9 +1568,6 @@ class Graph():
             row.append('_')
         row.append(num2str(int(forward_macs * factor), csvformat))
         row.append('100%')
-        if backward_valid:
-            row.append(num2str(int(backward_macs * factor), csvformat))
-            row.append('100%')
         row.append(num2str(int(memory), csvformat))
         row.append('100%')
         row.append(num2str(int(params), csvformat))
@@ -1582,6 +1576,14 @@ class Graph():
         row.append('_')
 
         ptable.append(row)
+        # Dedup params row (only shown when different from params)
+        if self.dedup_params != self.params:
+            dedup_row = ['Dedup_Params', '_']
+            if print_sparse_table:
+                dedup_row.extend(['_', '_', '_'])
+            dedup_row.extend(['_', '_', '_', '_', num2str(int(self.dedup_params), csvformat),
+                              '_', '_', '_'])
+            ptable.append(dedup_row)
         header = ['Name', 'Type']
         if print_sparse_table:
             header.append('Sparse Pattern')
@@ -1589,9 +1591,6 @@ class Graph():
             header.append('Sparse Ratio')
         header.extend(
             ['Forward_' + metric, 'FPercent'])
-        if backward_valid:
-            header.extend(
-                ['Backward_' + metric, 'BPercent'])
         header.extend(
             ['Memory', 'MPercent', 'Params',
              'PPercent', 'InShape',

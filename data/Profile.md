@@ -4,9 +4,9 @@ a shape_infer before calling profile function of onnx_tool.Graph.
 
 Here are profiling items:
 1. Forward MACs(or FLOPs) and its percentage
-2. Backward MACs(or FLOPs) and its percentage(experimental)
-3. Memory usage (in bytes) and its percent
-4. Parameter number(static tensor size) and its percent
+2. Memory usage (in bytes) and its percent
+3. Parameter number (undeduped) and its percent
+4. Dedup parameter number (model file size / sizeof(dtype))
 5. Input tensor shape(index=0) and output tensor shape(index=0)
 6. Sparse pattern, sparse block ratio and sparse ratio.
 
@@ -25,12 +25,26 @@ number depends on how accurate result you want to get. You can treat this as the
 Also, onnx_tool won't assume that some ops will be fused, like the batch normalization op after the convolution op.
 
 ### Memory
-Layer memory usage = Weight tensor memory + Output tensor memory   
-The same weight tensor will be only count once.
+Per-node memory = IO activation memory + Static weight memory
+
+- **IO activation memory** = output tensor volume × sizeof(dtype). Input activations are NOT counted (they are the upstream node's output).
+- **Static weight memory** = sum of static input tensor volumes × sizeof(dtype). Each node independently counts its weight tensors.
+- **Total memory** = sum of per-node memory (weights may be counted multiple times if shared).
 
 ### Parameters
-Parameter number stands for the model space size. The total size of weight tensor.  
-The same weight tensor will be count once like memory.
+Two parameter counts are reported:
+
+| Metric | Description |
+|--------|-------------|
+| **Params** (Total row) | Sum of all static weight tensor volumes across all nodes (undeduped). Shared weights are counted multiple times. |
+| **Dedup_Params** | Sum of each unique static weight tensor volume (counted once). `Dedup_Params × sizeof(dtype)` ≈ ONNX model file size. |
+
+The `Dedup_Params` row only appears when it differs from `Params` (i.e., when weight sharing is detected).
+
+Each node's `profile()` method returns a 3-tuple `[macs, io_params, static_params]`:
+- `macs`: forward MACs
+- `io_params`: output activation element count
+- `static_params`: static weight element count (may be seq_len-aware for embedding/Gather nodes)
 
 ### Sparsity
 1. Sparse block pattern 1x4 means that tensor values are grouped into 1x4 blocks, the block is  

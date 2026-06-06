@@ -180,6 +180,9 @@ class Node():
         self.proto = n
         self.shape_calc = False
         self.attr = {}
+        # Annotated by graph.profile(): which input indices are static (weights) vs dynamic (activations)
+        self.static_inputs = []   # list of indices
+        self.dynamic_inputs = []  # list of indices
         if isinstance(n.attribute, dict):
             for att in n.attribute:
                 self.attr[att] = n.attribute[att]
@@ -210,7 +213,24 @@ class Node():
         raise NotImplementedError(f'this Node {self.op_type}-{self.name} has no value_infer')
 
     def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
-        return [0, 0]
+        """Return [macs, io_params, static_params].
+        
+        - macs: forward MACs (from _profile_core)
+        - io_params: output activation elements (sum of output tensor volumes)
+        - static_params: active static weight elements (sum of static input tensor volumes)
+        
+        Subclasses override _profile_core() to return MACs.
+        Fused nodes (MoE, MLA, GDN, Gather) override profile() directly
+        to provide seq_len-aware static_params.
+        """
+        macs = self._profile_core(intensors, outtensors)
+        io_params = sum(volume(t.get_shape()) for t in outtensors)
+        static_params = sum(volume(intensors[i].get_shape()) for i in self.static_inputs)
+        return [macs, io_params, static_params]
+
+    def _profile_core(self, intensors: List[Tensor], outtensors: List[Tensor]):
+        """Override in subclasses to return MACs. Base returns 0."""
+        return 0
 
 
 class FusedBase(Node):
@@ -221,8 +241,8 @@ class FusedBase(Node):
     def value_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
         outtensors[0].update_tensor(intensors[0].get_numpy())
 
-    def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
-        return [0, 0]
+    def _profile_core(self, intensors: List[Tensor], outtensors: List[Tensor]):
+        return 0
 
 
 class PWNode(Node):
@@ -238,10 +258,10 @@ class PWNode(Node):
         outtensors[0].update_shape(_max_shape(inshapes))
         outtensors[0].update_dtype(intensors[0].dtype)
 
-    def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
+    def _profile_core(self, intensors: List[Tensor], outtensors: List[Tensor]):
         outshape = outtensors[0].get_shape()
         macs = volume(outshape) * self.ratio * self.op_mac
-        return [macs, 0]
+        return macs
 
 
 class NpMathBase(Node):
@@ -259,10 +279,10 @@ class NpMathBase(Node):
         outtensors[0].update_shape(outshape)
         outtensors[0].update_dtype(intensors[0].dtype)
 
-    def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
+    def _profile_core(self, intensors: List[Tensor], outtensors: List[Tensor]):
         outshape = outtensors[0].get_shape()
         macs = volume(outshape) * self.ratio * self.op_mac
-        return [macs, 0]
+        return macs
 
 
 @NODE_REGISTRY.register()
@@ -468,10 +488,10 @@ class PowNode(Node):
         result = numpy.power(intensors[0].get_numpy(), intensors[1].get_numpy())
         outtensors[0].update_tensor(result)
 
-    def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
+    def _profile_core(self, intensors: List[Tensor], outtensors: List[Tensor]):
         outshape = outtensors[0].get_shape()
         macs = volume(outshape) * self.op_mac
-        return [macs, 0]
+        return macs
 
 @NODE_REGISTRY.register()
 class SinNode(PWNode):
@@ -714,12 +734,12 @@ class LRNNode(PWNode):
     def __init__(self, nodeproto):
         super().__init__(nodeproto)
 
-    def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
+    def _profile_core(self, intensors: List[Tensor], outtensors: List[Tensor]):
         macs = 0
         outvol = volume(outtensors[0].get_shape())
         outvol *= (DIV_MACS + EXP_MACS + ADD_MACS + self.size * MUL_MACS)
         macs += outvol
-        return [macs, 0]
+        return macs
 
 
 @NODE_REGISTRY.register()
@@ -734,8 +754,8 @@ class LessNode(Node):
         result = numpy.less(intensors[0].get_numpy(), intensors[1].get_numpy())
         outtensors[0].update_tensor(result)
 
-    def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
-        return [volume(outtensors[0].get_shape()) * CMP_MACS, 0]
+    def _profile_core(self, intensors: List[Tensor], outtensors: List[Tensor]):
+        return volume(outtensors[0].get_shape()) * CMP_MACS
 
 
 @NODE_REGISTRY.register()
@@ -875,7 +895,7 @@ class GemmNode(Node):
             C = numpy.add(C, intensors[2].get_numpy())
         outtensors[0].update_tensor(C)
 
-    def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
+    def _profile_core(self, intensors: List[Tensor], outtensors: List[Tensor]):
         yshape = outtensors[0].get_shape()
         if len(intensors) >= 2:
             weight_shape = intensors[1].get_shape()
@@ -892,7 +912,7 @@ class GemmNode(Node):
                 macs += volume(yshape) * ADD_MACS
         else:
             raise NotImplementedError()
-        return [macs, 0]
+        return macs
 
 
 @NODE_REGISTRY.register()
@@ -927,6 +947,16 @@ class GatherNode(Node):
                 yshape.append(xshape[i])
         outtensors[0].update_shape(yshape)
         outtensors[0].update_dtype(intensors[0].dtype)
+
+    def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
+        # Embedding lookup: only seq_len rows of the weight table are accessed
+        weight_shape = intensors[0].get_shape()
+        ids_shape = intensors[1].get_shape()
+        seq_tokens = volume(ids_shape)
+        hidden = weight_shape[-1]
+        io_params = volume(outtensors[0].get_shape())  # output activation
+        static_params = seq_tokens * hidden  # weight rows accessed
+        return [0, io_params, static_params]
 
     def value_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
         out = numpy.take(intensors[0].get_numpy(), intensors[1].get_numpy(), axis=self.axis)
@@ -1199,7 +1229,7 @@ class EinsumNode(Node):
         outtensors[0].update_shape(shape)
         outtensors[0].update_dtype(intensors[0].dtype)
 
-    def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
+    def _profile_core(self, intensors: List[Tensor], outtensors: List[Tensor]):
         macs = 1
         map = {}
         shape0 = intensors[0].get_shape()
@@ -1210,7 +1240,7 @@ class EinsumNode(Node):
             map[self.input_labels[1].replace('.', '')[i]] = v
         for key in map.keys():
             macs *= map[key]
-        return [macs, 0]
+        return macs
 
 
 @NODE_REGISTRY.register()
@@ -1319,7 +1349,7 @@ class ResizeNode(Node):
         outtensors[0].update_shape(list(newshape))
         outtensors[0].update_dtype(intensors[0].dtype)
 
-    def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
+    def _profile_core(self, intensors: List[Tensor], outtensors: List[Tensor]):
         macs = 0
         outvol = volume(outtensors[0].get_shape())
         if self.mode == b'nearest':
@@ -1329,7 +1359,7 @@ class ResizeNode(Node):
         elif self.mode == b'cubic':
             outvol *= RESIZE_CUBIC_MACS
         macs += outvol
-        return [macs, 0]
+        return macs
 
 
 @NODE_REGISTRY.register()
@@ -1396,13 +1426,13 @@ class PoolBase(Node):
         outtensors[0].update_shape(outshape)
         outtensors[0].update_dtype(intensors[0].dtype)
 
-    def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
+    def _profile_core(self, intensors: List[Tensor], outtensors: List[Tensor]):
         outshape = outtensors[0].get_shape()
         outvol = volume(outshape)
         macs = outvol * CMP_MACS * self.kernel_shape[0]
         if len(self.kernel_shape) == 2:
             macs *= self.kernel_shape[1]
-        return [macs, 0]
+        return macs
 
 
 @NODE_REGISTRY.register()
@@ -1476,11 +1506,11 @@ class GlobalAveragePoolNode(Node):
             y[i] = t
         outtensors[0].update_tensor(y)
 
-    def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
+    def _profile_core(self, intensors: List[Tensor], outtensors: List[Tensor]):
         inshape = intensors[0].get_shape()
         outshape = outtensors[0].get_shape()
         macs = volume(inshape) * ADD_MACS + volume(outshape) * DIV_MACS
-        return [macs, 0]
+        return macs
 
 
 @NODE_REGISTRY.register()
@@ -1596,10 +1626,10 @@ class BatchNormalizationNode(FusedBase):
         outtensors[0].update_tensor(y)
 
     # Fusion of batchnorm is determined by inference engine, here just gives the MACs.
-    def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
+    def _profile_core(self, intensors: List[Tensor], outtensors: List[Tensor]):
         base = volume(outtensors[0].get_shape())
         base *= ADD_MACS + SQRT_MACS + DIV_MACS + ADD_MACS + MUL_MACS
-        return [base, 0]
+        return base
 
 
 @NODE_REGISTRY.register()
@@ -1893,9 +1923,9 @@ class ReduceMeanNode(Node):
         reduced = numpy.mean(intensors[0].get_numpy(), axis=axes, keepdims=self.keepdims == 1)
         outtensors[0].update_tensor(reduced)
 
-    def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
+    def _profile_core(self, intensors: List[Tensor], outtensors: List[Tensor]):
         vol = volume(intensors[0].get_shape())
-        return [vol * ADD_MACS, 0]
+        return vol * ADD_MACS
 
 
 @NODE_REGISTRY.register()
@@ -1908,10 +1938,10 @@ class ReduceProdNode(ReduceMeanNode):
         reduced = numpy.prod(intensors[0].get_numpy(), axis=axes, keepdims=self.keepdims == 1)
         outtensors[0].update_tensor(reduced)
 
-    def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
+    def _profile_core(self, intensors: List[Tensor], outtensors: List[Tensor]):
         datashape = intensors[0].get_shape()
         vol = volume(datashape)
-        return [vol * MUL_MACS, 0]
+        return vol * MUL_MACS
 
 
 @NODE_REGISTRY.register()
@@ -1936,10 +1966,10 @@ class ReduceMinNode(ReduceMeanNode):
         reduced = numpy.minimum.reduce(data, axis=axes, keepdims=self.keepdims == 1)
         outtensors[0].update_tensor(reduced)
 
-    def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
+    def _profile_core(self, intensors: List[Tensor], outtensors: List[Tensor]):
         datashape = intensors[0].get_shape()
         vol = volume(datashape)
-        return [vol * CMP_MACS, 0]
+        return vol * CMP_MACS
 
 
 @NODE_REGISTRY.register()
@@ -2055,7 +2085,7 @@ class LSTMNode(Node):
                 outtensors[2].update_shape([num_dir, batch, h_len])
                 outtensors[2].update_dtype(intensors[0].dtype)
 
-    def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
+    def _profile_core(self, intensors: List[Tensor], outtensors: List[Tensor]):
         xshape = intensors[0].get_shape()
         wshape = intensors[1].get_shape()
         rshape = intensors[2].get_shape()
@@ -2080,7 +2110,7 @@ class LSTMNode(Node):
         tanh_macs = ht_size * TANH_MACS * 2
         blend_macs = ht_size * (ADD_MACS + MUL_MACS + MUL_MACS + MUL_MACS)
         macs = gemm_macs + gemm_bias_macs + sig_macs + tanh_macs + blend_macs + gemm_add_macs
-        return [macs, 0]
+        return macs
 
 
 @NODE_REGISTRY.register()
@@ -2169,7 +2199,7 @@ class ConvNode(Node):
             outtensor[i] = t
         outtensors[0].update_tensor(outtensor)
 
-    def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
+    def _profile_core(self, intensors: List[Tensor], outtensors: List[Tensor]):
         macs = 0
         if len(outtensors) == 1:
             if len(intensors) == 3 or len(intensors) == 2:
@@ -2180,7 +2210,7 @@ class ConvNode(Node):
                 macs += outvol * reduce_vol * MUL_MACS
                 if len(intensors) > 2:
                     macs += (outvol * ADD_MACS)
-        return [macs, 0]
+        return macs
 
 
 @NODE_REGISTRY.register()
@@ -2196,9 +2226,9 @@ class ReduceL2Node(Node):
             numpy.sum(intensors[0].get_numpy() * intensors[0].get_numpy(), axis=self.axes, keepdims=self.keepdims == 1))
         outtensors[0].update_tensor(reduced)
 
-    def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
+    def _profile_core(self, intensors: List[Tensor], outtensors: List[Tensor]):
         vol = volume(intensors[0].get_shape())
-        return [vol * (ADD_MACS + SQRT_MACS), 0]
+        return vol * (ADD_MACS + SQRT_MACS)
 
 
 @NODE_REGISTRY.register()
@@ -2228,8 +2258,8 @@ class NonZeroNode(Node):
             result = numpy.array(numpy.nonzero(condi), dtype=numpy.int64)
         outtensors[0].update_tensor(result)
 
-    def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
-        return [volume(outtensors[0].get_shape()) * CMP_MACS, 0]
+    def _profile_core(self, intensors: List[Tensor], outtensors: List[Tensor]):
+        return volume(outtensors[0].get_shape()) * CMP_MACS
 
 
 @NODE_REGISTRY.register()
@@ -2238,8 +2268,8 @@ class EqualNode(Node):
         result = numpy.equal(intensors[0].get_numpy(), intensors[1].get_numpy())
         outtensors[0].update_tensor(result)
 
-    def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
-        return [volume(outtensors[0].get_shape()) * CMP_MACS, 0]
+    def _profile_core(self, intensors: List[Tensor], outtensors: List[Tensor]):
+        return volume(outtensors[0].get_shape()) * CMP_MACS
 
 
 @NODE_REGISTRY.register()
@@ -2248,8 +2278,8 @@ class FloorNode(FusedBase):
         ret = numpy.floor(intensors[0].get_numpy())
         outtensors[0].update_tensor(ret)
 
-    def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
-        return [volume(outtensors[0].get_shape()) * CMP_MACS, 0]
+    def _profile_core(self, intensors: List[Tensor], outtensors: List[Tensor]):
+        return volume(outtensors[0].get_shape()) * CMP_MACS
 
 
 @NODE_REGISTRY.register()
@@ -2441,9 +2471,9 @@ class GreaterNode(Node):
         result = numpy.greater(intensors[0].get_numpy(), intensors[1].get_numpy())
         outtensors[0].update_tensor(result)
 
-    def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
+    def _profile_core(self, intensors: List[Tensor], outtensors: List[Tensor]):
         outshape = outtensors[0].get_shape()
-        return [volume(outshape) * CMP_MACS, 0]
+        return volume(outshape) * CMP_MACS
 
 @NODE_REGISTRY.register()
 class GreaterOrEqualNode(GreaterNode):
@@ -2475,13 +2505,13 @@ class LayerNormalizationNode(Node):
         outtensors[0].update_shape(intensors[0].get_shape())
         outtensors[0].update_dtype(intensors[0].dtype)
 
-    def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
+    def _profile_core(self, intensors: List[Tensor], outtensors: List[Tensor]):
         tshape = intensors[0].get_shape()
         axis = _axes_neg2pos(len(tshape), [self.axis])[0]
         vol = volume(tshape)
         tshape[axis] = 1
         vol2 = volume(tshape)
-        return [vol * (MUL_MACS * 3 + +ADD_MACS * 4) + vol2 * (ADD_MACS + SQRT_MACS + DIV_MACS), 0]
+        return vol * (MUL_MACS * 3 + ADD_MACS * 4) + vol2 * (ADD_MACS + SQRT_MACS + DIV_MACS)
 
 
 @NODE_REGISTRY.register()
@@ -2528,7 +2558,7 @@ class QLinearMatMulNode(GemmNode):
         outtensors[0].update_shape(yshape)
         outtensors[0].update_dtype(intensors[-1].dtype)
 
-    def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
+    def _profile_core(self, intensors: List[Tensor], outtensors: List[Tensor]):
         xshape = intensors[0].get_shape()
         weight_shape = intensors[3].get_shape()
         macs = volume(xshape)
@@ -2536,7 +2566,7 @@ class QLinearMatMulNode(GemmNode):
             macs *= weight_shape[0]
         else:
             macs *= weight_shape[-1]
-        return [macs, 0]
+        return macs
 
 
 @NODE_REGISTRY.register()
@@ -2564,7 +2594,7 @@ class QLinearConvNode(ConvNode):
         outtensors[0].update_shape(shape)
         outtensors[0].update_dtype(intensors[-2].dtype)
 
-    def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
+    def _profile_core(self, intensors: List[Tensor], outtensors: List[Tensor]):
         macs = 0
         outshape = outtensors[0].get_shape()
         if len(outtensors) == 1:
@@ -2580,7 +2610,7 @@ class QLinearConvNode(ConvNode):
                 raise NotImplementedError()
             if len(intensors) == 9:
                 macs += (outvol * ADD_MACS)
-        return [macs, 0]
+        return macs
 
 
 @NODE_REGISTRY.register()
@@ -2608,7 +2638,7 @@ class ConvIntegerNode(ConvNode):
         outtensors[0].update_shape(shape)
         outtensors[0].update_dtype(numpy.int32)
 
-    def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
+    def _profile_core(self, intensors: List[Tensor], outtensors: List[Tensor]):
         macs = 0
         outshape = outtensors[0].get_shape()
         if len(outtensors) == 1:
@@ -2622,7 +2652,7 @@ class ConvIntegerNode(ConvNode):
             else:
                 outvol = 0
                 raise NotImplementedError()
-        return [macs, 0]
+        return macs
 
 
 @NODE_REGISTRY.register()
@@ -2674,7 +2704,7 @@ class ConvTransposeNode(Node):
         outtensors[0].update_shape(shape)
         outtensors[0].update_dtype(intensors[0].dtype)
 
-    def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
+    def _profile_core(self, intensors: List[Tensor], outtensors: List[Tensor]):
         macs = 0
         if len(outtensors) == 1:
             if len(intensors) == 3 or len(intensors) == 2:
@@ -2685,7 +2715,7 @@ class ConvTransposeNode(Node):
                 macs += outvol * reduce_vol * MUL_MACS
                 if len(intensors) > 2:
                     macs += (outvol * ADD_MACS)
-        return [macs, 0]
+        return macs
 
 
 @NODE_REGISTRY.register()
@@ -2764,7 +2794,7 @@ class GRUNode(Node):
         outtensors[1].update_shape([num_dir, batch, h_len])
         outtensors[1].update_dtype(intensors[0].dtype)
 
-    def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
+    def _profile_core(self, intensors: List[Tensor], outtensors: List[Tensor]):
         xshape = intensors[0].get_shape()
         wshape = intensors[1].get_shape()
         rshape = intensors[2].get_shape()
@@ -2784,7 +2814,7 @@ class GRUNode(Node):
         tanh_macs = ht_size * TANH_MACS
         blend_macs = ht_size * (ADD_MACS + MUL_MACS + MUL_MACS + ADD_MACS + MUL_MACS)
         macs = gemm_macs + gemm_bias_macs + gemm_add_macs + sig_macs + tanh_macs + blend_macs
-        return [macs, 0]
+        return macs
 
 
 @NODE_REGISTRY.register()
@@ -2832,7 +2862,7 @@ class SDPANode(Node):
         outtensors[0].update_shape(out_shape)
         outtensors[0].update_dtype(intensors[0].dtype)
 
-    def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
+    def _profile_core(self, intensors: List[Tensor], outtensors: List[Tensor]):
         Q = intensors[0]
         q_shape = Q.get_shape()
         bs = q_shape[0]
@@ -2854,7 +2884,7 @@ class SDPANode(Node):
             QK_V = bs * self.head_num * seq * self.head_size * seq
             self.kv_size = bs * self.kv_head_num * seq * self.head_size * 2
 
-        return [QK + QK_softmax + QK_V, 0]
+        return QK + QK_softmax + QK_V
 
 
 @NODE_REGISTRY.register()
@@ -3030,7 +3060,12 @@ class GDNNode(Node):
         # Output projection: B × S × (Nv × Dv) × H
         macs += B * S * Nv * Dv * H
 
-        return [macs, 0]
+        io_params = B * S * H * 2  # input + output
+        static_params = (H * Nq * Dqk * 2  # Q/K projections
+                         + H * Nv * Dv      # V projection
+                         + Nq * Dqk * 2     # Q/K norms
+                         + Nv * Dv * H)     # O projection
+        return [macs, io_params, static_params]
 
 
 @NODE_REGISTRY.register()
@@ -3120,7 +3155,17 @@ class MoENode(Node):
         # Combine routed + shared
         macs += B * S * H * ADD_MACS
 
-        return [macs, 0]
+        # IO params: input + output activations
+        io_params = B * S * H * 2  # input + output
+
+        # Static params: router(full) + routed experts(scaled if partial) + shared expert(full)
+        total_activations = B * S * k
+        if total_activations < E:
+            static_params = H * E + total_activations * 3 * I * H + 3 * SI * H
+        else:
+            static_params = H * E + E * 3 * I * H + 3 * SI * H
+
+        return [macs, io_params, static_params]
 
 
 @NODE_REGISTRY.register()
@@ -3297,7 +3342,14 @@ class MLANode(Node):
         # wo_b: B × S × (G*Or) × D
         macs += B * S * G * Or * D
 
-        return [macs, 0]
+        # IO params: input + output
+        io_params = B * S * D * 2
+        # Static params: Q low-rank + KV + O low-rank
+        static_params = (D * Qr + Qr + Qr * N * H  # wq_a + q_norm + wq_b
+                         + D * H + H                # wkv + kv_norm
+                         + G * Or * (N * H // G)    # wo_a
+                         + D * G * Or)              # wo_b
+        return [macs, io_params, static_params]
 
 
 def create_node(n: onnx.NodeProto | TmpNodeProto):

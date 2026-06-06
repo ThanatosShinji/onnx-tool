@@ -857,57 +857,53 @@ class Builder():
             c_mha = Device.get(cfg['Compute']['MHA'], Device['FP32']) * 1e9
             c_others = Device.get(cfg['Compute']['Others'], Device['FP32']) * 1e9
             mw = Device.get('Bandwidth') * 1e9
-        sum = [0, 0, 0]
+        total = [0, 0, 0]
         MM_mem = 0
         Other_mem = 0
         MHA_mem = 0
         for n in self.graph.nodemap.keys():
             node = self.graph.nodemap[n]
-            flops = node.macs[0] * 2
+            flops = node.macs * 2 if not isinstance(node.macs, (list, tuple)) else node.macs[0] * 2
             mem = 0
             c_latency = 0
             l_latency = 0
             comm_mem = 0  # TP for MatMul and MHA only, column split
+
             if node.op_type == 'MatMul':
-                mem += volume(self.graph.tensormap[node.input[0]].get_shape())
-                mem += volume(self.graph.tensormap[node.output[0]].get_shape())
-                mem = mem * cfg['Bits']['Others'] / 8
-                comm_mem += mem
-                w_mem = volume(self.graph.tensormap[node.input[1]].get_shape()) * cfg['Bits']['MM'] / 8
-                mem += w_mem
+                io_mem = node.io_params * cfg['Bits']['Others'] / 8
+                w_mem = node.static_params * cfg['Bits']['MM'] / 8
+                mem = io_mem + w_mem
+                comm_mem = io_mem
                 MM_mem += w_mem
                 if Device is not None:
                     c_latency = flops / c_mm / d_num
                     l_latency = mem / mw / d_num
             elif node.op_type == 'SDPA':
-                mem += volume(self.graph.tensormap[node.input[0]].get_shape())
-                mem += volume(self.graph.tensormap[node.output[0]].get_shape())
-                mem = mem * cfg['Bits']['Others'] / 8
-                comm_mem += mem
+                io_mem = node.io_params * cfg['Bits']['Others'] / 8
                 kv_mem = node.kv_size * cfg['Bits']['MHA'] / 8
-                mem += kv_mem
+                mem = io_mem + kv_mem
+                comm_mem = io_mem
                 MHA_mem += kv_mem
                 if Device is not None:
                     c_latency = flops / c_mha / d_num
                     l_latency = mem / mw / d_num
             else:
-                tmp_sum = 0
-                for inp in node.input:
-                    if self.graph.tensormap[inp].type == STATIC_TENSOR:
-                        tmp_sum += volume(self.graph.tensormap[inp].get_shape())
-                Other_mem += tmp_sum * cfg['Bits']['Others'] / 8
-                if node.op_type == 'Gather':
-                    mem = 0
+                # Other ops: use io_params/static_params from graph.profile()
+                io_mem = node.io_params * cfg['Bits']['Others'] / 8
+                if node.op_type in ('MoE', 'MLA', 'GDN', 'Gather'):
+                    # Fused nodes & Embedding: weight memory uses MM bits
+                    w_mem = node.static_params * cfg['Bits']['MM'] / 8
+                    MM_mem += w_mem
                 else:
-                    for inp in node.input:
-                        mem += volume(self.graph.tensormap[inp].get_shape())
-                mem += volume(self.graph.tensormap[node.output[0]].get_shape())
-                mem = mem * cfg['Bits']['Others'] / 8
+                    # Other ops (LayerNorm, Add, etc.): weight memory uses Others bits
+                    w_mem = node.static_params * cfg['Bits']['Others'] / 8
+                    Other_mem += w_mem
+                mem = io_mem + w_mem
                 if Device is not None:
                     c_latency = flops / c_others
                     l_latency = mem / mw
-            sum[0] += flops
-            sum[1] += mem
+            total[0] += flops
+            total[1] += mem
             llm_profile = {'FLOPs': flops, 'Memory': mem, 'Device': None}
             if Device is not None:
                 if d_num > 1:
@@ -916,10 +912,10 @@ class Builder():
                     sync_latency = 0
                 n_latency = max(c_latency, l_latency) + sync_latency
                 bottle = 'Compute' if c_latency > l_latency else 'Memory'
-                sum[2] += n_latency
+                total[2] += n_latency
                 llm_profile['Device'] = {'latency': [c_latency, l_latency, n_latency, sync_latency], 'Bottleneck': bottle}
             node.llm_profile = llm_profile
-        self.llm_profile = sum
+        self.llm_profile = total
         self.context_mem = [MM_mem, MHA_mem, Other_mem, MM_mem + MHA_mem + Other_mem]
 
     def print_profile(self, f=None):

@@ -62,8 +62,8 @@ Llama3-8B                            | 8029    | 8.03026       |  0.0671089
 Llama-3.1-70B-Japanese-Instruct-2407 | 72888   | 70.5537       |  0.167772
 QWen-7B                              | 7509    | 7.61562       |  0.0293601
 Qwen2_72B_Instruct                   | 74895   | 72.7062       |  0.167772
-**Qwen3.5-4B-Instruct** 🆕           | 4807    | 4.401         |  0.067109
-**Qwen3.5-35B-A3B-Instruct** 🆕 (MoE)| 3574    | 34.161        |  0.041943
+**Qwen3.5-4B-Instruct** 🆕           | 4807    | 4.651         |  0.067109
+**Qwen3.5-35B-A3B-Instruct** 🆕 (MoE)| 3574    | 34.705        |  0.041943
 **DeepSeek-V4-Flash** 🆕 (MoE/MLA)   | 15681   | 283.811       |  0.045089
 **DeepSeek-V4-Pro** 🆕 (MoE/MLA)     | 55701   | 1571.742      |  0.063963
 
@@ -83,6 +83,8 @@ Llama3-8B                            | 3622.8    | 11308.4 | 10357.2  | 13209.5
 Llama-3.1-70B-Japanese-Instruct-2407 | 407.5     | 1262.0  | 1148.2   | 1461.4
 QWen-7B                              | 3851.9    | 12046.8 | 11051.8  | 14107.0
 Qwen2_72B_Instruct                   | 397.9     | 1230.9  | 1118.8   | 1423.3
+**Qwen3.5-4B-Instruct** 🆕           | 5820.0    | 18405.8 | 17050.1  | 21837.6
+**Qwen3.5-35B-A3B-Instruct** 🆕 (MoE)| 8103.6    | 25316.8 | 23204.4  | 29609.4
 
 **Decode Throughput (tokens/s)**
 
@@ -98,6 +100,8 @@ Llama3-8B                            | 32.6      | 154.9   | 256.9    | 456.7
 Llama-3.1-70B-Japanese-Instruct-2407 | 3.5       | 16.7    | 27.7     | 49.2
 QWen-7B                              | 34.5      | 163.7   | 271.3    | 482.4
 Qwen2_72B_Instruct                   | 3.5       | 16.7    | 27.7     | 49.2
+**Qwen3.5-4B-Instruct** 🆕           | 52.8      | 250.5   | 414.6    | 736.0
+**Qwen3.5-35B-A3B-Instruct** 🆕 (MoE)| 96.3      | 457.0   | 755.3    | 1339.0
 > 💡 *Latencies computed from hardware specs – no actual inference required. Uses BF16/FP16 compute with FP32 accumulate as the standard.*
 > 
 ---

@@ -569,6 +569,267 @@ def profile_qwen3_5_35b_a3b():
     print(f"  KV Cache: {kv_params:.3f}G")
 
 
+# ===========================================================================
+# DeepSeek-V4-Flash 模型配置
+# ===========================================================================
+# 从 https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash 的 config.json
+# 架构: MLA (低秩注意力) + MoE (256 experts, top-6) + Hyper-Connections
+# 总参数 284B，每 token 激活 13B，存储大小 158B (FP4/FP8 量化)
+DeepSeek_V4_Flash = {
+    "name": "DeepSeek-V4-Flash",
+    "architectures": ["DeepSeekV4ForCausalLM"],
+    "attention_bias": False,
+    "attention_dropout": 0.0,
+    "bos_token_id": 0,
+    "eos_token_id": 1,
+    "head_dim": 512,
+    "hidden_act": "silu",
+    "hidden_size": 4096,
+    "initializer_range": 0.02,
+    "intermediate_size": 2048,  # moe_intermediate_size (真实值)
+    "max_position_embeddings": 4096,
+    "model_type": "deepseek_v4",
+    "num_attention_heads": 64,
+    "num_hidden_layers": 43,  # 真实值 (非 model.py 默认的 7)
+    "num_key_value_heads": 1,  # GQA: 1 KV head
+    "rms_norm_eps": 1e-06,
+    "rope_theta": 10000.0,
+    "tie_word_embeddings": False,
+    "use_cache": True,
+    "vocab_size": 129280,
+    # MoE 专用参数
+    "num_experts": 256,
+    "num_experts_per_tok": 6,  # 真实值 (非 model.py 默认的 8)
+    "moe_intermediate_size": 2048,  # 真实值
+    "shared_expert_intermediate_size": 2048,
+    # MLA 参数
+    "q_lora_rank": 1024,
+    "o_lora_rank": 1024,
+    "o_groups": 8,
+    "rope_head_dim": 64,
+    "window_size": 128,
+    # KV 压缩参数
+    "compress_ratio": 4,
+    "index_n_heads": 64,
+    "index_head_dim": 128,
+    "index_topk": 512,
+    # hc_mult=4 — Hyper-Connections 未建模
+}
+
+
+# ===========================================================================
+# DeepSeek-V4-Pro 模型配置
+# ===========================================================================
+# 从 https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro 的 config.json
+# 总参数 1.6T，每 token 激活 49B
+DeepSeek_V4_Pro = {
+    "name": "DeepSeek-V4-Pro",
+    "architectures": ["DeepSeekV4ForCausalLM"],
+    "attention_bias": False,
+    "attention_dropout": 0.0,
+    "bos_token_id": 0,
+    "eos_token_id": 1,
+    "head_dim": 512,
+    "hidden_act": "silu",
+    "hidden_size": 7168,
+    "initializer_range": 0.02,
+    "intermediate_size": 3072,  # moe_intermediate_size
+    "max_position_embeddings": 1048576,  # 1M
+    "model_type": "deepseek_v4",
+    "num_attention_heads": 128,
+    "num_hidden_layers": 61,
+    "num_key_value_heads": 1,  # GQA
+    "rms_norm_eps": 1e-06,
+    "rope_theta": 10000.0,
+    "tie_word_embeddings": False,
+    "use_cache": True,
+    "vocab_size": 129280,
+    # MoE 专用参数
+    "num_experts": 384,
+    "num_experts_per_tok": 6,
+    "moe_intermediate_size": 3072,
+    "shared_expert_intermediate_size": 3072,
+    # MLA 参数
+    "q_lora_rank": 1536,
+    "o_lora_rank": 1024,
+    "o_groups": 16,
+    "rope_head_dim": 64,
+    "window_size": 128,
+    # KV 压缩参数
+    "compress_ratio": 4,
+    "index_n_heads": 64,
+    "index_head_dim": 128,
+    "index_topk": 1024,
+    # hc_mult=4 — Hyper-Connections 未建模
+}
+
+
+def export_deepseek_v4_pro():
+    """导出 DeepSeek-V4-Pro 到 ONNX 格式，输入序列长度 2048 (2K)"""
+    bs = 1
+    seq_len = 2048
+    ids_shape = [bs, seq_len]
+
+    print("Building DeepSeek-V4-Pro graph (2K input)...")
+    builder = Builder(**DeepSeek_V4_Pro)
+    builder.build_graph(ids_shape)
+
+    onnx_path = 'deepseek_v4_pro.onnx'
+    print(f"Saving to {onnx_path}...")
+    builder.save_graph(onnx_path)
+
+    print("Profiling...")
+    builder.graph.valid_shape = True
+    builder.graph.profile()
+    builder.graph.print_node_map()
+
+    macs = int(builder.graph.macs[0] / 1e9)
+    params = builder.graph.params / 1e9
+    kv_params = builder.kv_params / 1e9
+    print(f"\nDeepSeek-V4-Pro (2K input):")
+    print(f"  MACs={macs}G, Parameters={params:.3f}G, KV Cache={kv_params:.3f}G")
+    return onnx_path
+
+
+def profile_deepseek_v4_pro():
+    """对 DeepSeek-V4-Pro 进行详细的性能分析（prefill + decode）"""
+    from onnx_tool.device import Devices
+    RuntimeCfg = {
+        'Compute': {
+            'MM': 'FP16',
+            'MHA': 'FP16',
+            'Others': 'FP16',
+        },
+        'Bits': {
+            'MM': 16,
+            'MHA': 16,
+            'Others': 16,
+        }
+    }
+    bs = 1
+    prefill_length = 2048
+    context_length = 4096
+    ids_shape = [bs, prefill_length]
+
+    print(f"\n{'='*60}")
+    print("DeepSeek-V4-Pro Profile Analysis (2K input)")
+    print(f"{'='*60}")
+
+    builder = Builder(**DeepSeek_V4_Pro)
+    builder.build_graph(ids_shape)
+    builder.add_kv_cache(context_length, 0)
+    builder.graph.valid_shape = True
+
+    device_names = ['Gaudi2H', 'H20']
+
+    print(f"\n--- Prefill (seq_len={prefill_length}) ---")
+    for key in device_names:
+        builder.profile(RuntimeCfg, Devices[key])
+        print(f"\n  Device: {key}")
+        print(f"  Latency: {builder.llm_profile[2]:.2f} ms")
+        print(f"  Memory: {builder.context_mem[3]/1e9:.3f} GB")
+
+    print(f"\n--- Decode (seq_len=1, past_kv={prefill_length}) ---")
+    builder.set_past_kv_length(prefill_length)
+    builder.graph.shape_infer(inputs={'ids': create_ndarray_int64([bs, 1])})
+    builder.graph.profile()
+    for key in device_names:
+        builder.profile(RuntimeCfg, Devices[key])
+        print(f"\n  Device: {key}")
+        print(f"  Latency: {builder.llm_profile[2]:.2f} ms")
+
+    macs = int(builder.graph.macs[0] / 1e9)
+    params = builder.graph.params / 1e9
+    kv_params = builder.kv_params / 1e9
+    print(f"\n--- Summary ---")
+    print(f"  MACs (decode): {macs}G")
+    print(f"  Parameters: {params:.3f}G")
+    print(f"  KV Cache: {kv_params:.3f}G")
+
+
+def export_deepseek_v4_flash():
+    """导出 DeepSeek-V4-Flash 到 ONNX 格式，输入序列长度 2048 (2K)"""
+    bs = 1
+    seq_len = 2048
+    ids_shape = [bs, seq_len]
+
+    print("Building DeepSeek-V4-Flash graph (2K input)...")
+    builder = Builder(**DeepSeek_V4_Flash)
+    builder.build_graph(ids_shape)
+
+    onnx_path = 'deepseek_v4_flash.onnx'
+    print(f"Saving to {onnx_path}...")
+    builder.save_graph(onnx_path)
+
+    print("Profiling...")
+    builder.graph.valid_shape = True
+    builder.graph.profile()
+    builder.graph.print_node_map()
+
+    macs = int(builder.graph.macs[0] / 1e9)
+    params = builder.graph.params / 1e9
+    kv_params = builder.kv_params / 1e9
+    print(f"\nDeepSeek-V4-Flash (2K input):")
+    print(f"  MACs={macs}G, Parameters={params:.3f}G, KV Cache={kv_params:.3f}G")
+    return onnx_path
+
+
+def profile_deepseek_v4_flash():
+    """对 DeepSeek-V4-Flash 进行详细的性能分析（prefill + decode）"""
+    from onnx_tool.device import Devices
+    RuntimeCfg = {
+        'Compute': {
+            'MM': 'FP16',
+            'MHA': 'FP16',
+            'Others': 'FP16',
+        },
+        'Bits': {
+            'MM': 16,
+            'MHA': 16,
+            'Others': 16,
+        }
+    }
+    bs = 1
+    prefill_length = 2048
+    context_length = 4096
+    ids_shape = [bs, prefill_length]
+
+    print(f"\n{'='*60}")
+    print("DeepSeek-V4-Flash Profile Analysis (2K input)")
+    print(f"{'='*60}")
+
+    builder = Builder(**DeepSeek_V4_Flash)
+    builder.build_graph(ids_shape)
+    builder.add_kv_cache(context_length, 0)
+    builder.graph.valid_shape = True
+
+    device_names = ['Gaudi2H', 'H20']
+
+    print(f"\n--- Prefill (seq_len={prefill_length}) ---")
+    for key in device_names:
+        builder.profile(RuntimeCfg, Devices[key])
+        print(f"\n  Device: {key}")
+        print(f"  Latency: {builder.llm_profile[2]:.2f} ms")
+        print(f"  Memory: {builder.context_mem[3]/1e9:.3f} GB")
+
+    print(f"\n--- Decode (seq_len=1, past_kv={prefill_length}) ---")
+    builder.set_past_kv_length(prefill_length)
+    builder.graph.shape_infer(inputs={'ids': create_ndarray_int64([bs, 1])})
+    builder.graph.profile()
+    for key in device_names:
+        builder.profile(RuntimeCfg, Devices[key])
+        print(f"\n  Device: {key}")
+        print(f"  Latency: {builder.llm_profile[2]:.2f} ms")
+
+    macs = int(builder.graph.macs[0] / 1e9)
+    params = builder.graph.params / 1e9
+    kv_params = builder.kv_params / 1e9
+    print(f"\n--- Summary ---")
+    print(f"  MACs (decode): {macs}G")
+    print(f"  Parameters: {params:.3f}G")
+    print(f"  KV Cache: {kv_params:.3f}G")
+
+
 # Export the model with pytorch tensor names
 # Not necessary to convert safetensors to ONNX format
 def export_with_pytorch_weight_name():

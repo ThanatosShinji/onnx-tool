@@ -3060,6 +3060,7 @@ class MoENode(Node):
         self.add_default_value('shared_expert_intermediate_size', 512)
         self.add_default_value('num_experts', 256)
         self.add_default_value('num_experts_per_tok', 8)
+        self.add_default_value('no_shared_gate', False)  # DeepSeek-V4: shared expert 无 sigmoid gate
 
     def shape_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
         outtensors[0].update_shape(intensors[0].get_shape())
@@ -3070,10 +3071,9 @@ class MoENode(Node):
 
         Per-token compute (only top-k experts active):
         - Router: B × S × hidden_size × num_experts
-        - Per expert FFN: 3 × B × S × hidden_size × moe_intermediate_size
-          (gate_proj + up_proj + down_proj, with SiLU activation)
-        - Shared expert: 3 × B × S × hidden_size × shared_expert_intermediate_size
-        - Shared expert gate: B × S × hidden_size (sigmoid + multiply)
+        - Per expert FFN (SwiGLU): gate_proj + up_proj + SiLU + gate*up + down_proj
+        - Shared expert: same as routed expert (always active)
+        - Shared expert gate (Qwen3.5-MoE only): sigmoid + multiply
         """
         x_shape = intensors[0].get_shape()
         B = x_shape[0]
@@ -3089,19 +3089,19 @@ class MoENode(Node):
         # Router: B × S × H × E
         macs += B * S * H * E
 
-        # Routed experts (top-k per token):
-        # gate_proj: B × S × H × I × k
+        # Routed experts (top-k per token, SwiGLU):
+        # gate_proj (w1): B × S × H × I × k
         macs += B * S * H * I * k
-        # up_proj: B × S × H × I × k
+        # up_proj (w3): B × S × H × I × k
         macs += B * S * H * I * k
         # SiLU activation: B × S × I × k
         macs += B * S * I * k * (EXP_MACS + MUL_MACS)
         # gate * up: B × S × I × k
         macs += B * S * I * k * MUL_MACS
-        # down_proj: B × S × I × H × k
+        # down_proj (w2): B × S × I × H × k
         macs += B * S * I * H * k
 
-        # Shared expert:
+        # Shared expert (always active, SwiGLU):
         # gate_proj: B × S × H × SI
         macs += B * S * H * SI
         # up_proj: B × S × H × SI
@@ -3113,11 +3113,189 @@ class MoENode(Node):
         # down_proj: B × S × SI × H
         macs += B * S * SI * H
 
-        # Shared expert gate: sigmoid + multiply
-        macs += B * S * H * (EXP_MACS + MUL_MACS)
+        if not self.no_shared_gate:
+            # Shared expert gate (Qwen3.5-MoE): sigmoid + multiply
+            macs += B * S * H * (EXP_MACS + MUL_MACS)
 
         # Combine routed + shared
         macs += B * S * H * ADD_MACS
+
+        return [macs, 0]
+
+
+@NODE_REGISTRY.register()
+class MLANode(Node):
+    """Multi-head Latent Attention (MLA) for DeepSeek-V4.
+
+    Low-rank Q/KV projections with partial RoPE:
+      1. Q: wq_a(dim→q_lora_rank) → q_norm → wq_b(q_lora_rank→n_heads×head_dim) → L2 norm
+      2. KV: wkv(dim→head_dim) → kv_norm (joint KV, shared across heads)
+      3. RoPE: only applied to rope_head_dim (not full head_dim)
+      4. SDPA: sparse attention (window + compressed KV)
+      5. O: wo_a (grouped) → wo_b (low-rank o_lora_rank→dim)
+
+    Inputs: [hidden_states]  shape: [B, S, dim]
+    Output: [attn_output]    shape: [B, S, dim]
+
+    Attributes:
+        dim: int (hidden_size)
+        n_heads: int
+        head_dim: int
+        q_lora_rank: int
+        o_lora_rank: int
+        o_groups: int
+        rope_head_dim: int (subset of head_dim that gets RoPE)
+        window_size: int (sliding window)
+    """
+
+    def __init__(self, nodeproto):
+        super().__init__(nodeproto)
+        self.add_default_value('dim', 4096)
+        self.add_default_value('n_heads', 64)
+        self.add_default_value('head_dim', 512)
+        self.add_default_value('q_lora_rank', 1024)
+        self.add_default_value('o_lora_rank', 1024)
+        self.add_default_value('o_groups', 8)
+        self.add_default_value('rope_head_dim', 64)
+        self.add_default_value('window_size', 128)
+        self.add_default_value('compress_ratio', 0)  # 0 = no compression
+        self.add_default_value('index_n_heads', 64)
+        self.add_default_value('index_head_dim', 128)
+        self.add_default_value('index_topk', 512)
+
+    def shape_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
+        outtensors[0].update_shape(intensors[0].get_shape())
+        outtensors[0].update_dtype(intensors[0].dtype)
+
+    def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
+        """Calculate MACs for MLA with KV compression.
+
+        Full pipeline:
+        1. Q low-rank: wq_a → q_norm → wq_b → L2 norm
+        2. KV: wkv → kv_norm
+        3. KV Compression (Compressor): wgate → softmax pooling → norm → RoPE
+        4. Indexer: compressor + Q proj + QK^T scoring + top-k
+        5. RoPE (partial): only rope_head_dim subset
+        6. SDPA: sparse (window + compressed top-k)
+        7. O low-rank: wo_a (grouped) → wo_b
+        """
+        x_shape = intensors[0].get_shape()
+        B = x_shape[0]
+        S = x_shape[1]
+        D = self.dim
+        N = self.n_heads
+        H = self.head_dim
+        Qr = self.q_lora_rank
+        Or = self.o_lora_rank
+        G = self.o_groups
+        Rd = self.rope_head_dim
+        Nd = H - Rd
+        W = min(self.window_size, S)
+        CR = self.compress_ratio
+        IN = self.index_n_heads
+        ID = self.index_head_dim
+        IT = self.index_topk
+
+        macs = 0
+
+        # ============================================================
+        # 1. Q 低秩投影
+        # ============================================================
+        # wq_a: B × S × D × Qr
+        macs += B * S * D * Qr
+        # q_norm (RMS): B × S × Qr
+        macs += B * S * Qr * (MUL_MACS * 2 + ADD_MACS * 2 + SQRT_MACS + DIV_MACS)
+        # wq_b: B × S × Qr × N × H
+        macs += B * S * Qr * N * H
+        # Q L2 norm: B × S × N × H
+        macs += B * S * N * H * (MUL_MACS * 2 + ADD_MACS + SQRT_MACS + DIV_MACS)
+
+        # ============================================================
+        # 2. KV 联合投影
+        # ============================================================
+        # wkv: B × S × D × H
+        macs += B * S * D * H
+        # kv_norm (RMS): B × S × H
+        macs += B * S * H * (MUL_MACS * 2 + ADD_MACS * 2 + SQRT_MACS + DIV_MACS)
+
+        # ============================================================
+        # 3. KV 压缩 (Compressor) — 仅 compress_ratio > 0
+        # ============================================================
+        if CR > 0:
+            # wgate: B × S × D × H (额外的 gate 投影)
+            macs += B * S * D * H
+            # 分组 softmax pooling: B × (S/CR) × CR × H
+            compressed_tokens = S // CR
+            # softmax over CR dim: B × compressed_tokens × CR × H
+            macs += B * compressed_tokens * CR * H * (EXP_MACS + DIV_MACS)
+            # weighted sum: B × compressed_tokens × CR × H
+            macs += B * compressed_tokens * CR * H * MUL_MACS
+            macs += B * compressed_tokens * CR * H * ADD_MACS
+            # norm (RMS): B × compressed_tokens × H
+            macs += B * compressed_tokens * H * (MUL_MACS * 2 + ADD_MACS * 2 + SQRT_MACS + DIV_MACS)
+            # RoPE on compressed KV: B × compressed_tokens × Rd
+            macs += B * compressed_tokens * Rd * (COS_MACS + SIN_MACS + MUL_MACS * 2)
+
+        # ============================================================
+        # 4. Indexer (稀疏注意力索引) — 仅 compress_ratio == 4
+        # ============================================================
+        if CR == 4:
+            # Indexer Compressor (独立的小 Compressor, head_dim=ID):
+            # wkv: B × S × D × ID
+            macs += B * S * D * ID
+            # wgate: B × S × D × ID
+            macs += B * S * D * ID
+            # softmax pooling: B × compressed_tokens × CR × ID
+            macs += B * compressed_tokens * CR * ID * (EXP_MACS + DIV_MACS + MUL_MACS + ADD_MACS)
+            # norm + RoPE: B × compressed_tokens × ID
+            macs += B * compressed_tokens * ID * (MUL_MACS * 2 + ADD_MACS * 2 + SQRT_MACS + DIV_MACS)
+            macs += B * compressed_tokens * Rd * (COS_MACS + SIN_MACS + MUL_MACS * 2)
+
+            # Indexer Q: wq_b(q_lora_rank → IN × ID)
+            macs += B * S * Qr * IN * ID
+            # Q RoPE: B × IN × S × Rd
+            macs += B * IN * S * Rd * (COS_MACS + SIN_MACS + MUL_MACS * 2)
+
+            # Index scoring: Q @ KV^T
+            # einsum("bshd,btd->bsht"): B × IN × S × ID × compressed_tokens
+            macs += B * IN * S * ID * compressed_tokens
+            # relu + weights: B × S × IN × compressed_tokens
+            macs += B * S * IN * compressed_tokens * (CMP_MACS + MUL_MACS)
+            # weights_proj: B × S × D × IN
+            macs += B * S * D * IN
+            # top-k (approximated as sort cost): B × S × compressed_tokens × log(compressed_tokens)
+            macs += B * S * compressed_tokens * int(__import__('math').log2(compressed_tokens)) * CMP_MACS
+
+        # ============================================================
+        # 5. RoPE (仅 rope_head_dim 子集)
+        # ============================================================
+        # Q RoPE: B × N × S × Rd
+        macs += B * N * S * Rd * (COS_MACS + SIN_MACS + MUL_MACS * 2)
+        # KV RoPE: B × S × Rd
+        macs += B * S * Rd * (COS_MACS + SIN_MACS + MUL_MACS * 2)
+
+        # ============================================================
+        # 6. SDPA (window + compressed top-k)
+        # ============================================================
+        if CR > 0:
+            # Sparse: window_size + compressed_tokens + index_topk
+            kv_len = W + compressed_tokens + min(IT, compressed_tokens)
+        else:
+            kv_len = S
+        # QK^T: B × N × S × H × kv_len
+        macs += B * N * S * H * kv_len
+        # softmax: B × N × S × kv_len
+        macs += B * N * S * kv_len * (EXP_MACS + DIV_MACS)
+        # QK^T@V: B × N × S × kv_len × H
+        macs += B * N * S * kv_len * H
+
+        # ============================================================
+        # 7. O 低秩投影
+        # ============================================================
+        # wo_a (grouped einsum): B × S × G × (N*H/G) × Or
+        macs += B * S * G * (N * H // G) * Or
+        # wo_b: B × S × (G*Or) × D
+        macs += B * S * G * Or * D
 
         return [macs, 0]
 

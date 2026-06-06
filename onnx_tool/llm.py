@@ -87,6 +87,25 @@ ArchMap = {
         "qkv_gated": True,
         "is_moe": True,
     },
+    'DeepSeekV4ForCausalLM': {
+        # DeepSeek-V4-Flash: MLA + MoE + Hyper-Connections
+        # MLA: low-rank Q/KV projections with partial RoPE (MLANode)
+        # MoE: 256 routed experts (SwiGLU), top-8, +1 shared expert (no sigmoid gate)
+        # HC/MTP/KV compression not modeled
+        "mlp_gate": True,
+        "norm_scale": True,
+        "norm_bias": False,
+        "fuse_qkv": False,
+        "qkv_bias": False,
+        "o_bias": False,
+        "mlp_bias": False,
+        "lm_head_bias": False,
+        "qk_norm": False,
+        "qkv_gated": False,
+        "is_moe": True,
+        "is_mla": True,
+        "no_shared_gate": True,
+    },
 }
 
 ArchMap['Phi3ForCausalLM'] = {
@@ -475,21 +494,19 @@ class Builder():
         return o2
 
     def add_moe(self, inp):
-        """Sparse Mixture-of-Experts (Qwen3.5-MoE).
+        """Sparse Mixture-of-Experts.
 
-        替代标准 MLP，使用稀疏 MoE：
-          1. Router (gate): 为每个 token 选择 top-k 专家
-          2. Routed experts: 每个 token 由 k 个专家处理
-          3. Shared expert: 始终激活，sigmoid 门控
+        支持两种 MoE 风格：
+          - Qwen3.5-MoE: gate_up_proj (fused) + shared expert sigmoid gate
+          - DeepSeek-V4: SwiGLU (w1/w2/w3) + shared expert 直接相加（无 gate）
 
-        Qwen3.5-35B-A3B 参数：
-          num_experts=256, num_experts_per_tok=8
-          moe_intermediate_size=512, shared_expert_intermediate_size=512
+        Args 中的 no_shared_gate 控制 shared expert 是否有 sigmoid 门控。
         """
         num_experts = getattr(self, 'num_experts', 256)
         num_experts_per_tok = getattr(self, 'num_experts_per_tok', 8)
         moe_intermediate_size = getattr(self, 'moe_intermediate_size', self.intermediate_size)
         shared_expert_intermediate_size = getattr(self, 'shared_expert_intermediate_size', moe_intermediate_size)
+        no_shared_gate = self.arch_config.get('no_shared_gate', False)
 
         # 创建虚拟 weight tensor 以计入参数量
         # Router: hidden_size × num_experts
@@ -497,13 +514,18 @@ class Builder():
                                  [self.hidden_size, num_experts], numpy.float32)
         self.graph.initials.append(w_router.name)
         self.graph.tensormap[w_router.name] = w_router
-        # Routed experts: gate_up_proj + down_proj
-        # gate_up_proj: num_experts × 2*moe_intermediate_size × hidden_size
-        w_expert_gu = create_tensor(self.layer_prefix + 'moe.experts.gate_up.weight', STATIC_TENSOR,
-                                    [num_experts, 2 * moe_intermediate_size, self.hidden_size], numpy.float32)
-        self.graph.initials.append(w_expert_gu.name)
-        self.graph.tensormap[w_expert_gu.name] = w_expert_gu
-        # down_proj: num_experts × hidden_size × moe_intermediate_size
+        # Routed experts: SwiGLU (gate_proj + up_proj + down_proj)
+        # gate_proj (w1): num_experts × moe_intermediate_size × hidden_size
+        w_expert_gate = create_tensor(self.layer_prefix + 'moe.experts.gate.weight', STATIC_TENSOR,
+                                      [num_experts, moe_intermediate_size, self.hidden_size], numpy.float32)
+        self.graph.initials.append(w_expert_gate.name)
+        self.graph.tensormap[w_expert_gate.name] = w_expert_gate
+        # up_proj (w3): num_experts × moe_intermediate_size × hidden_size
+        w_expert_up = create_tensor(self.layer_prefix + 'moe.experts.up.weight', STATIC_TENSOR,
+                                    [num_experts, moe_intermediate_size, self.hidden_size], numpy.float32)
+        self.graph.initials.append(w_expert_up.name)
+        self.graph.tensormap[w_expert_up.name] = w_expert_up
+        # down_proj (w2): num_experts × hidden_size × moe_intermediate_size
         w_expert_down = create_tensor(self.layer_prefix + 'moe.experts.down.weight', STATIC_TENSOR,
                                       [num_experts, self.hidden_size, moe_intermediate_size], numpy.float32)
         self.graph.initials.append(w_expert_down.name)
@@ -521,11 +543,6 @@ class Builder():
                                       [self.hidden_size, shared_expert_intermediate_size], numpy.float32)
         self.graph.initials.append(w_shared_down.name)
         self.graph.tensormap[w_shared_down.name] = w_shared_down
-        # Shared expert gate: hidden_size
-        w_shared_gate_out = create_tensor(self.layer_prefix + 'moe.shared_gate.weight', STATIC_TENSOR,
-                                          [self.hidden_size], numpy.float32)
-        self.graph.initials.append(w_shared_gate_out.name)
-        self.graph.tensormap[w_shared_gate_out.name] = w_shared_gate_out
 
         attrs = {
             'hidden_size': self.hidden_size,
@@ -533,13 +550,108 @@ class Builder():
             'shared_expert_intermediate_size': shared_expert_intermediate_size,
             'num_experts': num_experts,
             'num_experts_per_tok': num_experts_per_tok,
+            'no_shared_gate': no_shared_gate,
         }
         nod = create_node(TmpNodeProto(self.layer_prefix + 'moe', 'MoE', attrs))
-        nod.input = [inp.name,
-                     w_router.name, w_expert_gu.name, w_expert_down.name,
-                     w_shared_gate.name, w_shared_up.name, w_shared_down.name,
-                     w_shared_gate_out.name]
+        if no_shared_gate:
+            # DeepSeek-V4: 无 shared expert gate
+            w_shared_gate_out = create_tensor(self.layer_prefix + 'moe.shared_gate.weight', STATIC_TENSOR,
+                                              [self.hidden_size], numpy.float32)
+            self.graph.initials.append(w_shared_gate_out.name)
+            self.graph.tensormap[w_shared_gate_out.name] = w_shared_gate_out
+            nod.input = [inp.name,
+                         w_router.name, w_expert_gate.name, w_expert_up.name, w_expert_down.name,
+                         w_shared_gate.name, w_shared_up.name, w_shared_down.name]
+        else:
+            # Qwen3.5-MoE: 有 shared expert sigmoid gate
+            w_shared_gate_out = create_tensor(self.layer_prefix + 'moe.shared_gate.weight', STATIC_TENSOR,
+                                              [self.hidden_size], numpy.float32)
+            self.graph.initials.append(w_shared_gate_out.name)
+            self.graph.tensormap[w_shared_gate_out.name] = w_shared_gate_out
+            nod.input = [inp.name,
+                         w_router.name, w_expert_gate.name, w_expert_up.name, w_expert_down.name,
+                         w_shared_gate.name, w_shared_up.name, w_shared_down.name,
+                         w_shared_gate_out.name]
         o = create_tensor(self.layer_prefix + 'moe.output', DYNAMIC_TENSOR,
+                          [self.batch, self.seq_len, self.hidden_size], numpy.float32)
+        nod.output = [o.name]
+        self.graph.tensormap[o.name] = o
+        self.graph.nodemap[nod.name] = nod
+        return o
+
+    def add_mla(self, inp):
+        """Multi-head Latent Attention (DeepSeek-V4).
+
+        低秩 Q/KV 投影 + 部分 RoPE：
+          1. Q: wq_a(dim→q_lora_rank) → q_norm → wq_b(q_lora_rank→n_heads×head_dim) → L2 norm
+          2. KV: wkv(dim→head_dim) → kv_norm (联合 KV，跨头共享)
+          3. RoPE: 仅 rope_head_dim 子集参与旋转
+          4. MLA 融合算子 (SDPA + O 低秩投影)
+
+        DeepSeek-V4-Flash 参数：
+          q_lora_rank=1024, o_lora_rank=1024, o_groups=8
+          head_dim=512, rope_head_dim=64, window_size=128
+        """
+        q_lora_rank = getattr(self, 'q_lora_rank', 1024)
+        o_lora_rank = getattr(self, 'o_lora_rank', 1024)
+        o_groups = getattr(self, 'o_groups', 8)
+        rope_head_dim = getattr(self, 'rope_head_dim', 64)
+
+        # Q 低秩投影权重
+        w_wq_a = create_tensor(self.layer_prefix + 'wq_a.weight', STATIC_TENSOR,
+                               [q_lora_rank, self.hidden_size], numpy.float32)
+        self.graph.initials.append(w_wq_a.name)
+        self.graph.tensormap[w_wq_a.name] = w_wq_a
+        w_q_norm = create_tensor(self.layer_prefix + 'q_norm.weight', STATIC_TENSOR,
+                                 [q_lora_rank], numpy.float32)
+        self.graph.initials.append(w_q_norm.name)
+        self.graph.tensormap[w_q_norm.name] = w_q_norm
+        w_wq_b = create_tensor(self.layer_prefix + 'wq_b.weight', STATIC_TENSOR,
+                               [self.num_attention_heads * self.head_size, q_lora_rank], numpy.float32)
+        self.graph.initials.append(w_wq_b.name)
+        self.graph.tensormap[w_wq_b.name] = w_wq_b
+
+        # KV 联合投影权重
+        w_wkv = create_tensor(self.layer_prefix + 'wkv.weight', STATIC_TENSOR,
+                              [self.head_size, self.hidden_size], numpy.float32)
+        self.graph.initials.append(w_wkv.name)
+        self.graph.tensormap[w_wkv.name] = w_wkv
+        w_kv_norm = create_tensor(self.layer_prefix + 'kv_norm.weight', STATIC_TENSOR,
+                                  [self.head_size], numpy.float32)
+        self.graph.initials.append(w_kv_norm.name)
+        self.graph.tensormap[w_kv_norm.name] = w_kv_norm
+
+        # O 低秩投影权重
+        wo_a_out = self.num_attention_heads * self.head_size // o_groups
+        w_wo_a = create_tensor(self.layer_prefix + 'wo_a.weight', STATIC_TENSOR,
+                               [o_groups * o_lora_rank, wo_a_out], numpy.float32)
+        self.graph.initials.append(w_wo_a.name)
+        self.graph.tensormap[w_wo_a.name] = w_wo_a
+        w_wo_b = create_tensor(self.layer_prefix + 'wo_b.weight', STATIC_TENSOR,
+                               [self.hidden_size, o_groups * o_lora_rank], numpy.float32)
+        self.graph.initials.append(w_wo_b.name)
+        self.graph.tensormap[w_wo_b.name] = w_wo_b
+
+        attrs = {
+            'dim': self.hidden_size,
+            'n_heads': self.num_attention_heads,
+            'head_dim': self.head_size,
+            'q_lora_rank': q_lora_rank,
+            'o_lora_rank': o_lora_rank,
+            'o_groups': o_groups,
+            'rope_head_dim': rope_head_dim,
+            'window_size': getattr(self, 'window_size', 128),
+            'compress_ratio': getattr(self, 'compress_ratio', 0),
+            'index_n_heads': getattr(self, 'index_n_heads', 64),
+            'index_head_dim': getattr(self, 'index_head_dim', 128),
+            'index_topk': getattr(self, 'index_topk', 512),
+        }
+        nod = create_node(TmpNodeProto(self.layer_prefix + 'mla', 'MLA', attrs))
+        nod.input = [inp.name,
+                     w_wq_a.name, w_q_norm.name, w_wq_b.name,
+                     w_wkv.name, w_kv_norm.name,
+                     w_wo_a.name, w_wo_b.name]
+        o = create_tensor(self.layer_prefix + 'mla.output', DYNAMIC_TENSOR,
                           [self.batch, self.seq_len, self.hidden_size], numpy.float32)
         nod.output = [o.name]
         self.graph.tensormap[o.name] = o
@@ -640,6 +752,7 @@ class Builder():
         # 检查是否为混合架构（Qwen3.5 的 layer_types）
         layer_types = getattr(self, 'layer_types', None)
         is_moe = self.arch_config.get('is_moe', False)
+        is_mla = self.arch_config.get('is_mla', False)
         for i in range(self.num_hidden_layers):
             self.layer_i = i
             self.layer_prefix = self.w_map['layer_prefix'] + str(self.layer_i) + '.'
@@ -654,6 +767,19 @@ class Builder():
                 # ---- Gated DeltaNet 层 ----
                 cur = self.add_layernorm(cur, self.layer_prefix + self.w_map['attention']['input_norm'])
                 cur = self.add_gdn(cur)
+                if self.arch_config.get('post_attn_norm', False):
+                    cur = self.add_layernorm(cur, self.layer_prefix + self.w_map['attention']['output_norm'])
+                cur = self.add_eltop(inp, cur, 'Add', self.layer_prefix + 'attention_add')
+                inp = cur
+                cur = self.add_layernorm(cur, self.layer_prefix + self.w_map['mlp']['input_norm'])
+                cur = self.add_moe(cur) if is_moe else self.add_mlp(cur)
+                if self.arch_config.get('post_mlp_norm', False):
+                    cur = self.add_layernorm(cur, self.layer_prefix + self.w_map['mlp']['output_norm'])
+                inp = self.add_eltop(inp, cur, 'Add', self.layer_prefix + 'mlp_add')
+            elif is_mla:
+                # ---- MLA 层 (DeepSeek-V4) ----
+                cur = self.add_layernorm(cur, self.layer_prefix + self.w_map['attention']['input_norm'])
+                cur = self.add_mla(cur)
                 if self.arch_config.get('post_attn_norm', False):
                     cur = self.add_layernorm(cur, self.layer_prefix + self.w_map['attention']['output_norm'])
                 cur = self.add_eltop(inp, cur, 'Add', self.layer_prefix + 'attention_add')
@@ -839,7 +965,12 @@ class Builder():
     def build_graph(self, ids_shape: List, weight_map: {} = None):
         self.batch, self.seq_len = ids_shape
         self.w_map = weight_map if weight_map is not None else WeightMap
-        self.kv_params = self.batch * self.seq_len * self.hidden_kv_size * 2 * self.num_hidden_layers
+        # MLA: KV 是联合投影 head_dim（非 num_kv_heads × head_dim）
+        if self.arch_config.get('is_mla', False):
+            kv_size = self.head_size  # MLA: single head_dim for joint KV
+        else:
+            kv_size = self.hidden_kv_size
+        self.kv_params = self.batch * self.seq_len * kv_size * 2 * self.num_hidden_layers
         ids = create_tensor('ids', DYNAMIC_TENSOR, [self.batch, self.seq_len], numpy.int64)
         self.graph.input.append('ids')
         self.graph.tensormap[ids.name] = ids
@@ -866,9 +997,14 @@ class Builder():
         t_n_past.update_tensor(numpy.array(n_past, dtype=numpy.int64))
         self.graph.input.append('n_past')
         self.graph.tensormap[t_n_past.name] = t_n_past
-        self.kv_params = self.batch * (self.seq_len + n_past) * self.hidden_kv_size * 2 * self.num_hidden_layers
+        # MLA: KV 是联合投影 head_dim
+        if self.arch_config.get('is_mla', False):
+            kv_size = self.head_size
+        else:
+            kv_size = self.hidden_kv_size
+        self.kv_params = self.batch * (self.seq_len + n_past) * kv_size * 2 * self.num_hidden_layers
         kv_cache = create_tensor('kv_cache', DYNAMIC_TENSOR,
-                                 [self.batch, self.num_hidden_layers * 2, n_context, self.hidden_kv_size],
+                                 [self.batch, self.num_hidden_layers * 2, n_context, kv_size],
                                  numpy.float32)
         self.graph.input.append('kv_cache')
         self.graph.tensormap[kv_cache.name] = kv_cache

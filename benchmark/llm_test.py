@@ -255,6 +255,320 @@ def export_qwen3_0_6b_with_kv_cache():
     return onnx_path
 
 
+# ===========================================================================
+# Qwen3.5-4B 模型配置
+# ===========================================================================
+# Qwen3.5-4B 模型配置
+# ===========================================================================
+# 从 https://huggingface.co/Qwen/Qwen3.5-4B-Instruct/resolve/main/config.json
+# Qwen3.5 使用混合架构：3×Gated DeltaNet + 1×Gated Attention，共 8 个 block（32 层）
+# layer_types 模式: linear_attention × 3, full_attention, 重复 8 次
+Qwen3_5_4B = {
+    "name": "Qwen3.5-4B-Instruct",
+    "architectures": ["Qwen3_5ForConditionalGeneration"],
+    "attention_bias": False,
+    "attention_dropout": 0.0,
+    "bos_token_id": 151643,
+    "eos_token_id": 248044,
+    "head_dim": 256,
+    "hidden_act": "silu",
+    "hidden_size": 2560,
+    "initializer_range": 0.02,
+    "intermediate_size": 9216,
+    "max_position_embeddings": 262144,
+    "model_type": "qwen3_5",
+    "num_attention_heads": 16,
+    "num_hidden_layers": 32,
+    "num_key_value_heads": 4,
+    "rms_norm_eps": 1e-06,
+    "rope_theta": 10000000.0,
+    "sliding_window": None,
+    "tie_word_embeddings": True,
+    "torch_dtype": "bfloat16",
+    "transformers_version": "4.51.0",
+    "use_cache": True,
+    "use_sliding_window": False,
+    "vocab_size": 248320,
+    # Qwen3.5 DeltaNet 专用参数
+    "linear_num_key_heads": 16,
+    "linear_num_value_heads": 32,
+    "linear_key_head_dim": 128,
+    "linear_value_head_dim": 128,
+    "linear_conv_kernel_dim": 4,
+    # 混合层类型：3×linear_attention + 1×full_attention，重复 8 次 = 32 层
+    "layer_types": [
+        "linear_attention", "linear_attention", "linear_attention", "full_attention",
+        "linear_attention", "linear_attention", "linear_attention", "full_attention",
+        "linear_attention", "linear_attention", "linear_attention", "full_attention",
+        "linear_attention", "linear_attention", "linear_attention", "full_attention",
+        "linear_attention", "linear_attention", "linear_attention", "full_attention",
+        "linear_attention", "linear_attention", "linear_attention", "full_attention",
+        "linear_attention", "linear_attention", "linear_attention", "full_attention",
+        "linear_attention", "linear_attention", "linear_attention", "full_attention",
+    ],
+}
+
+
+def export_qwen3_5_4b():
+    """导出 Qwen3.5-4B-Instruct 到 ONNX 格式，输入序列长度 2048 (2K)"""
+    bs = 1
+    seq_len = 2048  # 2K input
+    ids_shape = [bs, seq_len]
+
+    print("Building Qwen3.5-4B-Instruct graph (2K input)...")
+    builder = Builder(**Qwen3_5_4B)
+    builder.build_graph(ids_shape)
+
+    onnx_path = 'qwen3_5_4b.onnx'
+    print(f"Saving to {onnx_path}...")
+    builder.save_graph(onnx_path)
+
+    print("Profiling...")
+    builder.graph.valid_shape = True
+    builder.graph.profile()
+    builder.graph.print_node_map()
+
+    macs = int(builder.graph.macs[0] / 1e9)
+    params = builder.graph.params / 1e9
+    kv_params = builder.kv_params / 1e9
+    print(f"\nQwen3.5-4B-Instruct (2K input):")
+    print(f"  MACs={macs}G, Parameters={params:.3f}G, KV Cache={kv_params:.3f}G")
+    return onnx_path
+
+
+def export_qwen3_5_4b_with_kv_cache():
+    """导出 Qwen3.5-4B-Instruct 带 KV cache 的 ONNX 模型，输入 2K"""
+    bs = 1
+    seq_len = 2048  # 2K input
+    ids_shape = [bs, seq_len]
+    past_sequence = 0
+    context_length = 8192
+
+    print("Building Qwen3.5-4B-Instruct with KV cache (2K input)...")
+    builder = Builder(**Qwen3_5_4B)
+    builder.build_graph(ids_shape)
+    builder.add_kv_cache(context_length, past_sequence)
+
+    onnx_path = 'qwen3_5_4b_kvcache.onnx'
+    print(f"Saving to {onnx_path}...")
+    builder.save_graph(onnx_path)
+
+    builder.graph.valid_shape = True
+    builder.graph.profile()
+    builder.graph.print_node_map()
+
+    macs = int(builder.graph.macs[0] / 1e9)
+    params = builder.graph.params / 1e9
+    kv_params = builder.kv_params / 1e9
+    print(f"\nQwen3.5-4B-Instruct with KV cache (2K input):")
+    print(f"  MACs={macs}G, Parameters={params:.3f}G, KV Cache={kv_params:.3f}G")
+    return onnx_path
+
+
+def profile_qwen3_5_4b():
+    """对 Qwen3.5-4B 进行详细的性能分析（prefill + decode）"""
+    from onnx_tool.device import Devices
+    RuntimeCfg = {
+        'Compute': {
+            'MM': 'FP16',
+            'MHA': 'FP16',
+            'Others': 'FP16',
+        },
+        'Bits': {
+            'MM': 16,
+            'MHA': 16,
+            'Others': 16,
+        }
+    }
+    bs = 1
+    prefill_length = 2048  # 2K prefill
+    context_length = 8192
+    ids_shape = [bs, prefill_length]
+
+    print(f"\n{'='*60}")
+    print("Qwen3.5-4B-Instruct Profile Analysis (2K input)")
+    print(f"{'='*60}")
+
+    builder = Builder(**Qwen3_5_4B)
+    builder.build_graph(ids_shape)
+    builder.add_kv_cache(context_length, 0)
+    builder.graph.valid_shape = True
+
+    model_name = builder.get_filename()
+    device_names = ['Gaudi2H', 'H20']
+
+    # Prefill profile
+    print(f"\n--- Prefill (seq_len={prefill_length}) ---")
+    for key in device_names:
+        builder.profile(RuntimeCfg, Devices[key])
+        print(f"\n  Device: {key}")
+        print(f"  Latency: {builder.llm_profile[2]:.2f} ms")
+        print(f"  Memory: {builder.context_mem[3]/1e9:.3f} GB")
+
+    # Decode profile
+    print(f"\n--- Decode (seq_len=1, past_kv={prefill_length}) ---")
+    builder.set_past_kv_length(prefill_length)
+    builder.graph.shape_infer(inputs={'ids': create_ndarray_int64([bs, 1])})
+    builder.graph.profile()
+    for key in device_names:
+        builder.profile(RuntimeCfg, Devices[key])
+        print(f"\n  Device: {key}")
+        print(f"  Latency: {builder.llm_profile[2]:.2f} ms")
+
+    # Summary
+    macs = int(builder.graph.macs[0] / 1e9)
+    params = builder.graph.params / 1e9
+    kv_params = builder.kv_params / 1e9
+    print(f"\n--- Summary ---")
+    print(f"  MACs (decode): {macs}G")
+    print(f"  Parameters: {params:.3f}G")
+    print(f"  KV Cache: {kv_params:.3f}G")
+
+
+# ===========================================================================
+# Qwen3.5-35B-A3B (Qwen3.5-MoE) 模型配置
+# ===========================================================================
+# 从 https://huggingface.co/Qwen/Qwen3.5-35B-A3B-Instruct
+# Sparse MoE: 256 experts, top-8 per token, + 1 shared expert
+# 混合架构：3×Gated DeltaNet + 1×Gated Attention，共 10 个 block（40 层）
+Qwen3_5_35B_A3B = {
+    "name": "Qwen3.5-35B-A3B-Instruct",
+    "architectures": ["Qwen3_5MoeForCausalLM"],
+    "attention_bias": False,
+    "attention_dropout": 0.0,
+    "bos_token_id": 151643,
+    "eos_token_id": 151645,
+    "head_dim": 256,
+    "hidden_act": "silu",
+    "hidden_size": 2048,
+    "initializer_range": 0.02,
+    "intermediate_size": 512,  # moe_intermediate_size (per-expert)
+    "max_position_embeddings": 32768,
+    "model_type": "qwen3_5_moe",
+    "num_attention_heads": 16,
+    "num_hidden_layers": 40,
+    "num_key_value_heads": 2,
+    "rms_norm_eps": 1e-06,
+    "rope_theta": 10000000.0,
+    "sliding_window": None,
+    "tie_word_embeddings": False,
+    "torch_dtype": "bfloat16",
+    "use_cache": True,
+    "use_sliding_window": False,
+    "vocab_size": 248320,
+    # MoE 专用参数
+    "num_experts": 256,
+    "num_experts_per_tok": 8,
+    "moe_intermediate_size": 512,
+    "shared_expert_intermediate_size": 512,
+    # DeltaNet 专用参数
+    "linear_num_key_heads": 16,
+    "linear_num_value_heads": 32,
+    "linear_key_head_dim": 128,
+    "linear_value_head_dim": 128,
+    "linear_conv_kernel_dim": 4,
+    # 混合层类型：3×linear_attention + 1×full_attention，重复 10 次 = 40 层
+    "layer_types": [
+        "linear_attention", "linear_attention", "linear_attention", "full_attention",
+        "linear_attention", "linear_attention", "linear_attention", "full_attention",
+        "linear_attention", "linear_attention", "linear_attention", "full_attention",
+        "linear_attention", "linear_attention", "linear_attention", "full_attention",
+        "linear_attention", "linear_attention", "linear_attention", "full_attention",
+        "linear_attention", "linear_attention", "linear_attention", "full_attention",
+        "linear_attention", "linear_attention", "linear_attention", "full_attention",
+        "linear_attention", "linear_attention", "linear_attention", "full_attention",
+        "linear_attention", "linear_attention", "linear_attention", "full_attention",
+        "linear_attention", "linear_attention", "linear_attention", "full_attention",
+    ],
+}
+
+
+def export_qwen3_5_35b_a3b():
+    """导出 Qwen3.5-35B-A3B 到 ONNX 格式，输入序列长度 2048 (2K)"""
+    bs = 1
+    seq_len = 2048  # 2K input
+    ids_shape = [bs, seq_len]
+
+    print("Building Qwen3.5-35B-A3B-Instruct graph (2K input)...")
+    builder = Builder(**Qwen3_5_35B_A3B)
+    builder.build_graph(ids_shape)
+
+    onnx_path = 'qwen3_5_35b_a3b.onnx'
+    print(f"Saving to {onnx_path}...")
+    builder.save_graph(onnx_path)
+
+    print("Profiling...")
+    builder.graph.valid_shape = True
+    builder.graph.profile()
+    builder.graph.print_node_map()
+
+    macs = int(builder.graph.macs[0] / 1e9)
+    params = builder.graph.params / 1e9
+    kv_params = builder.kv_params / 1e9
+    print(f"\nQwen3.5-35B-A3B-Instruct (2K input):")
+    print(f"  MACs={macs}G, Parameters={params:.3f}G, KV Cache={kv_params:.3f}G")
+    return onnx_path
+
+
+def profile_qwen3_5_35b_a3b():
+    """对 Qwen3.5-35B-A3B 进行详细的性能分析（prefill + decode）"""
+    from onnx_tool.device import Devices
+    RuntimeCfg = {
+        'Compute': {
+            'MM': 'FP16',
+            'MHA': 'FP16',
+            'Others': 'FP16',
+        },
+        'Bits': {
+            'MM': 16,
+            'MHA': 16,
+            'Others': 16,
+        }
+    }
+    bs = 1
+    prefill_length = 2048  # 2K prefill
+    context_length = 8192
+    ids_shape = [bs, prefill_length]
+
+    print(f"\n{'='*60}")
+    print("Qwen3.5-35B-A3B-Instruct Profile Analysis (2K input)")
+    print(f"{'='*60}")
+
+    builder = Builder(**Qwen3_5_35B_A3B)
+    builder.build_graph(ids_shape)
+    builder.add_kv_cache(context_length, 0)
+    builder.graph.valid_shape = True
+
+    device_names = ['Gaudi2H', 'H20']
+
+    # Prefill profile
+    print(f"\n--- Prefill (seq_len={prefill_length}) ---")
+    for key in device_names:
+        builder.profile(RuntimeCfg, Devices[key])
+        print(f"\n  Device: {key}")
+        print(f"  Latency: {builder.llm_profile[2]:.2f} ms")
+        print(f"  Memory: {builder.context_mem[3]/1e9:.3f} GB")
+
+    # Decode profile
+    print(f"\n--- Decode (seq_len=1, past_kv={prefill_length}) ---")
+    builder.set_past_kv_length(prefill_length)
+    builder.graph.shape_infer(inputs={'ids': create_ndarray_int64([bs, 1])})
+    builder.graph.profile()
+    for key in device_names:
+        builder.profile(RuntimeCfg, Devices[key])
+        print(f"\n  Device: {key}")
+        print(f"  Latency: {builder.llm_profile[2]:.2f} ms")
+
+    # Summary
+    macs = int(builder.graph.macs[0] / 1e9)
+    params = builder.graph.params / 1e9
+    kv_params = builder.kv_params / 1e9
+    print(f"\n--- Summary ---")
+    print(f"  MACs (decode): {macs}G")
+    print(f"  Parameters: {params:.3f}G")
+    print(f"  KV Cache: {kv_params:.3f}G")
+
+
 # Export the model with pytorch tensor names
 # Not necessary to convert safetensors to ONNX format
 def export_with_pytorch_weight_name():
@@ -652,12 +966,14 @@ def profile_model_multicards():
 
 
 if __name__ == '__main__':
-    export_with_pytorch_weight_name()
-    add_hugging_face_model()
-    build_onnx_models()
-    profile_models()
-    add_kv_cache()
-    gpt2_kv_cache()
-    profile_model()
-    profile_model_with_devices()
-    profile_model_multicards()
+    # export_with_pytorch_weight_name()
+    # add_hugging_face_model()
+    # build_onnx_models()
+    # profile_models()
+    # add_kv_cache()
+    # gpt2_kv_cache()
+    # profile_model()
+    # profile_model_with_devices()
+    # profile_model_multicards()
+    export_qwen3_5_4b_with_kv_cache()
+    profile_qwen3_5_4b() 

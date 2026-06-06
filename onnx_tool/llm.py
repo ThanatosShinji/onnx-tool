@@ -55,6 +55,38 @@ ArchMap = {
         "lm_head_bias": False,
         "qk_norm": True,
     },
+    'Qwen3_5ForConditionalGeneration': {
+        # Qwen3.5 hybrid architecture (Gated DeltaNet + Gated Attention)
+        # Full attention layers: Q proj outputs 2x (Q + gate chunked)
+        #   gate = sigmoid(chunk_of_q_proj), applied BEFORE o_proj
+        #   q_norm/k_norm are per-head dim RMS norm
+        # DeltaNet layers: handled by add_gdn() with GDN node
+        "mlp_gate": True,
+        "norm_scale": True,
+        "norm_bias": False,
+        "fuse_qkv": False,
+        "qkv_bias": False,
+        "o_bias": False,
+        "mlp_bias": False,
+        "lm_head_bias": False,
+        "qk_norm": True,
+        "qkv_gated": True,
+    },
+    'Qwen3_5MoeForCausalLM': {
+        # Qwen3.5-MoE: hybrid architecture + Sparse MoE replacing MLP
+        # Same attention as Qwen3.5, but MLP replaced by MoE (routed + shared experts)
+        "mlp_gate": True,
+        "norm_scale": True,
+        "norm_bias": False,
+        "fuse_qkv": False,
+        "qkv_bias": False,
+        "o_bias": False,
+        "mlp_bias": False,
+        "lm_head_bias": False,
+        "qk_norm": True,
+        "qkv_gated": True,
+        "is_moe": True,
+    },
 }
 
 ArchMap['Phi3ForCausalLM'] = {
@@ -383,6 +415,39 @@ class Builder():
             v = self.add_mm(inp, self.hidden_size, v_out, bias, namev)
         return [q, k, v]
 
+    def add_qkv_gated(self, inp):
+        """Gated QKV 投影（Qwen3.5 的 full_attention 层使用）。
+
+        相比标准 QKV：
+          1. Q 投影输出 2×（一半是 Q，一半是 gate）
+          2. gate = sigmoid(chunk_of_q_proj)，在 O 投影之前应用
+          3. Q/K 各自有 per-head dim RMS norm
+
+        对应 transformers 源码：
+          self.q_proj = Linear(hidden_size, num_heads * head_dim * 2)
+          query_states, gate = chunk(q_proj(x), 2, dim=-1)
+          attn_output = attn_output * sigmoid(gate)
+          attn_output = o_proj(attn_output)
+        """
+        bias = self.arch_config['qkv_bias']
+        q_out = self.num_attention_heads * self.head_size
+        k_out = self.num_key_value_heads * self.head_size
+        v_out = self.num_key_value_heads * self.head_size
+
+        # Q 投影输出 2×（Q + gate 合并）
+        nameq = self.layer_prefix + self.w_map['attention']['q']
+        namek = self.layer_prefix + self.w_map['attention']['k']
+        namev = self.layer_prefix + self.w_map['attention']['v']
+        q_proj = self.add_mm(inp, self.hidden_size, q_out * 2, bias, nameq)
+        k = self.add_mm(inp, self.hidden_size, k_out, bias, namek)
+        v = self.add_mm(inp, self.hidden_size, v_out, bias, namev)
+
+        # 拆分 Q 和 gate
+        q = self.add_slice(q_proj, 2, 0, q_out, 1, self.layer_prefix + 'q.slice')
+        gate = self.add_slice(q_proj, 2, q_out, q_out, 1, self.layer_prefix + 'gate.slice')
+
+        return [q, k, v, gate]
+
     def add_mlp(self, inp):
         bias = self.arch_config['mlp_bias']
         mlp_gate = self.arch_config['mlp_gate']
@@ -408,6 +473,138 @@ class Builder():
                 o0 = self.add_act(o_up, self.hidden_act, self.layer_prefix + 'mlp.activation')
             o2 = self.add_mm(o0, self.intermediate_size, self.hidden_size, bias, namedown)
         return o2
+
+    def add_moe(self, inp):
+        """Sparse Mixture-of-Experts (Qwen3.5-MoE).
+
+        替代标准 MLP，使用稀疏 MoE：
+          1. Router (gate): 为每个 token 选择 top-k 专家
+          2. Routed experts: 每个 token 由 k 个专家处理
+          3. Shared expert: 始终激活，sigmoid 门控
+
+        Qwen3.5-35B-A3B 参数：
+          num_experts=256, num_experts_per_tok=8
+          moe_intermediate_size=512, shared_expert_intermediate_size=512
+        """
+        num_experts = getattr(self, 'num_experts', 256)
+        num_experts_per_tok = getattr(self, 'num_experts_per_tok', 8)
+        moe_intermediate_size = getattr(self, 'moe_intermediate_size', self.intermediate_size)
+        shared_expert_intermediate_size = getattr(self, 'shared_expert_intermediate_size', moe_intermediate_size)
+
+        # 创建虚拟 weight tensor 以计入参数量
+        # Router: hidden_size × num_experts
+        w_router = create_tensor(self.layer_prefix + 'moe.router.weight', STATIC_TENSOR,
+                                 [self.hidden_size, num_experts], numpy.float32)
+        self.graph.initials.append(w_router.name)
+        self.graph.tensormap[w_router.name] = w_router
+        # Routed experts: gate_up_proj + down_proj
+        # gate_up_proj: num_experts × 2*moe_intermediate_size × hidden_size
+        w_expert_gu = create_tensor(self.layer_prefix + 'moe.experts.gate_up.weight', STATIC_TENSOR,
+                                    [num_experts, 2 * moe_intermediate_size, self.hidden_size], numpy.float32)
+        self.graph.initials.append(w_expert_gu.name)
+        self.graph.tensormap[w_expert_gu.name] = w_expert_gu
+        # down_proj: num_experts × hidden_size × moe_intermediate_size
+        w_expert_down = create_tensor(self.layer_prefix + 'moe.experts.down.weight', STATIC_TENSOR,
+                                      [num_experts, self.hidden_size, moe_intermediate_size], numpy.float32)
+        self.graph.initials.append(w_expert_down.name)
+        self.graph.tensormap[w_expert_down.name] = w_expert_down
+        # Shared expert: gate_proj + up_proj + down_proj
+        w_shared_gate = create_tensor(self.layer_prefix + 'moe.shared.gate.weight', STATIC_TENSOR,
+                                      [shared_expert_intermediate_size, self.hidden_size], numpy.float32)
+        self.graph.initials.append(w_shared_gate.name)
+        self.graph.tensormap[w_shared_gate.name] = w_shared_gate
+        w_shared_up = create_tensor(self.layer_prefix + 'moe.shared.up.weight', STATIC_TENSOR,
+                                    [shared_expert_intermediate_size, self.hidden_size], numpy.float32)
+        self.graph.initials.append(w_shared_up.name)
+        self.graph.tensormap[w_shared_up.name] = w_shared_up
+        w_shared_down = create_tensor(self.layer_prefix + 'moe.shared.down.weight', STATIC_TENSOR,
+                                      [self.hidden_size, shared_expert_intermediate_size], numpy.float32)
+        self.graph.initials.append(w_shared_down.name)
+        self.graph.tensormap[w_shared_down.name] = w_shared_down
+        # Shared expert gate: hidden_size
+        w_shared_gate_out = create_tensor(self.layer_prefix + 'moe.shared_gate.weight', STATIC_TENSOR,
+                                          [self.hidden_size], numpy.float32)
+        self.graph.initials.append(w_shared_gate_out.name)
+        self.graph.tensormap[w_shared_gate_out.name] = w_shared_gate_out
+
+        attrs = {
+            'hidden_size': self.hidden_size,
+            'moe_intermediate_size': moe_intermediate_size,
+            'shared_expert_intermediate_size': shared_expert_intermediate_size,
+            'num_experts': num_experts,
+            'num_experts_per_tok': num_experts_per_tok,
+        }
+        nod = create_node(TmpNodeProto(self.layer_prefix + 'moe', 'MoE', attrs))
+        nod.input = [inp.name,
+                     w_router.name, w_expert_gu.name, w_expert_down.name,
+                     w_shared_gate.name, w_shared_up.name, w_shared_down.name,
+                     w_shared_gate_out.name]
+        o = create_tensor(self.layer_prefix + 'moe.output', DYNAMIC_TENSOR,
+                          [self.batch, self.seq_len, self.hidden_size], numpy.float32)
+        nod.output = [o.name]
+        self.graph.tensormap[o.name] = o
+        self.graph.nodemap[nod.name] = nod
+        return o
+
+    def add_gdn(self, inp):
+        """Gated DeltaNet layer (Qwen3.5 混合架构).
+
+        替代标准 self-attention，使用线性注意力机制。
+        结构：
+          1. input_norm
+          2. Q/K/V 投影（使用 DeltaNet 专用 head_dim 和 num_heads）
+          3. Q/K per-head RMS norm
+          4. GDN 融合算子（卷积 + DeltaNet 线性注意力 + 门控）
+          5. 输出投影
+
+        Qwen3.5-4B 参数：
+          linear_num_key_heads=16, linear_num_value_heads=32
+          linear_key_head_dim=128, linear_value_head_dim=128
+          linear_conv_kernel_dim=4
+        """
+        # DeltaNet 专用参数
+        num_q_heads = getattr(self, 'linear_num_key_heads', self.num_key_value_heads)
+        num_v_heads = getattr(self, 'linear_num_value_heads', self.num_key_value_heads * 2)
+        qk_head_dim = getattr(self, 'linear_key_head_dim', self.head_size)
+        v_head_dim = getattr(self, 'linear_value_head_dim', self.head_size)
+        conv_kernel = getattr(self, 'linear_conv_kernel_dim', 4)
+        qkv_bias = self.arch_config.get('qkv_bias', False)
+        o_bias = self.arch_config.get('o_bias', False)
+
+        q_out = num_q_heads * qk_head_dim
+        k_out = num_q_heads * qk_head_dim
+        v_out = num_v_heads * v_head_dim
+
+        # Q/K/V 投影
+        nameq = self.layer_prefix + self.w_map['attention']['q']
+        namek = self.layer_prefix + self.w_map['attention']['k']
+        namev = self.layer_prefix + self.w_map['attention']['v']
+        q = self.add_mm(inp, self.hidden_size, q_out, qkv_bias, nameq)
+        k = self.add_mm(inp, self.hidden_size, k_out, qkv_bias, namek)
+        v = self.add_mm(inp, self.hidden_size, v_out, qkv_bias, namev)
+
+        # Q/K per-head RMS norm
+        q = self.add_qk_norm(q, self.layer_prefix + 'self_attn.q_norm', num_q_heads)
+        k = self.add_qk_norm(k, self.layer_prefix + 'self_attn.k_norm', num_q_heads)
+
+        # GDN 融合算子
+        attrs = {
+            'hidden_size': self.hidden_size,
+            'num_q_heads': num_q_heads,
+            'num_v_heads': num_v_heads,
+            'qk_head_dim': qk_head_dim,
+            'v_head_dim': v_head_dim,
+            'conv_kernel': conv_kernel,
+            'o_bias': o_bias,
+        }
+        nod = create_node(TmpNodeProto(self.layer_prefix + 'gdn', 'GDN', attrs))
+        nod.input = [q.name, k.name, v.name]
+        o = create_tensor(self.layer_prefix + 'gdn.output', DYNAMIC_TENSOR,
+                          [self.batch, self.seq_len, self.hidden_size], numpy.float32)
+        nod.output = [o.name]
+        self.graph.tensormap[o.name] = o
+        self.graph.nodemap[nod.name] = nod
+        return o
 
     def add_lm_head(self, inp):
         cur = self.add_layernorm(inp, self.w_map['lm_head']['input_norm'])
@@ -440,32 +637,64 @@ class Builder():
         return o
 
     def add_layers(self, inp):
+        # 检查是否为混合架构（Qwen3.5 的 layer_types）
+        layer_types = getattr(self, 'layer_types', None)
+        is_moe = self.arch_config.get('is_moe', False)
         for i in range(self.num_hidden_layers):
             self.layer_i = i
             self.layer_prefix = self.w_map['layer_prefix'] + str(self.layer_i) + '.'
             cur = inp
-            cur = self.add_layernorm(cur, self.layer_prefix + self.w_map['attention']['input_norm'])
-            q, k, v = self.add_qkv(cur)
-            # Q/K per-head norm (Qwen3 特有)
-            if self.arch_config.get('qk_norm', False):
-                q = self.add_qk_norm(q, self.layer_prefix + 'self_attn.q_norm', self.num_attention_heads)
-                k = self.add_qk_norm(k, self.layer_prefix + 'self_attn.k_norm', self.num_key_value_heads)
-            if self.arch_config.get('qk_rope', True):
-                q = self.add_rope(q, self.layer_prefix + 'rope_q')
-                k = self.add_rope(k, self.layer_prefix + 'rope_k')
-            cur = self.add_mha([q, k, v], self.layer_prefix + 'mha')
-            attn_out = self.num_attention_heads * self.head_size
-            cur = self.add_mm(cur, attn_out, self.hidden_size, self.arch_config['o_bias'],
-                              self.layer_prefix + self.w_map['attention']['o'])
-            if self.arch_config.get('post_attn_norm', False):
-                cur = self.add_layernorm(cur, self.layer_prefix + self.w_map['attention']['output_norm'])
-            cur = self.add_eltop(inp, cur, 'Add', self.layer_prefix + 'attention_add')
-            inp = cur
-            cur = self.add_layernorm(cur, self.layer_prefix + self.w_map['mlp']['input_norm'])
-            cur = self.add_mlp(cur)
-            if self.arch_config.get('post_mlp_norm', False):
-                cur = self.add_layernorm(cur, self.layer_prefix + self.w_map['mlp']['output_norm'])
-            inp = self.add_eltop(inp, cur, 'Add', self.layer_prefix + 'mlp_add')
+
+            # 判断当前层类型
+            is_gdn = False
+            if layer_types is not None and i < len(layer_types):
+                is_gdn = (layer_types[i] == 'linear_attention')
+
+            if is_gdn:
+                # ---- Gated DeltaNet 层 ----
+                cur = self.add_layernorm(cur, self.layer_prefix + self.w_map['attention']['input_norm'])
+                cur = self.add_gdn(cur)
+                if self.arch_config.get('post_attn_norm', False):
+                    cur = self.add_layernorm(cur, self.layer_prefix + self.w_map['attention']['output_norm'])
+                cur = self.add_eltop(inp, cur, 'Add', self.layer_prefix + 'attention_add')
+                inp = cur
+                cur = self.add_layernorm(cur, self.layer_prefix + self.w_map['mlp']['input_norm'])
+                cur = self.add_moe(cur) if is_moe else self.add_mlp(cur)
+                if self.arch_config.get('post_mlp_norm', False):
+                    cur = self.add_layernorm(cur, self.layer_prefix + self.w_map['mlp']['output_norm'])
+                inp = self.add_eltop(inp, cur, 'Add', self.layer_prefix + 'mlp_add')
+            else:
+                # ---- 标准 Attention 层（支持 QKV gating） ----
+                cur = self.add_layernorm(cur, self.layer_prefix + self.w_map['attention']['input_norm'])
+                if self.arch_config.get('qkv_gated', False):
+                    q, k, v, gate = self.add_qkv_gated(cur)
+                else:
+                    q, k, v = self.add_qkv(cur)
+                    gate = None
+                # Q/K per-head norm (Qwen3 特有)
+                if self.arch_config.get('qk_norm', False):
+                    q = self.add_qk_norm(q, self.layer_prefix + 'self_attn.q_norm', self.num_attention_heads)
+                    k = self.add_qk_norm(k, self.layer_prefix + 'self_attn.k_norm', self.num_key_value_heads)
+                if self.arch_config.get('qk_rope', True):
+                    q = self.add_rope(q, self.layer_prefix + 'rope_q')
+                    k = self.add_rope(k, self.layer_prefix + 'rope_k')
+                cur = self.add_mha([q, k, v], self.layer_prefix + 'mha')
+                attn_out = self.num_attention_heads * self.head_size
+                # Attention output gate (Qwen3.5): gate 在 O 投影之前
+                if gate is not None:
+                    gate = self.add_act(gate, 'silu', self.layer_prefix + 'attn_gate.act')
+                    cur = self.add_eltop(cur, gate, 'Mul', self.layer_prefix + 'attn.gated')
+                cur = self.add_mm(cur, attn_out, self.hidden_size, self.arch_config['o_bias'],
+                                  self.layer_prefix + self.w_map['attention']['o'])
+                if self.arch_config.get('post_attn_norm', False):
+                    cur = self.add_layernorm(cur, self.layer_prefix + self.w_map['attention']['output_norm'])
+                cur = self.add_eltop(inp, cur, 'Add', self.layer_prefix + 'attention_add')
+                inp = cur
+                cur = self.add_layernorm(cur, self.layer_prefix + self.w_map['mlp']['input_norm'])
+                cur = self.add_moe(cur) if is_moe else self.add_mlp(cur)
+                if self.arch_config.get('post_mlp_norm', False):
+                    cur = self.add_layernorm(cur, self.layer_prefix + self.w_map['mlp']['output_norm'])
+                inp = self.add_eltop(inp, cur, 'Add', self.layer_prefix + 'mlp_add')
         return inp
 
     def add_softcapping(self, inp, value, name):

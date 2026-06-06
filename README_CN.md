@@ -30,7 +30,7 @@
 
 | 领域 | 模型 |
 | --- | --- |
-| **NLP** | BERT, T5, GPT, LLaMa, MPT ([TransformerModel](benchmark/transfomer_models.py)) |
+| **NLP** | BERT, T5, GPT, LLaMa, MPT, Qwen3, Qwen3.5 (Dense & MoE) ([TransformerModel](benchmark/transfomer_models.py)) |
 | **扩散模型** | Stable Diffusion (TextEncoder, VAE, UNet) |
 | **计算机视觉** | Detic, BEVFormer, SSD300_VGG16, ConvNeXt, Mask R-CNN, Silero VAD |
 | **音频** | Sovits, LPCNet |
@@ -56,6 +56,8 @@ Llama3-8B                            | 8029    | 8.03026       |  0.0671089
 Llama-3.1-70B-Japanese-Instruct-2407 | 72888   | 70.5537       |  0.167772
 QWen-7B                              | 7509    | 7.61562       |  0.0293601
 Qwen2_72B_Instruct                   | 74895   | 72.7062       |  0.167772
+**Qwen3.5-4B-Instruct** 🆕           | 10070   | 4.401         |  0.134218
+**Qwen3.5-35B-A3B-Instruct** 🆕 (MoE)| 7719    | 34.161        |  0.083886
 
 ### 延迟估计（4-bit权重，16-bit KV缓存）
 

@@ -32,10 +32,16 @@
 
 | Domain      | Models                                                                 |
 |-------------|------------------------------------------------------------------------|
-| **NLP**     | BERT, T5, GPT, LLaMa, MPT ([TransformerModel](benchmark/transfomer_models.py)) |
+| **NLP**     | BERT, T5, GPT, LLaMa, MPT, Qwen3, Qwen3.5 (Dense & MoE) ([TransformerModel](benchmark/transfomer_models.py)) |
 | **Diffusion** | Stable Diffusion (TextEncoder, VAE, UNet)                            |
 | **CV**      | Detic, BEVFormer, SSD300_VGG16, ConvNeXt, Mask R-CNN, Silero VAD         |
 | **Audio**   | Sovits, LPCNet                                                        |
+
+> 🆕 **Qwen3.5 Series**: Full support for Qwen3.5 hybrid architecture including:
+> - **Gated DeltaNet (GDN)** layers with linear attention
+> - **QKV Gating** (Q projection with built-in gate, applied before O-projection)
+> - **Sparse Mixture-of-Experts (MoE)** with routed + shared experts
+> - **Mixed layer types** (linear_attention / full_attention) per config
 
 ---
 
@@ -56,6 +62,8 @@ Llama3-8B                            | 8029    | 8.03026       |  0.0671089
 Llama-3.1-70B-Japanese-Instruct-2407 | 72888   | 70.5537       |  0.167772
 QWen-7B                              | 7509    | 7.61562       |  0.0293601
 Qwen2_72B_Instruct                   | 74895   | 72.7062       |  0.167772
+**Qwen3.5-4B-Instruct** 🆕           | 10070   | 4.401         |  0.134218
+**Qwen3.5-35B-A3B-Instruct** 🆕 (MoE)| 7719    | 34.161        |  0.083886
 
 ### Latency Estimation (4-bit weights, 16-bit KV cache)
 

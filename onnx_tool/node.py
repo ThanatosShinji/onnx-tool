@@ -2937,6 +2937,191 @@ class SplitNode(Node):
             outtensors[i].update_tensor(t)
 
 
+@NODE_REGISTRY.register()
+class GDNNode(Node):
+    """Gated DeltaNet node for Qwen3.5 hybrid architecture.
+
+    GDN replaces standard self-attention with a linear attention mechanism.
+    It computes:
+      1. Q/K/V projections (with optional bias)
+      2. Q/K per-head RMS norm
+      3. Depthwise convolution on Q/K
+      4. Gated linear attention (DeltaNet)
+      5. Output projection
+
+    Inputs: [hidden_states]  shape: [B, S, hidden_size]
+    Output: [attn_output]    shape: [B, S, hidden_size]
+
+    Attributes (from node proto):
+        hidden_size: int
+        num_q_heads: int (number of Q/K heads for DeltaNet)
+        num_v_heads: int (number of V heads for DeltaNet)
+        qk_head_dim: int (head dim for Q/K)
+        v_head_dim: int (head dim for V)
+        conv_kernel: int (conv kernel size)
+        o_bias: bool
+    """
+
+    def __init__(self, nodeproto):
+        super().__init__(nodeproto)
+        self.add_default_value('hidden_size', 2560)
+        self.add_default_value('num_q_heads', 16)
+        self.add_default_value('num_v_heads', 32)
+        self.add_default_value('qk_head_dim', 128)
+        self.add_default_value('v_head_dim', 128)
+        self.add_default_value('conv_kernel', 4)
+        self.add_default_value('o_bias', False)
+
+    def shape_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
+        # GDN 输入: [Q, K, V]，Q shape = [B, S, num_q_heads * qk_head_dim]
+        # GDN 输出: [B, S, hidden_size]
+        q_shape = intensors[0].get_shape()
+        out_shape = [q_shape[0], q_shape[1], self.hidden_size]
+        outtensors[0].update_shape(out_shape)
+        outtensors[0].update_dtype(intensors[0].dtype)
+
+    def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
+        """Calculate MACs for Gated DeltaNet.
+
+        Operations:
+        - Q/K/V projections: 3 × (B × S × hidden_size × head_dim × num_heads)
+        - Q/K norm: 2 × (B × S × num_q_heads × qk_head_dim)
+        - Conv1d on Q/K: 2 × (B × num_q_heads × S × qk_head_dim × conv_kernel)
+        - DeltaNet attention: B × num_v_heads × S × qk_head_dim × S (simplified)
+        - Output projection: B × S × hidden_size × hidden_size
+        """
+        x_shape = intensors[0].get_shape()
+        B = x_shape[0]
+        S = x_shape[1]
+        H = self.hidden_size
+        Nq = self.num_q_heads
+        Nv = self.num_v_heads
+        Dqk = self.qk_head_dim
+        Dv = self.v_head_dim
+        K = self.conv_kernel
+
+        macs = 0
+
+        # Q projection: B × S × H × (Nq × Dqk)
+        macs += B * S * H * Nq * Dqk
+        # K projection: B × S × H × (Nq × Dqk)
+        macs += B * S * H * Nq * Dqk
+        # V projection: B × S × H × (Nv × Dv)
+        macs += B * S * H * Nv * Dv
+
+        # Q/K RMS norm: 2 × B × S × Nq × Dqk
+        macs += 2 * B * S * Nq * Dqk
+
+        # Depthwise conv on Q: B × Nq × S × Dqk × K
+        macs += B * Nq * S * Dqk * K
+        # Depthwise conv on K: B × Nq × S × Dqk × K
+        macs += B * Nq * S * Dqk * K
+
+        # DeltaNet linear attention (simplified as matmul):
+        # Q @ K^T: B × Nq × S × Dqk × S
+        # attn @ V: B × Nv × S × S × Dv
+        # Using Nq for attention (key/query heads)
+        macs += B * Nq * S * Dqk * S  # QK^T
+        macs += B * Nv * S * S * Dv  # attn @ V
+
+        # Output gate (element-wise multiply + sigmoid)
+        macs += B * S * H * (EXP_MACS + MUL_MACS)
+
+        # Output projection: B × S × (Nv × Dv) × H
+        macs += B * S * Nv * Dv * H
+
+        return [macs, 0]
+
+
+@NODE_REGISTRY.register()
+class MoENode(Node):
+    """Mixture-of-Experts node for Qwen3.5-MoE architecture.
+
+    Replaces standard MLP with sparse MoE:
+      1. Router (gate): selects top-k experts per token
+      2. Routed experts: each token processed by k experts
+      3. Shared expert: always active, gated by sigmoid
+
+    Inputs: [hidden_states]  shape: [B, S, hidden_size]
+    Output: [moe_output]     shape: [B, S, hidden_size]
+
+    Attributes:
+        hidden_size: int
+        moe_intermediate_size: int (per-expert FFN size)
+        shared_expert_intermediate_size: int
+        num_experts: int (total routed experts)
+        num_experts_per_tok: int (top-k)
+    """
+
+    def __init__(self, nodeproto):
+        super().__init__(nodeproto)
+        self.add_default_value('hidden_size', 2048)
+        self.add_default_value('moe_intermediate_size', 512)
+        self.add_default_value('shared_expert_intermediate_size', 512)
+        self.add_default_value('num_experts', 256)
+        self.add_default_value('num_experts_per_tok', 8)
+
+    def shape_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
+        outtensors[0].update_shape(intensors[0].get_shape())
+        outtensors[0].update_dtype(intensors[0].dtype)
+
+    def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
+        """Calculate MACs for Sparse MoE.
+
+        Per-token compute (only top-k experts active):
+        - Router: B × S × hidden_size × num_experts
+        - Per expert FFN: 3 × B × S × hidden_size × moe_intermediate_size
+          (gate_proj + up_proj + down_proj, with SiLU activation)
+        - Shared expert: 3 × B × S × hidden_size × shared_expert_intermediate_size
+        - Shared expert gate: B × S × hidden_size (sigmoid + multiply)
+        """
+        x_shape = intensors[0].get_shape()
+        B = x_shape[0]
+        S = x_shape[1]
+        H = self.hidden_size
+        I = self.moe_intermediate_size
+        SI = self.shared_expert_intermediate_size
+        E = self.num_experts
+        k = self.num_experts_per_tok
+
+        macs = 0
+
+        # Router: B × S × H × E
+        macs += B * S * H * E
+
+        # Routed experts (top-k per token):
+        # gate_proj: B × S × H × I × k
+        macs += B * S * H * I * k
+        # up_proj: B × S × H × I × k
+        macs += B * S * H * I * k
+        # SiLU activation: B × S × I × k
+        macs += B * S * I * k * (EXP_MACS + MUL_MACS)
+        # gate * up: B × S × I × k
+        macs += B * S * I * k * MUL_MACS
+        # down_proj: B × S × I × H × k
+        macs += B * S * I * H * k
+
+        # Shared expert:
+        # gate_proj: B × S × H × SI
+        macs += B * S * H * SI
+        # up_proj: B × S × H × SI
+        macs += B * S * H * SI
+        # SiLU activation: B × S × SI
+        macs += B * S * SI * (EXP_MACS + MUL_MACS)
+        # gate * up: B × S × SI
+        macs += B * S * SI * MUL_MACS
+        # down_proj: B × S × SI × H
+        macs += B * S * SI * H
+
+        # Shared expert gate: sigmoid + multiply
+        macs += B * S * H * (EXP_MACS + MUL_MACS)
+
+        # Combine routed + shared
+        macs += B * S * H * ADD_MACS
+
+        return [macs, 0]
+
+
 def create_node(n: onnx.NodeProto | TmpNodeProto):
     node_class = NODE_REGISTRY.get(n.op_type + 'Node')
     if node_class != None:

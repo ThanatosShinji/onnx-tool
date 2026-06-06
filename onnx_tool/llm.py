@@ -851,12 +851,12 @@ class Builder():
         self.graph.profile()
         cfg = Config if Config is not None else self.DefaultCfg
         if Device is not None:
-            link_bw = Device.get('LinkBandwidth', 0) * 1e6
+            link_bw = Device.get('LinkBandwidth', 0) * 1e9
             d_num = 1 if link_bw == 0 else Device.get('Number', 1)
-            c_mm = Device.get(cfg['Compute']['MM'], Device['FP32']) * 1e6
-            c_mha = Device.get(cfg['Compute']['MHA'], Device['FP32']) * 1e6
-            c_others = Device.get(cfg['Compute']['Others'], Device['FP32']) * 1e6
-            mw = Device.get('Bandwidth') * 1e6
+            c_mm = Device.get(cfg['Compute']['MM'], Device['FP32']) * 1e9
+            c_mha = Device.get(cfg['Compute']['MHA'], Device['FP32']) * 1e9
+            c_others = Device.get(cfg['Compute']['Others'], Device['FP32']) * 1e9
+            mw = Device.get('Bandwidth') * 1e9
         sum = [0, 0, 0]
         MM_mem = 0
         Other_mem = 0

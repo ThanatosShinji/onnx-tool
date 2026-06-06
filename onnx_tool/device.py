@@ -1,3 +1,9 @@
+# Device specifications for latency estimation.
+# All compute values are in GFLOPS (10^9 FLOPS) / GOPS (10^9 OPS).
+# Bandwidth is in GB/s (10^9 bytes/s).
+# FP16 field also serves as BF16 compute.
+# INT8 is typically 2x FP16 (for GPUs with tensor cores).
+# FP32 is typically FP16 / 2 or FP16 / 8 depending on architecture.
 Devices = {
     'Core-13900':
         {
@@ -11,6 +17,12 @@ Devices = {
         'INT8': 16000,
         'Bandwidth': 90,
     },
+    'Ultra-358H': {
+        'FP32': 7500,
+        'FP16': 60000,
+        'INT8': 120000,
+        'Bandwidth': 128,
+    },
     'Arc-A750': {
         'FP32': 14700,
         'FP16': 117000,
@@ -22,6 +34,12 @@ Devices = {
         'FP16': 138000,
         'INT8': 275000,
         'Bandwidth': 560,
+    },
+    'Arc-B70': {
+        'FP32': 22900,
+        'FP16': 183500,
+        'INT8': 367000,
+        'Bandwidth': 608,
     },
     'A100-40GB-PCIe': {
         'FP32': 19500,
@@ -64,5 +82,19 @@ Devices = {
         'FP16': 148000,
         'INT8': 296000,
         'Bandwidth': 900,
+    },
+    'RTX-4090': {
+        # Ada Lovelace AD102, 24GB GDDR6X, 512 Tensor Cores (4th gen)
+        'FP32': 82600,
+        'FP16': 165200,
+        'INT8': 660600,
+        'Bandwidth': 1008,
+    },
+    'RTX-5090': {
+        # Blackwell GB202, 32GB GDDR7, 680 Tensor Cores (5th gen)
+        'FP32': 104800,
+        'FP16': 209500,
+        'INT8': 1676000,
+        'Bandwidth': 1792,
     },
 }

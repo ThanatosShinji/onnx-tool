@@ -1226,6 +1226,146 @@ def profile_model_multicards():
         builder.print_profile(file)
 
 
+# ===========================================================================
+# MiniMax-M2.7 模型配置
+# ===========================================================================
+# 从 https://huggingface.co/MiniMaxAI/MiniMax-M2.7/resolve/main/config.json
+# MiniMax-M2.7: Sparse MoE (256 experts, top-8, sigmoid routing)
+# Attention: GQA (48 heads, 8 KV heads, head_dim=128), per-layer QK norm
+# Partial RoPE: rotary_dim=64 (仅前64维参与旋转)
+# MoE: SwiGLU experts, NO shared expert (shared_intermediate_size=0)
+# 总参数: ~230B, 激活参数: ~9.8B (per token, top-8 experts)
+# 参考: arXiv 2605.26494 - The MiniMax-M2 Series
+MiniMax_M2_7 = {
+    "name": "MiniMax-M2.7",
+    "architectures": ["MiniMaxM2ForCausalLM"],
+    "attention_bias": False,
+    "bos_token_id": 1,
+    "eos_token_id": 2,
+    "head_dim": 128,
+    "hidden_act": "silu",
+    "hidden_size": 3072,
+    "intermediate_size": 1536,
+    "max_position_embeddings": 204800,
+    "model_type": "minimax_m2",
+    "num_attention_heads": 48,
+    "num_hidden_layers": 62,
+    "num_key_value_heads": 8,
+    "num_local_experts": 256,
+    "num_experts_per_tok": 8,
+    "rms_norm_eps": 1e-06,
+    "rope_theta": 5000000,
+    "rotary_dim": 64,
+    "scoring_func": "sigmoid",
+    "shared_intermediate_size": 0,
+    "tie_word_embeddings": False,
+    "use_cache": True,
+    "use_qk_norm": True,
+    "vocab_size": 200064,
+}
+
+
+def export_minimax_m2_7():
+    """导出 MiniMax-M2.7 到 ONNX 格式"""
+    bs = 1
+    seq_len = 128
+    ids_shape = [bs, seq_len]
+
+    print("Building MiniMax-M2.7 graph...")
+    builder = Builder(**MiniMax_M2_7)
+    builder.build_graph(ids_shape)
+
+    onnx_path = 'minimax_m2_7.onnx'
+    print(f"Saving to {onnx_path}...")
+    builder.save_graph(onnx_path)
+
+    print("Profiling...")
+    builder.graph.valid_shape = True
+    builder.graph.profile()
+    builder.graph.print_node_map()
+
+    macs = int(builder.graph.macs[0] / 1e9)
+    params = builder.graph.params / 1e9
+    print(f"\nMiniMax-M2.7: MACs={macs}G, Parameters={params:.3f}G")
+    return onnx_path
+
+
+def export_minimax_m2_7_with_kv_cache():
+    """导出 MiniMax-M2.7 带 KV cache 的 ONNX 模型"""
+    bs = 1
+    seq_len = 128
+    ids_shape = [bs, seq_len]
+    past_sequence = 0
+    context_length = 8192
+
+    print("Building MiniMax-M2.7 with KV cache...")
+    builder = Builder(**MiniMax_M2_7)
+    builder.build_graph(ids_shape)
+    builder.add_kv_cache(context_length, past_sequence)
+
+    onnx_path = 'minimax_m2_7_kvcache.onnx'
+    print(f"Saving to {onnx_path}...")
+    builder.save_graph(onnx_path)
+
+    print("Profiling...")
+    builder.graph.valid_shape = True
+    builder.graph.profile()
+    builder.graph.print_node_map()
+
+    macs = int(builder.graph.macs[0] / 1e9)
+    params = builder.graph.params / 1e9
+    print(f"\nMiniMax-M2.7 (KV cache): MACs={macs}G, Parameters={params:.3f}G")
+    return onnx_path
+
+
+def profile_minimax_m2_7():
+    """MiniMax-M2.7 prefill + decode 详细 profiling"""
+    from onnx_tool.device import Devices
+
+    RuntimeCfg = {
+        'Compute': {
+            'MM': 'FP16',
+            'MHA': 'FP16',
+            'Others': 'FP16',
+        },
+        'Bits': {
+            'MM': 16,
+            'MHA': 16,
+            'Others': 16,
+        }
+    }
+
+    bs = 1
+    prefill_length = 2048
+    context_length = 8192
+    ids_shape = [bs, prefill_length]
+
+    print("Building MiniMax-M2.7 for profiling...")
+    builder = Builder(**MiniMax_M2_7)
+    builder.build_graph(ids_shape)
+    builder.add_kv_cache(context_length, 0)
+    builder.graph.valid_shape = True
+
+    # Prefill
+    print(f"\n--- Prefill (seq_len={prefill_length}) ---")
+    for device_key in ['Gaudi2H', 'H20']:
+        builder.profile(RuntimeCfg, Devices[device_key])
+        print(f"  {device_key}: Latency={builder.llm_profile[2]:.2f}ms")
+
+    # Decode
+    print(f"\n--- Decode (seq_len=1, past_kv={prefill_length}) ---")
+    builder.set_past_kv_length(prefill_length)
+    builder.graph.shape_infer(inputs={'ids': create_ndarray_int64([bs, 1])})
+    builder.graph.profile()
+    for device_key in ['Gaudi2H', 'H20']:
+        builder.profile(RuntimeCfg, Devices[device_key])
+        print(f"  {device_key}: Latency={builder.llm_profile[2]:.2f}ms")
+
+    # Memory compression
+    print(f"\n--- Memory Compression ---")
+    compress_memory_with_kv_cache(builder.graph)
+
+
 if __name__ == '__main__':
     # export_with_pytorch_weight_name()
     # add_hugging_face_model()
@@ -1236,5 +1376,6 @@ if __name__ == '__main__':
     # profile_model()
     # profile_model_with_devices()
     # profile_model_multicards()
-    export_qwen3_5_4b_with_kv_cache()
-    profile_qwen3_5_4b() 
+    export_minimax_m2_7()
+    # export_qwen3_5_4b_with_kv_cache()
+    # profile_qwen3_5_4b() 

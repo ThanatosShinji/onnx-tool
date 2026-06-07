@@ -673,6 +673,23 @@ class RopeNode(PWNode):
         outtensors[0].update_shape(intensors[0].get_shape())
         outtensors[0].update_dtype(intensors[0].dtype)
 
+    def profile(self, intensors: List[Tensor], outtensors: List[Tensor]):
+        """Rope: cos/sin 表按实际使用的 seq_len 缩放 static_params。"""
+        macs = self._profile_core(intensors, outtensors)
+        io_params = sum(volume(t.get_shape()) for t in outtensors)
+        # cos/sin 表 shape: [1, 1, max_pos, half]，实际只用 seq_len 行
+        x_shape = intensors[0].get_shape()  # [B, S, num_heads*head_dim]
+        seq_len = x_shape[1] if len(x_shape) > 1 else 1
+        static_params = 0
+        for i in self.static_inputs:
+            s = intensors[i].get_shape()
+            if len(s) == 4 and s[2] > seq_len:
+                # cos/sin 表: [1, 1, max_pos, half] -> 只用 seq_len 行
+                static_params += s[0] * s[1] * seq_len * s[3]
+            else:
+                static_params += volume(s)
+        return [macs, io_params, static_params]
+
 
 @NODE_REGISTRY.register()
 class PReluNode(PWNode):
@@ -3061,10 +3078,9 @@ class GDNNode(Node):
         macs += B * S * Nv * Dv * H
 
         io_params = B * S * H * 2  # input + output
-        static_params = (H * Nq * Dqk * 2  # Q/K projections
-                         + H * Nv * Dv      # V projection
-                         + Nq * Dqk * 2     # Q/K norms
-                         + Nv * Dv * H)     # O projection
+        # Q/K/V/O projections are separate MatMul nodes, not counted here.
+        # GDN itself has no static weights (all weights are in the projection nodes).
+        static_params = 0
         return [macs, io_params, static_params]
 
 
@@ -3096,6 +3112,7 @@ class MoENode(Node):
         self.add_default_value('num_experts', 256)
         self.add_default_value('num_experts_per_tok', 8)
         self.add_default_value('no_shared_gate', False)  # DeepSeek-V4: shared expert 无 sigmoid gate
+        self.add_default_value('no_shared_expert', False)  # MiniMax-M2: 无 shared expert
 
     def shape_infer(self, intensors: List[Tensor], outtensors: List[Tensor]):
         outtensors[0].update_shape(intensors[0].get_shape())
@@ -3137,16 +3154,17 @@ class MoENode(Node):
         macs += B * S * I * H * k
 
         # Shared expert (always active, SwiGLU):
-        # gate_proj: B × S × H × SI
-        macs += B * S * H * SI
-        # up_proj: B × S × H × SI
-        macs += B * S * H * SI
-        # SiLU activation: B × S × SI
-        macs += B * S * SI * (EXP_MACS + MUL_MACS)
-        # gate * up: B × S × SI
-        macs += B * S * SI * MUL_MACS
-        # down_proj: B × S × SI × H
-        macs += B * S * SI * H
+        if not self.no_shared_expert:
+            # gate_proj: B × S × H × SI
+            macs += B * S * H * SI
+            # up_proj: B × S × H × SI
+            macs += B * S * H * SI
+            # SiLU activation: B × S × SI
+            macs += B * S * SI * (EXP_MACS + MUL_MACS)
+            # gate * up: B × S × SI
+            macs += B * S * SI * MUL_MACS
+            # down_proj: B × S × SI × H
+            macs += B * S * SI * H
 
         if not self.no_shared_gate:
             # Shared expert gate (Qwen3.5-MoE): sigmoid + multiply
@@ -3158,12 +3176,13 @@ class MoENode(Node):
         # IO params: input + output activations
         io_params = B * S * H * 2  # input + output
 
-        # Static params: router(full) + routed experts(scaled if partial) + shared expert(full)
+        # Static params: router(full) + routed experts(scaled if partial) + shared expert(full, if present)
         total_activations = B * S * k
+        shared_static = 0 if self.no_shared_expert else 3 * SI * H
         if total_activations < E:
-            static_params = H * E + total_activations * 3 * I * H + 3 * SI * H
+            static_params = H * E + total_activations * 3 * I * H + shared_static
         else:
-            static_params = H * E + E * 3 * I * H + 3 * SI * H
+            static_params = H * E + E * 3 * I * H + shared_static
 
         return [macs, io_params, static_params]
 
@@ -3309,7 +3328,8 @@ class MLANode(Node):
             # weights_proj: B × S × D × IN
             macs += B * S * D * IN
             # top-k (approximated as sort cost): B × S × compressed_tokens × log(compressed_tokens)
-            macs += B * S * compressed_tokens * int(__import__('math').log2(compressed_tokens)) * CMP_MACS
+            if compressed_tokens > 1:
+                macs += B * S * compressed_tokens * int(__import__('math').log2(compressed_tokens)) * CMP_MACS
 
         # ============================================================
         # 5. RoPE (仅 rope_head_dim 子集)

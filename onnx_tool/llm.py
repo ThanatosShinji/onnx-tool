@@ -106,6 +106,25 @@ ArchMap = {
         "is_mla": True,
         "no_shared_gate": True,
     },
+    'MiniMaxM2ForCausalLM': {
+        # MiniMax-M2.7: Dense MoE (256 experts, top-8, sigmoid routing)
+        # Attention: GQA (48 heads, 8 KV heads), per-layer QK norm, partial RoPE (rotary_dim=64)
+        # MoE: SwiGLU experts, NO shared expert (shared_intermediate_size=0)
+        # No bias in Q/K/V/O projections
+        "mlp_gate": True,
+        "norm_scale": True,
+        "norm_bias": False,
+        "fuse_qkv": False,
+        "qkv_bias": False,
+        "o_bias": False,
+        "mlp_bias": False,
+        "lm_head_bias": False,
+        "qk_norm": True,
+        "qkv_gated": False,
+        "is_moe": True,
+        "is_mla": False,
+        "no_shared_expert": True,
+    },
 }
 
 ArchMap['Phi3ForCausalLM'] = {
@@ -216,6 +235,8 @@ class Builder():
                 newk = 'intermediate_size'
             if k == 'activation_function':
                 newk = 'hidden_act'
+            if k == 'num_local_experts':
+                newk = 'num_experts'
             if k == '_name_or_path' and not hasattr(self, 'name'):
                 newk = 'name'
             setattr(self, newk, newv)
@@ -308,13 +329,14 @@ class Builder():
         # 全局共享的 cos/sin constant tensor（所有 Rope 节点共用）
         if not hasattr(self, '_rope_cos_sin_added'):
             max_pos = getattr(self, 'max_position_embeddings', 4096)
-            head_dim = self.head_size
-            half = head_dim // 2
+            # rotary_dim: 部分 RoPE 时仅前 rotary_dim 维参与旋转（如 MiniMax-M2 的 rotary_dim=64）
+            rotary_dim = getattr(self, 'rotary_dim', self.head_size)
+            half = rotary_dim // 2
             theta = getattr(self, 'rope_theta', 10000.0)
 
             pos = numpy.arange(max_pos, dtype=numpy.float32)
             dim_idx = numpy.arange(half, dtype=numpy.float32)
-            freq = 1.0 / (theta ** (2 * dim_idx / head_dim))
+            freq = 1.0 / (theta ** (2 * dim_idx / rotary_dim))
             angles = pos.reshape(-1, 1) * freq.reshape(1, -1)
             cos = numpy.cos(angles).reshape(1, 1, max_pos, half).astype(numpy.float32)
             sin = numpy.sin(angles).reshape(1, 1, max_pos, half).astype(numpy.float32)
@@ -496,17 +518,20 @@ class Builder():
     def add_moe(self, inp):
         """Sparse Mixture-of-Experts.
 
-        支持两种 MoE 风格：
+        支持三种 MoE 风格：
           - Qwen3.5-MoE: gate_up_proj (fused) + shared expert sigmoid gate
           - DeepSeek-V4: SwiGLU (w1/w2/w3) + shared expert 直接相加（无 gate）
+          - MiniMax-M2: SwiGLU (w1/w2/w3) routed experts only, NO shared expert
 
         Args 中的 no_shared_gate 控制 shared expert 是否有 sigmoid 门控。
+        no_shared_expert 控制是否完全没有 shared expert。
         """
         num_experts = getattr(self, 'num_experts', 256)
         num_experts_per_tok = getattr(self, 'num_experts_per_tok', 8)
         moe_intermediate_size = getattr(self, 'moe_intermediate_size', self.intermediate_size)
         shared_expert_intermediate_size = getattr(self, 'shared_expert_intermediate_size', moe_intermediate_size)
         no_shared_gate = self.arch_config.get('no_shared_gate', False)
+        no_shared_expert = self.arch_config.get('no_shared_expert', False)
 
         # 创建虚拟 weight tensor 以计入参数量
         # Router: hidden_size × num_experts
@@ -530,19 +555,6 @@ class Builder():
                                       [num_experts, self.hidden_size, moe_intermediate_size], numpy.float32)
         self.graph.initials.append(w_expert_down.name)
         self.graph.tensormap[w_expert_down.name] = w_expert_down
-        # Shared expert: gate_proj + up_proj + down_proj
-        w_shared_gate = create_tensor(self.layer_prefix + 'moe.shared.gate.weight', STATIC_TENSOR,
-                                      [shared_expert_intermediate_size, self.hidden_size], numpy.float32)
-        self.graph.initials.append(w_shared_gate.name)
-        self.graph.tensormap[w_shared_gate.name] = w_shared_gate
-        w_shared_up = create_tensor(self.layer_prefix + 'moe.shared.up.weight', STATIC_TENSOR,
-                                    [shared_expert_intermediate_size, self.hidden_size], numpy.float32)
-        self.graph.initials.append(w_shared_up.name)
-        self.graph.tensormap[w_shared_up.name] = w_shared_up
-        w_shared_down = create_tensor(self.layer_prefix + 'moe.shared.down.weight', STATIC_TENSOR,
-                                      [self.hidden_size, shared_expert_intermediate_size], numpy.float32)
-        self.graph.initials.append(w_shared_down.name)
-        self.graph.tensormap[w_shared_down.name] = w_shared_down
 
         attrs = {
             'hidden_size': self.hidden_size,
@@ -551,19 +563,45 @@ class Builder():
             'num_experts': num_experts,
             'num_experts_per_tok': num_experts_per_tok,
             'no_shared_gate': no_shared_gate,
+            'no_shared_expert': no_shared_expert,
         }
         nod = create_node(TmpNodeProto(self.layer_prefix + 'moe', 'MoE', attrs))
-        if no_shared_gate:
-            # DeepSeek-V4: 无 shared expert gate
-            w_shared_gate_out = create_tensor(self.layer_prefix + 'moe.shared_gate.weight', STATIC_TENSOR,
-                                              [self.hidden_size], numpy.float32)
-            self.graph.initials.append(w_shared_gate_out.name)
-            self.graph.tensormap[w_shared_gate_out.name] = w_shared_gate_out
+
+        if no_shared_expert:
+            # MiniMax-M2: 完全没有 shared expert，仅 routed experts
+            nod.input = [inp.name,
+                         w_router.name, w_expert_gate.name, w_expert_up.name, w_expert_down.name]
+        elif no_shared_gate:
+            # DeepSeek-V4: 有 shared expert 但无 sigmoid gate
+            w_shared_gate = create_tensor(self.layer_prefix + 'moe.shared.gate.weight', STATIC_TENSOR,
+                                          [shared_expert_intermediate_size, self.hidden_size], numpy.float32)
+            self.graph.initials.append(w_shared_gate.name)
+            self.graph.tensormap[w_shared_gate.name] = w_shared_gate
+            w_shared_up = create_tensor(self.layer_prefix + 'moe.shared.up.weight', STATIC_TENSOR,
+                                        [shared_expert_intermediate_size, self.hidden_size], numpy.float32)
+            self.graph.initials.append(w_shared_up.name)
+            self.graph.tensormap[w_shared_up.name] = w_shared_up
+            w_shared_down = create_tensor(self.layer_prefix + 'moe.shared.down.weight', STATIC_TENSOR,
+                                          [self.hidden_size, shared_expert_intermediate_size], numpy.float32)
+            self.graph.initials.append(w_shared_down.name)
+            self.graph.tensormap[w_shared_down.name] = w_shared_down
             nod.input = [inp.name,
                          w_router.name, w_expert_gate.name, w_expert_up.name, w_expert_down.name,
                          w_shared_gate.name, w_shared_up.name, w_shared_down.name]
         else:
             # Qwen3.5-MoE: 有 shared expert sigmoid gate
+            w_shared_gate = create_tensor(self.layer_prefix + 'moe.shared.gate.weight', STATIC_TENSOR,
+                                          [shared_expert_intermediate_size, self.hidden_size], numpy.float32)
+            self.graph.initials.append(w_shared_gate.name)
+            self.graph.tensormap[w_shared_gate.name] = w_shared_gate
+            w_shared_up = create_tensor(self.layer_prefix + 'moe.shared.up.weight', STATIC_TENSOR,
+                                        [shared_expert_intermediate_size, self.hidden_size], numpy.float32)
+            self.graph.initials.append(w_shared_up.name)
+            self.graph.tensormap[w_shared_up.name] = w_shared_up
+            w_shared_down = create_tensor(self.layer_prefix + 'moe.shared.down.weight', STATIC_TENSOR,
+                                          [self.hidden_size, shared_expert_intermediate_size], numpy.float32)
+            self.graph.initials.append(w_shared_down.name)
+            self.graph.tensormap[w_shared_down.name] = w_shared_down
             w_shared_gate_out = create_tensor(self.layer_prefix + 'moe.shared_gate.weight', STATIC_TENSOR,
                                               [self.hidden_size], numpy.float32)
             self.graph.initials.append(w_shared_gate_out.name)
@@ -887,11 +925,21 @@ class Builder():
                 if Device is not None:
                     c_latency = flops / c_mha / d_num
                     l_latency = mem / mw / d_num
+            elif node.op_type in ('MoE', 'MLA', 'GDN'):
+                # Fused MatMul-heavy nodes: use MM compute & MM bits for weights
+                io_mem = node.io_params * cfg['Bits']['Others'] / 8
+                w_mem = node.static_params * cfg['Bits']['MM'] / 8
+                mem = io_mem + w_mem
+                comm_mem = io_mem
+                MM_mem += w_mem
+                if Device is not None:
+                    c_latency = flops / c_mm / d_num
+                    l_latency = mem / mw / d_num
             else:
                 # Other ops: use io_params/static_params from graph.profile()
                 io_mem = node.io_params * cfg['Bits']['Others'] / 8
-                if node.op_type in ('MoE', 'MLA', 'GDN', 'Gather'):
-                    # Fused nodes & Embedding: weight memory uses MM bits
+                if node.op_type == 'Gather':
+                    # Embedding: weight memory uses MM bits
                     w_mem = node.static_params * cfg['Bits']['MM'] / 8
                     MM_mem += w_mem
                 else:

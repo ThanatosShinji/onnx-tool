@@ -32,7 +32,7 @@
 
 | Domain      | Models                                                                 |
 |-------------|------------------------------------------------------------------------|
-| **NLP**     | BERT, T5, GPT, LLaMa, MPT, Qwen3, Qwen3.5 (Dense & MoE), DeepSeek-V4 (Flash/Pro, MLA+MoE) ([TransformerModel](benchmark/transfomer_models.py)) |
+| **NLP**     | BERT, T5, GPT, LLaMa, MPT, Qwen3, Qwen3.5 (Dense & MoE), DeepSeek-V4 (Flash/Pro, MLA+MoE), MiniMax-M2.7 (MoE) ([TransformerModel](benchmark/transfomer_models.py)) |
 | **Diffusion** | Stable Diffusion (TextEncoder, VAE, UNet)                            |
 | **CV**      | Detic, BEVFormer, SSD300_VGG16, ConvNeXt, Mask R-CNN, Silero VAD         |
 | **Audio**   | Sovits, LPCNet                                                        |
@@ -52,20 +52,27 @@ Profile 10 Hugging Face models in under one second. Export ONNX models with llam
 ### Model Statistics (1k token input)
 model name(1k input)                 | MACs(G) | Parameters(G) |   KV Cache(G)
 ------------------------------------ |---------|---------------| ----------
-gpt-j-6b                             | 6277    | 6.05049       |  0.234881
-yi-1.5-34B                           | 35862   | 34.3889       |  0.125829
-microsoft/phi-2                      | 2948    | 2.77944       |  0.167772
 Phi-3-mini-4k                        | 4083    | 3.82108       |  0.201327
 Phi-3-small-8k-instruct              | 7912    | 7.80167       |  0.0671089
 Phi-3-medium-4k-instruct             | 14665   | 13.9602       |  0.104858
 Llama3-8B                            | 8029    | 8.03026       |  0.0671089
 Llama-3.1-70B-Japanese-Instruct-2407 | 72888   | 70.5537       |  0.167772
-QWen-7B                              | 7509    | 7.61562       |  0.0293601
-Qwen2_72B_Instruct                   | 74895   | 72.7062       |  0.167772
 **Qwen3.5-4B-Instruct** 🆕           | 4807    | 4.651         |  0.067109
 **Qwen3.5-35B-A3B-Instruct** 🆕 (MoE)| 3574    | 34.705        |  0.041943
 **DeepSeek-V4-Flash** 🆕 (MoE/MLA)   | 15681   | 283.811       |  0.045089
 **DeepSeek-V4-Pro** 🆕 (MoE/MLA)     | 55701   | 1571.742      |  0.063963
+**MiniMax-M2.7** 🆕 (MoE)            | 12554   | 230.315       |  0.130023
+
+### MoE Activated Parameters vs Sequence Length
+> *Activated parameters = sum of all nodes' `static_params` (weights actually accessed during forward pass).*
+> *S=32: Qwen3.5-35B-A3B & MiniMax-M2.7 experts fully activated (gap ≈ embedding); DeepSeek-V4 not yet saturated (top-6 × 32 = 192 < num_experts).*
+
+| model                   | Total(G) | S=1    | S=2    | S=4    | S=8    | S=16    | S=32    |
+|-------------------------|----------|--------|--------|--------|--------|---------|---------|
+| Qwen3.5-35B-A3B (MoE)   | 34.3     | 2.44   | 3.44   | 5.46   | 9.48   | 17.54   | 33.64   |
+| MiniMax-M2.7 (MoE)      | 230.3    | 10.42  | 17.44  | 31.48  | 59.56  | 115.73  | 228.08  |
+| DeepSeek-V4-Flash (MoE)  | 283.8    | 12.75  | 19.24  | 32.23  | 58.20  | 110.14  | 214.03  |
+| DeepSeek-V4-Pro (MoE)    | 1571.7   | 47.60  | 71.77  | 120.13 | 216.84 | 410.27  | 797.12  |
 
 ### Latency Estimation (4-bit weights, 16-bit KV cache)
 
@@ -73,35 +80,27 @@ Qwen2_72B_Instruct                   | 74895   | 72.7062       |  0.167772
 
 model                                | Ultra-358H | Arc-B70 | RTX-4090 | RTX-5090
 ------------------------------------ |-----------|---------|----------|----------
-gpt-j-6b                             | 4688.3    | 14585.1 | 13319.9  | 16966.2
-yi-1.5-34B                           | 826.8     | 2562.7  | 2333.0   | 2969.2
-microsoft/phi-2                      | 9781.9    | 30676.2 | 28209.0  | 35996.7
-Phi-3-mini-4k                        | 6885.3    | 21761.2 | 20147.4  | 25777.3
-Phi-3-small-8k-instruct              | 3680.5    | 11484.2 | 10514.9  | 13409.2
-Phi-3-medium-4k-instruct             | 2003.1    | 6230.3  | 5688.8   | 7247.3
-Llama3-8B                            | 3622.8    | 11308.4 | 10357.2  | 13209.5
-Llama-3.1-70B-Japanese-Instruct-2407 | 407.5     | 1262.0  | 1148.2   | 1461.4
-QWen-7B                              | 3851.9    | 12046.8 | 11051.8  | 14107.0
-Qwen2_72B_Instruct                   | 397.9     | 1230.9  | 1118.8   | 1423.3
-**Qwen3.5-4B-Instruct** 🆕           | 5820.0    | 18405.8 | 17050.1  | 21837.6
-**Qwen3.5-35B-A3B-Instruct** 🆕 (MoE)| 8103.6    | 25316.8 | 23204.4  | 29609.4
+Phi-3-mini-4k                        | 6658.9    | 21279.8 | 19896.0  | 25567.0
+Phi-3-small-8k-instruct              | 3599.5    | 11316.9 | 10429.8  | 13334.3
+Phi-3-medium-4k-instruct             | 1964.8    | 6151.8  | 5649.1   | 7213.2
+Llama3-8B                            | 3499.9    | 11053.2 | 10226.7  | 13092.7
+Llama-3.1-70B-Japanese-Instruct-2407 | 401.2     | 1249.3  | 1141.8   | 1455.5
+**Qwen3.5-4B-Instruct** 🆕           | 5705.0    | 18162.0 | 16923.1  | 21720.3
+**Qwen3.5-35B-A3B-Instruct** 🆕 (MoE)| 4660.9    | 18458.3 | 21970.0  | 29367.3
+**MiniMax-M2.7** 🆕 (MoE)            | 970.5     | 4285.1  | 6090.4   | 9083.3
 
 **Decode Throughput (tokens/s)**
 
 model                                | Ultra-358H | Arc-B70 | RTX-4090 | RTX-5090
 ------------------------------------ |-----------|---------|----------|----------
-gpt-j-6b                             | 37.4      | 177.6   | 294.4    | 523.4
-yi-1.5-34B                           | 7.4       | 35.2    | 58.4     | 103.8
-microsoft/phi-2                      | 76.8      | 364.8   | 604.7    | 1075.1
-Phi-3-mini-4k                        | 56.2      | 266.7   | 442.2    | 786.1
-Phi-3-small-8k-instruct              | 33.1      | 157.2   | 260.7    | 463.5
-Phi-3-medium-4k-instruct             | 17.9      | 85.2    | 141.3    | 251.2
-Llama3-8B                            | 32.6      | 154.9   | 256.9    | 456.7
-Llama-3.1-70B-Japanese-Instruct-2407 | 3.5       | 16.7    | 27.7     | 49.2
-QWen-7B                              | 34.5      | 163.7   | 271.3    | 482.4
-Qwen2_72B_Instruct                   | 3.5       | 16.7    | 27.7     | 49.2
-**Qwen3.5-4B-Instruct** 🆕           | 52.8      | 250.5   | 414.6    | 736.0
-**Qwen3.5-35B-A3B-Instruct** 🆕 (MoE)| 96.3      | 457.0   | 755.3    | 1339.0
+Phi-3-mini-4k                        | 56.4      | 267.9   | 444.2    | 789.7
+Phi-3-small-8k-instruct              | 33.4      | 158.5   | 262.8    | 467.2
+Phi-3-medium-4k-instruct             | 18.0      | 85.4    | 141.6    | 251.8
+Llama3-8B                            | 32.9      | 156.1   | 258.9    | 460.2
+Llama-3.1-70B-Japanese-Instruct-2407 | 3.6       | 17.3    | 28.7     | 51.0
+**Qwen3.5-4B-Instruct** 🆕           | 56.5      | 268.4   | 444.9    | 791.0
+**Qwen3.5-35B-A3B-Instruct** 🆕 (MoE)| 79.0      | 375.0   | 621.8    | 1105.4
+**MiniMax-M2.7** 🆕 (MoE)            | 23.4      | 111.0   | 184.1    | 327.3
 > 💡 *Latencies computed from hardware specs – no actual inference required. Uses BF16/FP16 compute with FP32 accumulate as the standard.*
 > 
 ---

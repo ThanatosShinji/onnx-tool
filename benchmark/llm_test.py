@@ -306,6 +306,19 @@ Qwen3_5_4B = {
         "linear_attention", "linear_attention", "linear_attention", "full_attention",
         "linear_attention", "linear_attention", "linear_attention", "full_attention",
     ],
+    # =========================================================================
+    # Vision Encoder 配置（Qwen3.5-4B 多模态）
+    # 基于 Qwen2.5-VL 架构：ViT + MLP Projector
+    # =========================================================================
+    "vision_hidden_size": 1024,       # ViT hidden dim
+    "vision_num_layers": 24,          # ViT transformer 层数
+    "vision_num_heads": 16,           # ViT attention heads
+    "vision_intermediate_size": 4096, # ViT MLP intermediate dim (4× hidden)
+    "vision_patch_size": 14,          # Patch size
+    "vision_image_size": 448,         # 输入图像尺寸
+    "vision_head_dim": 64,            # 每个 head 的维度 (1024/16)
+    "projector_hidden_dim": 2560,     # Projector 中间维度 (= LLM hidden_size)
+    "projector_type": "mlp",          # MLP projector (2-layer)
 }
 
 
@@ -426,13 +439,146 @@ def profile_qwen3_5_4b():
 
 
 # ===========================================================================
+# Qwen3.5-4B Vision Model Profiling（多模态）
+# ===========================================================================
+
+def export_qwen3_5_4b_vision():
+    """导出 Qwen3.5-4B 的 vision encoder 到 ONNX 格式"""
+    image_shape = [3, 448, 448]
+
+    print("Building Qwen3.5-4B Vision Encoder...")
+    builder = Builder(**Qwen3_5_4B)
+    builder.build_vision_graph(image_shape)
+
+    onnx_path = 'qwen3_5_4b_vision.onnx'
+    print(f"Saving to {onnx_path}...")
+    builder.save_graph(onnx_path)
+
+    print("Profiling...")
+    builder.graph.valid_shape = True
+    builder.graph.profile()
+    builder.graph.print_node_map()
+
+    macs = int(builder.graph.macs[0] / 1e9)
+    params = builder.graph.params / 1e9
+    print(f"\nQwen3.5-4B Vision Encoder (448×448):")
+    print(f"  MACs={macs}G, Parameters={params:.3f}G")
+    return onnx_path
+
+
+def profile_qwen3_5_4b_vision():
+    """对 Qwen3.5-4B Vision Encoder 进行详细的性能分析"""
+    from onnx_tool.device import Devices
+    RuntimeCfg = {
+        'Compute': {
+            'MM': 'FP16',
+            'MHA': 'FP16',
+            'Others': 'FP16',
+        },
+        'Bits': {
+            'MM': 16,
+            'MHA': 16,
+            'Others': 16,
+        }
+    }
+
+    print(f"\n{'='*60}")
+    print("Qwen3.5-4B Vision Encoder Profile Analysis")
+    print(f"{'='*60}")
+
+    image_shape = [3, 448, 448]
+    builder = Builder(**Qwen3_5_4B)
+    builder.build_vision_graph(image_shape)
+    builder.graph.valid_shape = True
+    builder.graph.profile()
+
+    macs = int(builder.graph.macs[0] / 1e9)
+    params = builder.graph.params / 1e9
+    num_patches = (448 // 14) ** 2  # 1024 patches
+    print(f"  Image: 448×448 → {num_patches} patches")
+    print(f"  MACs: {macs}G")
+    print(f"  Parameters: {params:.3f}G")
+
+    for key in ['Gaudi2H', 'H20']:
+        builder.profile(RuntimeCfg, Devices[key])
+        print(f"  Device {key}: Latency={builder.llm_profile[2]:.2f} ms, "
+              f"Memory={builder.context_mem[3]/1e9:.3f} GB")
+
+    print(f"\n--- Architecture ---")
+    print(f"  ViT: {Qwen3_5_4B['vision_num_layers']}L, "
+          f"hidden={Qwen3_5_4B['vision_hidden_size']}, "
+          f"heads={Qwen3_5_4B['vision_num_heads']}, "
+          f"patch={Qwen3_5_4B['vision_patch_size']}")
+    print(f"  Projector: {Qwen3_5_4B['projector_type']}, "
+          f"hidden={Qwen3_5_4B['projector_hidden_dim']} → LLM dim={Qwen3_5_4B['hidden_size']}")
+
+
+def profile_qwen3_5_4b_vision_multi_resolution():
+    """对 Qwen3.5-4B Vision Encoder 进行多分辨率性能分析
+
+    Qwen2.5-VL / Qwen3.5-VL 支持动态分辨率，图像会被切分为多个 tiles。
+    测试不同分辨率下的 vision encoder 性能。
+    """
+    from onnx_tool.device import Devices
+    RuntimeCfg = {
+        'Compute': {
+            'MM': 'FP16',
+            'MHA': 'FP16',
+            'Others': 'FP16',
+        },
+        'Bits': {
+            'MM': 16,
+            'MHA': 16,
+            'Others': 16,
+        }
+    }
+
+    print(f"\n{'='*60}")
+    print("Qwen3.5-4B Vision Encoder Multi-Resolution Analysis")
+    print(f"{'='*60}")
+
+    resolutions = [
+        ('224×224 (low)', [3, 224, 224]),
+        ('336×336 (med)', [3, 336, 336]),
+        ('448×448 (std)', [3, 448, 448]),
+        ('672×672 (high)', [3, 672, 672]),
+        ('896×896 (2K)', [3, 896, 896]),
+    ]
+
+    header = ['Resolution', 'Patches', 'MACs(G)', 'Params(G)',
+              'Gaudi2H(ms)', 'H20(ms)', 'Memory(GB)']
+    rows = []
+
+    for label, image_shape in resolutions:
+        builder = Builder(**Qwen3_5_4B)
+        builder.build_vision_graph(image_shape)
+        builder.graph.valid_shape = True
+        builder.graph.profile()
+
+        macs = int(builder.graph.macs[0] / 1e9)
+        params = builder.graph.params / 1e9
+        h, w = image_shape[1], image_shape[2]
+        num_patches = (h // 14) * (w // 14)
+
+        row = [label, num_patches, macs, f'{params:.3f}']
+
+        for key in ['Gaudi2H', 'H20']:
+            builder.profile(RuntimeCfg, Devices[key])
+            row.append(f'{builder.llm_profile[2]:.2f}')
+
+        row.append(f'{builder.context_mem[3]/1e9:.3f}')
+        rows.append(row)
+
+    print(tabulate.tabulate(rows, headers=header))
+
+
+# ===========================================================================
 # Qwen3.5-35B-A3B (Qwen3.5-MoE) 模型配置
 # ===========================================================================
 # 从 https://huggingface.co/Qwen/Qwen3.5-35B-A3B-Instruct
 # Sparse MoE: 256 experts, top-8 per token, + 1 shared expert
 # 混合架构：3×Gated DeltaNet + 1×Gated Attention，共 10 个 block（40 层）
 Qwen3_5_35B_A3B = {
-    "name": "Qwen3.5-35B-A3B-Instruct",
     "architectures": ["Qwen3_5MoeForCausalLM"],
     "attention_bias": False,
     "attention_dropout": 0.0,
@@ -480,6 +626,19 @@ Qwen3_5_35B_A3B = {
         "linear_attention", "linear_attention", "linear_attention", "full_attention",
         "linear_attention", "linear_attention", "linear_attention", "full_attention",
     ],
+    # =========================================================================
+    # Vision Encoder 配置（Qwen3.5-35B-A3B 多模态）
+    # 基于 Qwen2.5-VL 架构：ViT + MLP Projector
+    # =========================================================================
+    "vision_hidden_size": 1024,       # ViT hidden dim
+    "vision_num_layers": 24,          # ViT transformer 层数
+    "vision_num_heads": 16,           # ViT attention heads
+    "vision_intermediate_size": 4096, # ViT MLP intermediate dim (4× hidden)
+    "vision_patch_size": 14,          # Patch size
+    "vision_image_size": 448,         # 输入图像尺寸
+    "vision_head_dim": 64,            # 每个 head 的维度 (1024/16)
+    "projector_hidden_dim": 2048,     # Projector 中间维度 (= LLM hidden_size)
+    "projector_type": "mlp",          # MLP projector (2-layer)
 }
 
 
@@ -1376,6 +1535,7 @@ if __name__ == '__main__':
     # profile_model()
     # profile_model_with_devices()
     # profile_model_multicards()
-    export_minimax_m2_7()
+    # export_minimax_m2_7()
     # export_qwen3_5_4b_with_kv_cache()
     # profile_qwen3_5_4b() 
+    export_qwen3_5_4b_vision()

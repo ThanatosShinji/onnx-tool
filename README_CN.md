@@ -35,6 +35,13 @@
 | **计算机视觉** | Detic, BEVFormer, SSD300_VGG16, ConvNeXt, Mask R-CNN, Silero VAD |
 | **音频** | Sovits, LPCNet |
 
+> 🆕 **Qwen3.5 系列**：全面支持 Qwen3.5 混合架构，包括：
+> - **Gated DeltaNet (GDN)** 线性注意力层
+> - **QKV Gating**（Q 投影内置 gate，在 O 投影前应用）
+> - **稀疏混合专家 (MoE)** 含路由专家 + 共享专家
+> - **混合层类型**（linear_attention / full_attention）按配置切换
+> - **多模态 Vision Encoder**（ViT + MLP Projector）支持分辨率感知的性能分析
+
 <p align="center">
   <img src="data/shape_inference.jpg"">
 </p>
@@ -60,6 +67,20 @@ Qwen2_72B_Instruct                   | 74895   | 72.7062       |  0.167772
 **Qwen3.5-35B-A3B-Instruct** 🆕 (MoE)| 3574    | 34.705        |  0.041943
 **DeepSeek-V4-Flash** 🆕 (MoE/MLA)   | 15681   | 283.811       |  0.045089
 **DeepSeek-V4-Pro** 🆕 (MoE/MLA)     | 55701   | 1571.742      |  0.063963
+
+### 多模态：Vision Encoder vs LLM 计算量 🆕
+> *Vision encoder (ViT-24L + MLP Projector) 与 LLM backbone 对比。LLM 输入 seq_len = vision patches + 1K text tokens。两个模型共享相同的 ViT 架构。详见 [`benchmark/vision_llm_compare.py`](benchmark/vision_llm_compare.py)。*
+
+| 分辨率 | Patches | 总Tokens | Vision(G) | 4B LLM(G) | 4B Vis/LLM(%) | 35B LLM(G) | 35B Vis/LLM(%) |
+|---|---|---|---|---|---|---|---|
+| 224×224 | 256 | 1,280 | 84 | 6,080 | 1.4 | 4,557 | 1.8 |
+| 448×448 | 1,024 | 2,048 | 389 | 10,070 | 3.9 | 7,719 | 5.0 |
+| 672×672 | 2,304 | 3,328 | 1,061 | 17,292 | 6.1 | 13,702 | 7.7 |
+| 896×896 | 4,096 | 5,120 | 2,350 | 28,599 | 8.2 | 23,576 | 9.9 |
+| 1344×896 | 6,144 | 7,168 | 4,317 | 43,233 | 10.0 | 37,000 | 11.6 |
+| 1344×1344 | 9,216 | 10,240 | 8,259 | 68,607 | 12.0 | 61,414 | 13.4 |
+
+> 💡 *Vision MACs 按 O(p²) 增长，LLM MACs 按 O(t²) 增长（t = patches + text）。448×448 下 vision 约占 LLM 的 4-5%；1344×1344 下约 12-13%。Vision 始终是计算量的次要部分。*
 
 ### 延迟估计（4-bit权重，16-bit KV缓存）
 

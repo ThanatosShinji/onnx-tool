@@ -762,6 +762,232 @@ class Builder():
                           self.w_map['lm_head']['lm'])
         return cur
 
+    # =========================================================================
+    # Vision Model 构建方法（Qwen3.5-4B 多模态）
+    # =========================================================================
+    # Qwen3.5-4B 的 vision encoder 基于 Qwen2.5-VL 架构：
+    #   ViT (patch_embed + transformer blocks) → MLP Projector → LLM hidden_size
+    #
+    # Vision 配置参数（从 HF config.json 的 vision_config 字段）：
+    #   - vision_hidden_size: ViT hidden dim (典型值: 1024)
+    #   - vision_num_layers: ViT transformer 层数 (典型值: 24)
+    #   - vision_num_heads: ViT attention heads (典型值: 16)
+    #   - vision_intermediate_size: ViT MLP intermediate dim
+    #   - vision_patch_size: patch 大小 (典型值: 14)
+    #   - vision_image_size: 输入图像尺寸 (典型值: 448)
+    #   - vision_head_dim: 每个 head 的维度 (默认 hidden_size // num_heads)
+    #   - projector_hidden_dim: projector 中间维度 (典型值: 2560)
+    #   - projector_type: 'mlp' | 'linear' (默认 'mlp')
+
+    def add_vision_conv2d(self, inp, in_ch, out_ch, ksize, stride, pad, name):
+        """Vision encoder 的 Conv2d 层（patch embedding）"""
+        nod = create_node(TmpNodeProto(name, 'Conv', {
+            'kernel_shape': [ksize, ksize],
+            'strides': [stride, stride],
+            'pads': [pad, pad, pad, pad],
+            'group': 1,
+        }))
+        w = create_tensor(name + '.weight', STATIC_TENSOR,
+                          [out_ch, in_ch, ksize, ksize], numpy.float32)
+        self.graph.initials.append(w.name)
+        nod.input = [inp.name, w.name]
+        # 计算输出 spatial dims
+        h_in, w_in = inp.get_shape()[2], inp.get_shape()[3]
+        h_out = (h_in + 2 * pad - ksize) // stride + 1
+        w_out = (w_in + 2 * pad - ksize) // stride + 1
+        o = create_tensor(name + '.output', DYNAMIC_TENSOR,
+                          [self.batch, out_ch, h_out, w_out], numpy.float32)
+        nod.output = [o.name]
+        self.graph.tensormap[o.name] = o
+        self.graph.tensormap[w.name] = w
+        self.graph.nodemap[nod.name] = nod
+        return o
+
+    def add_vision_layernorm(self, inp, normalized_shape, name):
+        """Vision encoder 的 LayerNorm（沿最后一维）"""
+        attrs = {'epsilon': 1e-6}
+        nod = create_node(TmpNodeProto(name, 'LayerNormalization', attrs))
+        nod.input = [inp.name]
+        s = create_tensor(name + '.weight', STATIC_TENSOR, [normalized_shape], numpy.float32)
+        b = create_tensor(name + '.bias', STATIC_TENSOR, [normalized_shape], numpy.float32)
+        self.graph.initials.append(s.name)
+        self.graph.initials.append(b.name)
+        nod.input.append(s.name)
+        nod.input.append(b.name)
+        self.graph.tensormap[s.name] = s
+        self.graph.tensormap[b.name] = b
+        o = create_tensor(name + '.output', DYNAMIC_TENSOR, inp.get_shape(), numpy.float32)
+        nod.output = [o.name]
+        self.graph.tensormap[o.name] = o
+        self.graph.nodemap[nod.name] = nod
+        return o
+
+    def add_vision_mm(self, inp, fin, fout, bias, name):
+        """Vision encoder 的 MatMul（用于 attention 和 MLP 投影）"""
+        nod = create_node(TmpNodeProto(name, 'MatMul', {}))
+        w = create_tensor(name + '.weight', STATIC_TENSOR, [fin, fout], numpy.float32)
+        self.graph.initials.append(w.name)
+        nod.input = [inp.name, w.name]
+        if bias:
+            b = create_tensor(name + '.bias', STATIC_TENSOR, [fout], numpy.float32)
+            nod.input.append(b.name)
+            self.graph.initials.append(b.name)
+            self.graph.tensormap[b.name] = b
+        o = create_tensor(name + '.output', DYNAMIC_TENSOR, inp.get_shape()[:-1] + [fout], numpy.float32)
+        nod.output = [o.name]
+        self.graph.tensormap[o.name] = o
+        self.graph.tensormap[w.name] = w
+        self.graph.nodemap[nod.name] = nod
+        return o
+
+    def add_vision_attention(self, inp, hidden_size, num_heads, head_dim, name):
+        """Vision encoder 的 self-attention 层"""
+        all_head_dim = num_heads * head_dim
+        # QKV 投影 (fused: 3 × all_head_dim)
+        qkv_out = 3 * all_head_dim
+        qkv = self.add_vision_mm(inp, hidden_size, qkv_out, True, name + '.qkv')
+        # 拆分 Q、K、V
+        q = self.add_slice(qkv, 2, 0, all_head_dim, 1, name + '.q_slice')
+        k = self.add_slice(qkv, 2, all_head_dim, all_head_dim, 1, name + '.k_slice')
+        v = self.add_slice(qkv, 2, all_head_dim * 2, all_head_dim, 1, name + '.v_slice')
+        # SDPA
+        attrs = {'head_num': num_heads, 'head_size': head_dim,
+                 'kv_head_num': num_heads}
+        nod = create_node(TmpNodeProto(name + '.sdpa', 'SDPA', attrs))
+        nod.input = [q.name, k.name, v.name]
+        o = create_tensor(name + '.sdpa.output', DYNAMIC_TENSOR,
+                          q.get_shape()[:-1] + [all_head_dim], numpy.float32)
+        nod.output = [o.name]
+        self.graph.tensormap[o.name] = o
+        self.graph.nodemap[nod.name] = nod
+        # O 投影
+        o = self.add_vision_mm(o, all_head_dim, hidden_size, True, name + '.o')
+        return o
+
+    def add_vision_mlp(self, inp, hidden_size, intermediate_size, name):
+        """Vision encoder 的 MLP 层（GELU 激活）"""
+        # FC1
+        h = self.add_vision_mm(inp, hidden_size, intermediate_size, True, name + '.fc1')
+        # GELU
+        h = self.add_act(h, 'gelu_new', name + '.gelu')
+        # FC2
+        h = self.add_vision_mm(h, intermediate_size, hidden_size, True, name + '.fc2')
+        return h
+
+    def add_vision_transformer_layer(self, inp, hidden_size, num_heads, head_dim,
+                                      intermediate_size, name):
+        """Vision encoder 的单个 transformer 层"""
+        # Pre-LN + Attention + Residual
+        normed = self.add_vision_layernorm(inp, hidden_size, name + '.ln1')
+        attn_out = self.add_vision_attention(normed, hidden_size, num_heads, head_dim,
+                                              name + '.attn')
+        cur = self.add_eltop(inp, attn_out, 'Add', name + '.attn_add')
+        # Pre-LN + MLP + Residual
+        normed = self.add_vision_layernorm(cur, hidden_size, name + '.ln2')
+        mlp_out = self.add_vision_mlp(normed, hidden_size, intermediate_size, name + '.mlp')
+        cur = self.add_eltop(cur, mlp_out, 'Add', name + '.mlp_add')
+        return cur
+
+    def add_vision_encoder(self, pixel_values):
+        """构建完整的 vision encoder（ViT + Projector）。
+
+        Args:
+            pixel_values: 输入图像 tensor [B, C, H, W]
+
+        Returns:
+            vision_features: [B, num_patches, llm_hidden_size]
+        """
+        vision_hidden_size = getattr(self, 'vision_hidden_size', 1024)
+        vision_num_layers = getattr(self, 'vision_num_layers', 24)
+        vision_num_heads = getattr(self, 'vision_num_heads', 16)
+        vision_intermediate_size = getattr(self, 'vision_intermediate_size',
+                                            vision_hidden_size * 4)
+        vision_patch_size = getattr(self, 'vision_patch_size', 14)
+        vision_head_dim = getattr(self, 'vision_head_dim',
+                                   vision_hidden_size // vision_num_heads)
+        projector_hidden_dim = getattr(self, 'projector_hidden_dim', self.hidden_size)
+        projector_type = getattr(self, 'projector_type', 'mlp')
+
+        in_channels = pixel_values.get_shape()[1]
+
+        # ---- Patch Embedding (Conv2d) ----
+        cur = self.add_vision_conv2d(pixel_values, in_channels, vision_hidden_size,
+                                      vision_patch_size, vision_patch_size, 0,
+                                      'vision.patch_embed')
+        # cur: [B, vision_hidden_size, H/patch, W/patch]
+        # Flatten spatial dims: [B, vision_hidden_size, num_patches]
+        # 使用 Reshape 节点
+        _, _, h_p, w_p = cur.get_shape()
+        num_patches = h_p * w_p
+        # Reshape to [B, num_patches, vision_hidden_size]
+        reshape_node = create_node(TmpNodeProto('vision.patch_reshape', 'Reshape', {}))
+        reshape_node.input = [cur.name]
+        # 添加 shape constant
+        shape_tensor = self.graph.add_initial('vision.patch_reshape.shape',
+                                               numpy.array([self.batch, num_patches, vision_hidden_size],
+                                                           dtype=numpy.int64))
+        reshape_node.input.append(shape_tensor.name)
+        cur = create_tensor('vision.patch_reshape.output', DYNAMIC_TENSOR,
+                            [self.batch, num_patches, vision_hidden_size], numpy.float32)
+        reshape_node.output = [cur.name]
+        self.graph.tensormap[cur.name] = cur
+        self.graph.nodemap[reshape_node.name] = reshape_node
+
+        # ---- CLS token (可选，Qwen3.5-VL 不使用 CLS) ----
+        # Qwen2.5-VL / Qwen3.5-VL 不使用 CLS token，直接使用 patch features
+
+        # ---- Position Embedding (learnable) ----
+        pos_embed = create_tensor('vision.pos_embed', STATIC_TENSOR,
+                                  [1, num_patches, vision_hidden_size], numpy.float32)
+        self.graph.initials.append(pos_embed.name)
+        self.graph.tensormap[pos_embed.name] = pos_embed
+        cur = self.add_eltop(cur, pos_embed, 'Add', 'vision.pos_embed_add')
+
+        # ---- Transformer Blocks ----
+        for i in range(vision_num_layers):
+            cur = self.add_vision_transformer_layer(
+                cur, vision_hidden_size, vision_num_heads, vision_head_dim,
+                vision_intermediate_size, f'vision.blocks.{i}')
+
+        # ---- Final LayerNorm ----
+        cur = self.add_vision_layernorm(cur, vision_hidden_size, 'vision.post_ln')
+
+        # ---- MLP Projector (vision → LLM hidden_size) ----
+        if projector_type == 'mlp':
+            # 2-layer MLP: vision_hidden → projector_hidden_dim → llm_hidden_size
+            cur = self.add_vision_mm(cur, vision_hidden_size, projector_hidden_dim, True,
+                                      'vision.projector.fc1')
+            cur = self.add_act(cur, 'gelu_new', 'vision.projector.gelu')
+            cur = self.add_vision_mm(cur, projector_hidden_dim, self.hidden_size, True,
+                                      'vision.projector.fc2')
+        else:
+            # Linear projector
+            cur = self.add_vision_mm(cur, vision_hidden_size, self.hidden_size, True,
+                                      'vision.projector')
+
+        return cur
+
+    def build_vision_graph(self, image_shape: List):
+        """构建纯 vision encoder 计算图（ViT + Projector，不含 LLM）。
+
+        Args:
+            image_shape: [C, H, W] 输入图像尺寸
+        """
+        self.batch = 1
+        c, h, w = image_shape
+
+        # ---- 图像输入 ----
+        pixel_values = create_tensor('pixel_values', DYNAMIC_TENSOR,
+                                     [self.batch, c, h, w], numpy.float32)
+        self.graph.input.append('pixel_values')
+        self.graph.tensormap[pixel_values.name] = pixel_values
+
+        # ---- Vision Encoder (ViT + Projector) ----
+        vision_features = self.add_vision_encoder(pixel_values)
+        # vision_features: [B, num_patches, llm_hidden_size]
+
+        self.graph.output.append(vision_features.name)
+
     def add_qk_norm(self, inp, name, num_heads):
         """Per-head Q/K RMS norm (Qwen3 特有).
         

@@ -42,6 +42,7 @@
 > - **QKV Gating** (Q projection with built-in gate, applied before O-projection)
 > - **Sparse Mixture-of-Experts (MoE)** with routed + shared experts
 > - **Mixed layer types** (linear_attention / full_attention) per config
+> - **Multimodal Vision Encoder** (ViT + MLP Projector) with resolution-aware profiling
 
 ---
 
@@ -62,6 +63,20 @@ Llama-3.1-70B-Japanese-Instruct-2407 | 72888   | 70.5537       |  0.167772
 **DeepSeek-V4-Flash** 🆕 (MoE/MLA)   | 15681   | 283.811       |  0.045089
 **DeepSeek-V4-Pro** 🆕 (MoE/MLA)     | 55701   | 1571.742      |  0.063963
 **MiniMax-M2.7** 🆕 (MoE)            | 12554   | 230.315       |  0.130023
+
+### Multimodal: Vision Encoder vs LLM MACs 🆕
+> *Vision encoder (ViT-24L + MLP Projector) vs LLM backbone. LLM input seq_len = vision patches + 1K text tokens. Both models share the same ViT architecture. See [`benchmark/vision_llm_compare.py`](benchmark/vision_llm_compare.py).*
+
+| Resolution | Patches | Total Tokens | Vision(G) | 4B LLM(G) | 4B Vis/LLM(%) | 35B LLM(G) | 35B Vis/LLM(%) |
+|---|---|---|---|---|---|---|---|
+| 224×224 | 256 | 1,280 | 84 | 6,080 | 1.4 | 4,557 | 1.8 |
+| 448×448 | 1,024 | 2,048 | 389 | 10,070 | 3.9 | 7,719 | 5.0 |
+| 672×672 | 2,304 | 3,328 | 1,061 | 17,292 | 6.1 | 13,702 | 7.7 |
+| 896×896 | 4,096 | 5,120 | 2,350 | 28,599 | 8.2 | 23,576 | 9.9 |
+| 1344×896 | 6,144 | 7,168 | 4,317 | 43,233 | 10.0 | 37,000 | 11.6 |
+| 1344×1344 | 9,216 | 10,240 | 8,259 | 68,607 | 12.0 | 61,414 | 13.4 |
+
+> 💡 *Vision MACs scale with O(p²), LLM MACs with O(t²) where t = patches + text. At 448×448, vision is ~4-5% of LLM; at 1344×1344, ~12-13%. Vision is always the minor component.*
 
 ### MoE Activated Parameters vs Sequence Length
 > *Activated parameters = sum of all nodes' `static_params` (weights actually accessed during forward pass).*

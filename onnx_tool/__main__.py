@@ -73,6 +73,10 @@ def __args2dynamicshapes__(args: [str]):
     dic = {}
     for arg in args:
         strs = arg.split(':')
+        if len(strs) < 3 or not strs[0] or __str2numpytype__(strs[1]) is None:
+            raise ValueError(
+                f"invalid dynamic shape '{arg}', expected name:dtype:shape, "
+                "for example input:f32:1x3x224x224")
         dtype = __str2numpytype__(strs[1])
         shape = __str2list__(strs[2], int)
         if len(strs) > 3:
@@ -93,7 +97,10 @@ def __args2strshapes__(args: [str]):
 
 if args.mode == 'profile':
     if args.dynamic_shapes is not None:
-        dynamic = __args2dynamicshapes__(args.dynamic_shapes)
+        try:
+            dynamic = __args2dynamicshapes__(args.dynamic_shapes)
+        except ValueError as e:
+            parser.error(str(e))
     else:
         dynamic = None
     exclude_ops = set(args.exclude_ops.split(",")) if args.exclude_ops else None
